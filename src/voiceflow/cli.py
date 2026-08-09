@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from collections.abc import Sequence
 from typing import Any
@@ -54,9 +55,23 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _configure_logging(config: Config) -> None:
     level = getattr(logging, config.log_level, logging.INFO)
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if os.name == "nt":
+        # The Windows daemon is launched hidden (no console), so stderr goes
+        # nowhere - a log file is the only way to diagnose anything.
+        from voiceflow.paths import data_dir
+
+        try:
+            data_dir().mkdir(parents=True, exist_ok=True)
+            handlers.append(
+                logging.FileHandler(data_dir() / "daemon.log", encoding="utf-8")
+            )
+        except OSError:
+            pass
     logging.basicConfig(
         level=level,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        handlers=handlers,
     )
 
 

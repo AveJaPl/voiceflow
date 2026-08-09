@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -13,33 +14,45 @@ from voiceflow.paths import config_dir
 
 LOGGER = logging.getLogger(__name__)
 
-DEFAULT_CONFIG = """\
-# voiceflow configuration
-model:
-  name: large-v3-turbo
-  device: cuda            # cuda | cpu | auto
-  compute_type: float16
-  language: pl            # ISO 639-1 code; null = automatic detection
-  beam_size: 5
-  # Proper nouns and jargon Whisper otherwise mangles. This biases decoding only;
-  # it never rewrites anything. Keep the list short — an overlong bias prompt
-  # costs accuracy and can leak into the transcript.
-  vocabulary: []          # e.g. [Supabase, Coolify, WooCommerce]
-audio:
-  source: null            # null = default PipeWire device
-  max_seconds: 300
-inject:
+_WINDOWS = os.name == "nt"
+
+#: The chord that pastes in the focused application. Wayland terminals need
+#: ctrl+shift+v; on Windows that is *unformatted* paste, which most native
+#: apps ignore outright — there the universal chord is plain ctrl+v.
+DEFAULT_PASTE_KEY = "ctrl+v" if _WINDOWS else "ctrl+shift+v"
+
+_INJECT_COMMENT = (
+    """\
+  # Windows pastes with ctrl+v; the clipboard route is the only one that
+  # carries every language intact, so method stays clipboard here.
+"""
+    if _WINDOWS
+    else """\
   # clipboard is the default: ydotool 1.0.4 silently truncates non-ASCII text,
   # which loses every Polish diacritic. ydotool stays available for ASCII-only use.
-  method: clipboard       # clipboard | ydotool | auto
-  key_delay_ms: 12
-  paste_key: ctrl+shift+v
-  restore_clipboard: true
-preview:
+"""
+)
+
+_AUDIO_SOURCE_COMMENT = (
+    "null = default input device" if _WINDOWS else "null = default PipeWire device"
+)
+
+_MUTE_APPS_SECTION = (
+    """\
+mute_apps:
+  # Windows has no public per-application microphone mute, so `apps` is a
+  # no-op here — use Discord's own push-to-talk while dictating.
   enabled: true
-  interval_seconds: 1.0   # how often the live preview refreshes
-  window_seconds: 30      # only the last N seconds are re-transcribed per tick
-  max_chars: 330          # tail kept; roughly fills the overlay's five lines
+  apps: []
+  # Ducking DOES work: application playback (music, calls, videos) is turned
+  # down while you dictate. duck_volume is the default target; duck_rules
+  # overrides it per process name (1.0 = never duck that app).
+  duck_enabled: true
+  duck_volume: 0.4          # apps without a rule duck to 40%
+  duck_rules: {}            # e.g. {Spotify.exe: 0.2, Discord.exe: 0.3}
+"""
+    if _WINDOWS
+    else """\
 mute_apps:
   # While recording, mute these apps' microphone streams so people on a voice
   # chat do not hear the dictation. The physical mic stays live for voiceflow.
@@ -52,6 +65,60 @@ mute_apps:
   duck_enabled: true
   duck_volume: 0.4          # apps without a rule duck to 40%
   duck_rules: {}            # e.g. {Spotify: 0.2, WEBRTC VoiceEngine: 0.3}
+"""
+)
+
+_HISTORY_PATH = (
+    r"%LOCALAPPDATA%\voiceflow\history.jsonl"
+    if _WINDOWS
+    else "~/.local/share/voiceflow/history.jsonl"
+)
+
+_OVERLAY_COMMENT = (
+    """\
+  # On-screen indicator: a dot while listening, live text, gone when done.
+  # A borderless always-on-top window marked WS_EX_NOACTIVATE, so it can never
+  # steal focus from the window that should receive the paste.
+"""
+    if _WINDOWS
+    else """\
+  # On-screen indicator: a pulsing dot while listening, live text, gone when done.
+  # An X11 override-redirect window, because on GNOME/Wayland a normal window
+  # cannot refuse focus and would swallow the paste.
+"""
+)
+
+DEFAULT_CONFIG = f"""\
+# voiceflow configuration
+model:
+  name: large-v3-turbo
+  device: cuda            # cuda | cpu | auto
+  compute_type: float16
+  language: pl            # ISO 639-1 code; null = automatic detection
+  beam_size: 5
+  # Proper nouns and jargon Whisper otherwise mangles. This biases decoding only;
+  # it never rewrites anything. Keep the list short — an overlong bias prompt
+  # costs accuracy and can leak into the transcript.
+  vocabulary: []          # e.g. [Supabase, Coolify, WooCommerce]
+audio:
+  source: null            # {_AUDIO_SOURCE_COMMENT}
+  max_seconds: 300
+hotkey:
+  # The global shortcut the daemon registers for itself on Windows. On GNOME
+  # the binding lives in gsettings instead and this section is ignored.
+  binding: ctrl+shift+space
+inject:
+{_INJECT_COMMENT}\
+  method: clipboard       # clipboard | ydotool | auto
+  key_delay_ms: 12
+  paste_key: {DEFAULT_PASTE_KEY}
+  restore_clipboard: true
+preview:
+  enabled: true
+  interval_seconds: 1.0   # how often the live preview refreshes
+  window_seconds: 30      # only the last N seconds are re-transcribed per tick
+  max_chars: 330          # tail kept; roughly fills the overlay's five lines
+{_MUTE_APPS_SECTION}\
 presence:
   # Discord Rich Presence: friends see "dyktuje glosem" with a timer while you
   # dictate (local IPC only, never chat messages). Register a free application
@@ -63,16 +130,14 @@ updates:
   # ONLY network request the project makes. Set false to go fully offline.
   check: true
 history:
-  # Every dictation is logged locally (~/.local/share/voiceflow/history.jsonl)
+  # Every dictation is logged locally ({_HISTORY_PATH})
   # so text is recoverable when a paste lands in the wrong window, and so the
   # settings app can show statistics. store_text: false keeps counts only.
   enabled: true
   store_text: true
   max_entries: 20000
 overlay:
-  # On-screen indicator: a pulsing dot while listening, live text, gone when done.
-  # An X11 override-redirect window, because on GNOME/Wayland a normal window
-  # cannot refuse focus and would swallow the paste.
+{_OVERLAY_COMMENT}\
   enabled: true
 notifications:
   # Only used for errors now; the overlay carries the normal status.
@@ -110,7 +175,7 @@ class InjectConfig:
 
     method: str = "clipboard"
     key_delay_ms: int = 12
-    paste_key: str = "ctrl+shift+v"
+    paste_key: str = DEFAULT_PASTE_KEY
     restore_clipboard: bool = True
 
 
@@ -351,7 +416,7 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
 
     name = model.get("name", "large-v3-turbo")
     compute_type = model.get("compute_type", "float16")
-    paste_key = inject.get("paste_key", "ctrl+shift+v")
+    paste_key = inject.get("paste_key", DEFAULT_PASTE_KEY)
     log_level = root.get("log_level", "INFO")
     return Config(
         model=ModelConfig(
@@ -369,7 +434,7 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
         inject=InjectConfig(
             method=_choice(inject.get("method", "clipboard"), {"ydotool", "clipboard", "auto"}, "clipboard", "inject.method"),
             key_delay_ms=_positive_int(inject.get("key_delay_ms", 12), 12, "inject.key_delay_ms"),
-            paste_key=paste_key if isinstance(paste_key, str) and paste_key else "ctrl+shift+v",
+            paste_key=paste_key if isinstance(paste_key, str) and paste_key else DEFAULT_PASTE_KEY,
             restore_clipboard=_boolean(inject.get("restore_clipboard", True), True, "inject.restore_clipboard"),
         ),
         preview=PreviewConfig(

@@ -2,6 +2,38 @@
 
 Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[Web]**
 
+## Unreleased
+
+- **[Windows]** Fixed: the paste chord defaulted to `ctrl+shift+v`, which most
+  native Windows applications ignore — dictation completed and delivered
+  nothing. The default is now `ctrl+v` per platform, and modifiers the user is
+  still holding from the hotkey are released before the chord is sent.
+- **[Windows]** Fixed: GPU transcription failed on the first real dictation with
+  `cublas64_12.dll is not found`. The cuBLAS/cuDNN wheels are now installed and
+  preloaded on Windows too, as they already were on Linux.
+- **[All]** Fixed: model warmup ran with the VAD on, so it discarded its own
+  silent test clip before reaching the encoder — a GPU that could not encode
+  passed warmup and only failed later, long past the CPU fallback. Warmup now
+  exercises the encoder.
+- **[Windows]** Fixed: every clipboard call truncated 64-bit handles to 32 bits
+  (missing ctypes `restype`), which could corrupt memory or crash the daemon.
+- **[Windows]** Fixed: audio ducking failed on every recording with
+  `CoInitialize has not been called`, and restored volumes across COM
+  apartments. Volumes are now remembered per process id and re-resolved.
+- **[Windows]** Fixed: holding the hotkey autorepeated and toggled recording
+  many times a second (`MOD_NOREPEAT`).
+- **[Windows]** `voiceflow status`, `toggle`, `start`, `stop`, `cancel`,
+  `last --copy` and the new `quit` now work, over a loopback control channel
+  with a token file. Two daemons can no longer run at once.
+- **[Windows]** Errors now raise a toast. Previously the daemon ran with no
+  console and reported failures nowhere the user would look.
+- **[Windows]** The installer stops a running copy before updating, launches via
+  the venv's `pythonw.exe` instead of relying on `uv` being on `PATH`, verifies
+  the install, and starts the daemon immediately.
+- **[Windows]** The generated `config.yaml` is platform-appropriate: correct
+  paste chord, real paths, a documented `hotkey` section, and no PipeWire-only
+  advice.
+
 ## 0.3.0 — 2026-08-09
 
 - **[Linux]** Fixed: a voice chat could stay quiet forever after dictation if its

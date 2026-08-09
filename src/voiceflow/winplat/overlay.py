@@ -97,13 +97,19 @@ class WinOverlay:
             root.geometry(f"+{x}+{y}")
 
         def no_activate() -> None:
+            """Mark the window unfocusable, so it cannot swallow the paste.
+
+            The style belongs on the toplevel Windows frame, which for an
+            overrideredirect Tk window is the parent of the widget handle.
+            """
             try:
                 import ctypes
 
-                hwnd = int(root.frame(), 16) if isinstance(root.frame(), str) else root.winfo_id()
-                hwnd = ctypes.windll.user32.GetParent(root.winfo_id()) or root.winfo_id()  # type: ignore[attr-defined]
-                style = ctypes.windll.user32.GetWindowLongW(hwnd, _GWL_EXSTYLE)  # type: ignore[attr-defined]
-                ctypes.windll.user32.SetWindowLongW(  # type: ignore[attr-defined]
+                user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+                widget = root.winfo_id()
+                hwnd = user32.GetParent(widget) or widget
+                style = user32.GetWindowLongW(hwnd, _GWL_EXSTYLE)
+                user32.SetWindowLongW(
                     hwnd, _GWL_EXSTYLE, style | _WS_EX_NOACTIVATE | _WS_EX_TOOLWINDOW
                 )
             except Exception:

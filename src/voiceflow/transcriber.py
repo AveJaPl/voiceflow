@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import importlib.util
 import logging
+import os
 import tempfile
 import threading
 import time
@@ -177,10 +178,15 @@ class Transcriber:
         LOGGER.info("Warmup modelu zajął %.2f s", self.warmup_seconds)
 
     def _consume_warmup(self, silence_path: Path) -> None:
+        # vad_filter=False on purpose. With it on, the VAD discards the silent
+        # warmup clip before the encoder ever runs, so a GPU that cannot encode
+        # — a missing cuBLAS/cuDNN, the usual Windows case — passes warmup and
+        # only fails on the user's first real dictation, long past the point
+        # where the CPU fallback below could have saved it.
         segments, _ = self.model.transcribe(
             str(silence_path),
             language=self.config.language,
-            vad_filter=True,
+            vad_filter=False,
             condition_on_previous_text=False,
             initial_prompt=self.initial_prompt,
             beam_size=self.config.beam_size,
@@ -250,6 +256,71 @@ def _wav_duration(path: Path) -> float:
         return 0.0
 
 
+#: os.add_dll_directory revokes the directory when its handle is collected, so
+#: the cookies have to outlive this function or the search path silently reverts.
+_DLL_DIRECTORY_COOKIES: list[Any] = []
+
+
+def _nvidia_package_roots() -> list[Path]:
+    try:
+        specification = importlib.util.find_spec("nvidia")
+    except (ImportError, ModuleNotFoundError, AttributeError, ValueError) as exc:
+        LOGGER.debug("Nie można znaleźć pakietu nvidia: %s", exc)
+        return []
+    if specification is None or specification.submodule_search_locations is None:
+        return []
+    return [Path(location) for location in specification.submodule_search_locations]
+
+
+def _preload_windows_cuda_libraries() -> None:
+    """Make the pip-installed CUDA DLLs findable by CTranslate2 on Windows.
+
+    The wheels drop their DLLs in ``nvidia\\<component>\\bin``, which is on no
+    search path at all. Both halves matter: the directories go on the DLL search
+    path so inter-library dependencies resolve, and the libraries themselves are
+    loaded by absolute path so CTranslate2's own ``LoadLibrary("cublas64_12.dll")``
+    finds a module that is already in the process.
+    """
+    directories = [
+        directory
+        for root in _nvidia_package_roots()
+        for directory in sorted(root.glob("*/bin"))
+        if directory.is_dir()
+    ]
+    for directory in directories:
+        try:
+            _DLL_DIRECTORY_COOKIES.append(os.add_dll_directory(str(directory)))
+        except OSError as exc:
+            LOGGER.debug("Nie można dodać katalogu DLL %s: %s", directory, exc)
+
+    def priority(path: Path) -> tuple[int, str]:
+        name = path.name.lower()
+        # Dependencies first: cublas needs cublasLt, cudnn's engines need its graph
+        # library. The retry pass below catches anything this ordering misses.
+        if "cublaslt" in name:
+            return (0, name)
+        if name.startswith("cublas"):
+            return (1, name)
+        if "graph" in name:
+            return (2, name)
+        return (3, name)
+
+    pending = sorted(
+        {dll for directory in directories for dll in directory.glob("*.dll")}, key=priority
+    )
+    for _attempt in range(2):
+        failed: list[Path] = []
+        for library in pending:
+            try:
+                ctypes.WinDLL(str(library))  # type: ignore[attr-defined]
+            except OSError as exc:
+                LOGGER.debug("Nie można wstępnie załadować %s: %s", library, exc)
+                failed.append(library)
+        if not failed or len(failed) == len(pending):
+            break
+        pending = failed
+
+
 def _preload_pip_cuda_libraries() -> None:
     """Expose pip-installed cuBLAS/cuDNN shared objects to CTranslate2.
 
@@ -257,6 +328,9 @@ def _preload_pip_cuda_libraries() -> None:
     default paths. Loading them globally by absolute path avoids requiring a
     CUDA Toolkit installation or a hand-written ``LD_LIBRARY_PATH``.
     """
+    if os.name == "nt":
+        _preload_windows_cuda_libraries()
+        return
     library_paths: list[Path] = []
     for package in ("nvidia.cublas.lib", "nvidia.cudnn.lib"):
         try:

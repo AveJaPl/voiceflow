@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "voiceflow"
 version = "0.3.0"
-description = "Local, GPU-accelerated voice dictation for Linux. Press a hotkey, speak, get text in any window. Whisper on your own hardware — no cloud, no subscription."
+description = "Local, GPU-accelerated voice dictation for Linux and Windows. Press a hotkey, speak, get text in any window. Whisper on your own hardware — no cloud, no subscription."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 license = { text = "MIT" }
@@ -14,6 +14,7 @@ keywords = ["dictation", "speech-to-text", "whisper", "wayland", "gnome", "voice
 classifiers = [
   "Development Status :: 4 - Beta",
   "Operating System :: POSIX :: Linux",
+  "Operating System :: Microsoft :: Windows",
   "Topic :: Multimedia :: Sound/Audio :: Speech",
 ]
 dependencies = [
@@ -22,6 +23,11 @@ dependencies = [
   "PyYAML",
   "nvidia-cublas-cu12; sys_platform == 'linux' and platform_machine == 'x86_64'",
   "nvidia-cudnn-cu12; sys_platform == 'linux' and platform_machine == 'x86_64'",
+  # CTranslate2's Windows wheel links CUDA dynamically but ships no cuBLAS or
+  # cuDNN, so without these GPU transcription dies at the first encoder call
+  # with "cublas64_12.dll is not found" - the same wheels Linux already pulls.
+  "nvidia-cublas-cu12; sys_platform == 'win32' and platform_machine == 'AMD64'",
+  "nvidia-cudnn-cu12; sys_platform == 'win32' and platform_machine == 'AMD64'",
   "sounddevice; sys_platform == 'win32'",
   "pycaw; sys_platform == 'win32'",
   "comtypes; sys_platform == 'win32'",

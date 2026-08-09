@@ -17,7 +17,17 @@ LOGGER = logging.getLogger(__name__)
 
 _MODIFIERS = {"alt": 0x0001, "ctrl": 0x0002, "shift": 0x0004, "win": 0x0008}
 #: Non-character keys accepted in a binding.
-_NAMED_KEYS = {"space": 0x20, "insert": 0x2D, "pause": 0x13, "f9": 0x78, "f10": 0x79}
+_NAMED_KEYS = {
+    "space": 0x20,
+    "insert": 0x2D,
+    "pause": 0x13,
+    "f1": 0x70, "f2": 0x71, "f3": 0x72, "f4": 0x73,
+    "f5": 0x74, "f6": 0x75, "f7": 0x76, "f8": 0x77,
+    "f9": 0x78, "f10": 0x79, "f11": 0x7A, "f12": 0x7B,
+}
+#: Without MOD_NOREPEAT, holding the chord down autorepeats WM_HOTKEY and the
+#: daemon flips between recording and transcribing dozens of times a second.
+_MOD_NOREPEAT = 0x4000
 _WM_HOTKEY = 0x0312
 _HOTKEY_ID = 0xBEEF
 
@@ -48,9 +58,16 @@ def parse_binding(binding: str) -> tuple[int, int]:
 class HotkeyListener:
     """Own thread: RegisterHotKey + GetMessage loop, firing a callback."""
 
-    def __init__(self, binding: str, callback: Callable[[], None]) -> None:
+    def __init__(
+        self,
+        binding: str,
+        callback: Callable[[], None],
+        *,
+        on_error: Callable[[str], None] | None = None,
+    ) -> None:
         self.binding = binding
         self.callback = callback
+        self.on_error = on_error
         self._thread: threading.Thread | None = None
         self._thread_id: int | None = None
 
@@ -75,11 +92,17 @@ class HotkeyListener:
         user32 = ctypes.windll.user32  # type: ignore[attr-defined]
         kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
         self._thread_id = kernel32.GetCurrentThreadId()
-        modifiers, key = parse_binding(self.binding)
-        if not user32.RegisterHotKey(None, _HOTKEY_ID, modifiers, key):
-            LOGGER.error(
-                "Nie można zarejestrować skrótu %s — zajęty przez inną aplikację?",
-                self.binding,
+        try:
+            modifiers, key = parse_binding(self.binding)
+        except ValueError as exc:
+            self._report(f"Nieprawidłowy skrót w konfiguracji: {exc}")
+            return
+        if not user32.RegisterHotKey(None, _HOTKEY_ID, modifiers | _MOD_NOREPEAT, key):
+            # A dead hotkey is the one failure the user cannot diagnose: nothing
+            # happens when they press it, and the daemon looks perfectly healthy.
+            self._report(
+                f"Nie można zarejestrować skrótu {self.binding} — "
+                "zajmuje go inna aplikacja. Zmień hotkey.binding w config.yaml."
             )
             return
         LOGGER.info("Skrót globalny aktywny: %s", self.binding)
@@ -93,3 +116,12 @@ class HotkeyListener:
                         LOGGER.exception("Błąd obsługi skrótu")
         finally:
             user32.UnregisterHotKey(None, _HOTKEY_ID)
+
+    def _report(self, message: str) -> None:
+        LOGGER.error("%s", message)
+        if self.on_error is None:
+            return
+        try:
+            self.on_error(message)
+        except Exception:
+            LOGGER.exception("Nie udało się zgłosić błędu skrótu")

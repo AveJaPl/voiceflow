@@ -3,13 +3,33 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
+from typing import Protocol
 
 from voiceflow.config import NotificationsConfig
 
 LOGGER = logging.getLogger(__name__)
 NOTIFICATION_ID = "87341"
+
+
+class NotifierLike(Protocol):
+    """The one method the daemon and CLI need from any platform's notifier."""
+
+    def send(self, message: str, *, urgency: str = ..., expire_ms: int | None = ...) -> None: ...
+
+
+def build_notifier(config: NotificationsConfig) -> NotifierLike:
+    """Return the notifier for this platform.
+
+    Errors are the only thing voiceflow notifies about, so a platform without a
+    working notifier is a platform where failures are invisible."""
+    if os.name == "nt":
+        from voiceflow.winplat.notifier import WinNotifier
+
+        return WinNotifier(config)
+    return Notifier(config)
 
 
 class Notifier:

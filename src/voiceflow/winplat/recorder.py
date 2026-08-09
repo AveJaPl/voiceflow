@@ -69,12 +69,18 @@ class WinRecorder:
             def callback(indata, _frames, _time, status) -> None:
                 if status:
                     LOGGER.debug("PortAudio status: %s", status)
-                # Called from PortAudio's thread; wave.writeframes is atomic
-                # enough under CPython for a single producer.
+                # Called from PortAudio's realtime thread. writeframesraw, not
+                # writeframes: the latter rewrites the RIFF header on every
+                # block, and three extra seeks per 20 ms of audio is exactly the
+                # kind of stall that shows up as dropped words. close() patches
+                # the header once at the end instead.
+                #
+                # Nothing may propagate out of here either — an exception on
+                # PortAudio's thread takes down the stream, not the caller.
                 try:
-                    handle.writeframes(bytes(indata))
-                except ValueError:
-                    pass  # closed mid-callback during stop()
+                    handle.writeframesraw(bytes(indata))
+                except Exception:  # noqa: BLE001 - closed mid-callback during stop()
+                    pass
 
             try:
                 stream = sounddevice.RawInputStream(

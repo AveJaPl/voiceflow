@@ -12,10 +12,11 @@ from typing import Any
 
 from voiceflow.config import Config, load_config
 from voiceflow.daemon import VoiceflowDaemon, send_request
-from voiceflow.injector import Injector
-from voiceflow.notifier import Notifier
+from voiceflow.notifier import build_notifier
 
 LOGGER = logging.getLogger(__name__)
+
+_WINDOWS = os.name == "nt"
 
 MODELS: tuple[tuple[str, str], ...] = (
     ("tiny", "~75 MB"),
@@ -33,7 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the command-line argument parser."""
     parser = argparse.ArgumentParser(
         prog="voiceflow",
-        description="Lokalne dyktowanie głosowe dla Linuxa/Wayland",
+        description="Lokalne dyktowanie głosowe (Linux/Wayland i Windows)",
         add_help=False,
     )
     parser._optionals.title = "opcje"  # argparse does not expose this title publicly.
@@ -44,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("start", help="rozpocznij nagrywanie")
     subparsers.add_parser("stop", help="zakończ nagrywanie i transkrybuj")
     subparsers.add_parser("cancel", help="anuluj bieżące nagranie")
+    subparsers.add_parser("quit", help="zatrzymaj działającego demona")
     subparsers.add_parser("status", help="pokaż stan i diagnostykę")
     subparsers.add_parser("models", help="pokaż dostępne modele")
     last = subparsers.add_parser("last", help="pokaż ostatnie dyktowania (ratunek po wklejce w złe okno)")
@@ -58,8 +60,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _configure_logging(config: Config) -> None:
     level = getattr(logging, config.log_level, logging.INFO)
-    handlers: list[logging.Handler] = [logging.StreamHandler()]
-    if os.name == "nt":
+    handlers: list[logging.Handler] = []
+    # Under pythonw.exe — how the Windows daemon is launched, so no console
+    # flashes over the user's work — sys.stderr is None and a StreamHandler
+    # would raise on the first log record written.
+    if sys.stderr is not None:
+        handlers.append(logging.StreamHandler())
+    if _WINDOWS:
         # The Windows daemon is launched hidden (no console), so stderr goes
         # nowhere - a log file is the only way to diagnose anything.
         from voiceflow.paths import data_dir
@@ -78,17 +85,48 @@ def _configure_logging(config: Config) -> None:
     )
 
 
+def _platform_injector(config: Config) -> Any:
+    """Build the injector this OS actually uses, for offline diagnostics."""
+    if _WINDOWS:
+        from voiceflow.winplat.injector import WinInjector
+
+        return WinInjector(config.inject)
+    from voiceflow.injector import Injector
+
+    return Injector(config.inject)
+
+
 def _client_command(command: str, config: Config) -> int:
     try:
         response = send_request(command, timeout=1.5)
     except RuntimeError as exc:
         message = f"Błąd: {exc}"
         print(message, file=sys.stderr)
-        Notifier(config.notifications).send(f"❌ {exc}", urgency="critical")
+        build_notifier(config.notifications).send(f"❌ {exc}", urgency="critical")
         return 1
     stream = sys.stdout if response.get("ok") else sys.stderr
     print(response.get("message", json.dumps(response, ensure_ascii=False)), file=stream)
     return 0 if response.get("ok") else 1
+
+
+def _yes_no(value: Any) -> str:
+    return "tak" if value else "nie"
+
+
+def _print_injection_details(injection: dict[str, Any]) -> None:
+    """Print whichever backend's diagnostics this platform reported."""
+    if _WINDOWS:
+        print(f"  schowek: {_yes_no(injection.get('clipboard'))}")
+        print(f"  skrót wklejania: {_yes_no(injection.get('send_input'))}")
+        return
+    print(f"  ydotool: {_yes_no(injection.get('ydotool_binary'))}")
+    responding = "odpowiada" if injection.get("ydotool_socket_responding") else "nie odpowiada"
+    print(f"  socket: {injection.get('ydotool_socket', '?')} ({responding})")
+    print(f"  /dev/uinput zapisywalny: {_yes_no(injection.get('uinput_writable'))}")
+    print(
+        f"  wl-copy / wl-paste: {_yes_no(injection.get('wl_copy_binary'))}"
+        f" / {_yes_no(injection.get('wl_paste_binary'))}"
+    )
 
 
 def _print_status(config: Config) -> int:
@@ -96,23 +134,24 @@ def _print_status(config: Config) -> int:
         response = send_request("status", timeout=2.0)
     except RuntimeError as exc:
         print(f"Demon: nie działa ({exc})")
-        probe = Injector(config.inject).probe()
+        probe = _platform_injector(config).probe()
         print(f"Wstrzykiwanie: {probe.summary}")
         print(f"Model (konfiguracja): {config.model.name}, {config.model.device}/{config.model.compute_type}")
+        if _WINDOWS:
+            print(f"Skrót (konfiguracja): {config.hotkey.binding}")
         return 1
     print(f"Demon: działa, stan {response.get('state', '?')}")
     print(
         "Model: "
         f"{response.get('model', '?')}, {response.get('device', '?')}/{response.get('compute_type', '?')}"
     )
+    if response.get("hotkey"):
+        print(f"Skrót: {response['hotkey']}")
     injection: Any = response.get("injection", {})
     summary = injection.get("summary", "brak danych") if isinstance(injection, dict) else "brak danych"
     print(f"Wstrzykiwanie: {summary}")
     if isinstance(injection, dict):
-        print(f"  ydotool: {'tak' if injection.get('ydotool_binary') else 'nie'}")
-        print(f"  socket: {injection.get('ydotool_socket', '?')} ({'odpowiada' if injection.get('ydotool_socket_responding') else 'nie odpowiada'})")
-        print(f"  /dev/uinput zapisywalny: {'tak' if injection.get('uinput_writable') else 'nie'}")
-        print(f"  wl-copy / wl-paste: {'tak' if injection.get('wl_copy_binary') else 'nie'} / {'tak' if injection.get('wl_paste_binary') else 'nie'}")
+        _print_injection_details(injection)
     return 0
 
 
@@ -135,25 +174,43 @@ def _print_last(count: int, copy: bool) -> int:
         print(f"[{record.timestamp}] ({record.words} słów)")
         print(f"  {record.text}")
     if copy:
-        import shutil as _shutil
-        import subprocess as _subprocess
+        return _copy_to_clipboard(records[-1].text)
+    return 0
 
-        wl_copy = _shutil.which("wl-copy")
-        if wl_copy is None:
-            print("Brak wl-copy — nie mogę skopiować.", file=sys.stderr)
+
+def _copy_to_clipboard(text: str) -> int:
+    """Put recovered text back on the clipboard, per platform."""
+    if _WINDOWS:
+        from voiceflow.config import DEFAULT_PASTE_KEY
+        from voiceflow.winplat.injector import _set_clipboard_text
+
+        try:
+            _set_clipboard_text(text)
+        except OSError as exc:
+            print(f"Nie mogę skopiować do schowka: {exc}", file=sys.stderr)
             return 1
-        process = _subprocess.Popen(
-            [wl_copy],
-            stdin=_subprocess.PIPE,
-            stdout=_subprocess.DEVNULL,
-            stderr=_subprocess.DEVNULL,
-            shell=False,
-        )
-        assert process.stdin is not None
-        process.stdin.write(records[-1].text.encode("utf-8"))  # type: ignore[union-attr]
-        process.stdin.close()
-        process.wait(timeout=3)
-        print("Skopiowano najnowszy tekst do schowka — wklej Ctrl+Shift+V.")
+        print(f"Skopiowano najnowszy tekst do schowka — wklej {DEFAULT_PASTE_KEY.title()}.")
+        return 0
+
+    import shutil as _shutil
+    import subprocess as _subprocess
+
+    wl_copy = _shutil.which("wl-copy")
+    if wl_copy is None:
+        print("Brak wl-copy — nie mogę skopiować.", file=sys.stderr)
+        return 1
+    process = _subprocess.Popen(
+        [wl_copy],
+        stdin=_subprocess.PIPE,
+        stdout=_subprocess.DEVNULL,
+        stderr=_subprocess.DEVNULL,
+        shell=False,
+    )
+    assert process.stdin is not None
+    process.stdin.write(text.encode("utf-8"))
+    process.stdin.close()
+    process.wait(timeout=3)
+    print("Skopiowano najnowszy tekst do schowka — wklej Ctrl+Shift+V.")
     return 0
 
 
@@ -229,12 +286,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             VoiceflowDaemon(config).run()
         except (RuntimeError, OSError) as exc:
             LOGGER.error("Nie można uruchomić demona: %s", exc)
-            Notifier(config.notifications).send(f"❌ Nie można uruchomić demona: {exc}", urgency="critical")
+            build_notifier(config.notifications).send(
+                f"❌ Nie można uruchomić demona: {exc}", urgency="critical"
+            )
             return 1
         return 0
     if arguments.command == "status":
         return _print_status(config)
-    return _client_command(arguments.command, config)
+    # `quit` reads better than the wire-level name for the one command whose
+    # job is ending a background process the user never explicitly started.
+    command = "shutdown" if arguments.command == "quit" else arguments.command
+    return _client_command(command, config)
 
 
 if __name__ == "__main__":

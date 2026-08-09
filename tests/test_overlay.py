@@ -3,11 +3,20 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 
+import pytest
+
 from voiceflow.config import OverlayConfig
 from voiceflow.overlay import Overlay
+
+#: This is the GTK/XWayland controller, which spawns the system python. Windows
+#: uses voiceflow.winplat.overlay instead — see tests/test_winplat.py.
+pytestmark = pytest.mark.skipif(
+    os.name == "nt", reason="overlay przez podproces jest backendem linuksowym"
+)
 
 #: Stands in for the GTK indicator: logs the protocol and, like the real one,
 #: exits on "hide" as well as on end of stdin.

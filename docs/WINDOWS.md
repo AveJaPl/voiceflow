@@ -1,4 +1,4 @@
-# voiceflow on Windows (beta)
+# voiceflow on Windows
 
 The core — transcription, live preview, history, statistics, vocabulary,
 Discord Rich Presence — is the same code as on Linux. The OS layer is swapped:
@@ -10,9 +10,16 @@ Discord Rich Presence — is the same code as on Linux. The OS layer is swapped:
 | text injection | wl-copy + ydotool paste | Win32 clipboard + `SendInput` (default chord `ctrl+v`) |
 | preview overlay | GTK popup via XWayland | tkinter always-on-top window with `WS_EX_NOACTIVATE` |
 | ducking | wpctl per-stream | Core Audio sessions (`pycaw`); rules match the process name, e.g. `Spotify.exe` or `Spotify` |
+| notifications | notify-send | Windows toast (Action Center) |
+| control channel | unix socket, mode 0600 | loopback TCP + a token in `%LOCALAPPDATA%\voiceflow\run\voiceflow\daemon.json` |
 | Discord presence | unix socket | named pipe `\\.\pipe\discord-ipc-N` |
 | paths | XDG | `%APPDATA%\voiceflow` (config), `%LOCALAPPDATA%\voiceflow` (data) |
-| service | systemd --user | Startup-folder launcher |
+| service | systemd --user | Startup-folder launcher (`pythonw.exe -m voiceflow daemon`) |
+
+The command line is the same on both, because the control channel exists on
+both: `voiceflow status`, `toggle`, `start`, `stop`, `cancel`, `last --copy`,
+`quit`. On Windows the executable lives at
+`%LOCALAPPDATA%\voiceflow\app\.venv\Scripts\voiceflow.exe`.
 
 ## Install
 
@@ -27,21 +34,41 @@ Or from any terminal (PowerShell **or** cmd, any drive):
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/AveJaPl/voiceflow/main/windows/install.ps1 | iex"
 ```
 
-After installing, **voiceflow appears in the Start Menu** (with its icon) and
-autostarts on login. It runs silently in the background — no console window;
-the on-screen overlay appearing when you press the hotkey is the sign of life.
-The installer downloads the speech model (~1.6 GB) with a visible progress bar
-as its final step, so dictation works immediately after install.
+The installer stops any running copy first (so re-running it updates cleanly),
+downloads the speech model (~1.6 GB) with a visible progress bar, and starts
+the daemon — dictation works immediately, without waiting for a sign-out.
+**voiceflow appears in the Start Menu** (with its icon) and autostarts on
+login. It runs silently in the background — no console window.
 Press **Ctrl+Shift+Space**, speak, press it again.
-Diagnostics live in `%LOCALAPPDATA%\voiceflow\daemon.log`.
+
+Is it alive? Ask it:
+
+```
+%LOCALAPPDATA%\voiceflow\app\.venv\Scripts\voiceflow.exe status
+```
+
+Diagnostics live in `%LOCALAPPDATA%\voiceflow\daemon.log`. Errors also raise a
+Windows toast, so a failed dictation never fails silently.
+
+## Troubleshooting
+
+- **Nothing pastes.** Some applications only accept `Ctrl+V`, others (terminals)
+  only `Ctrl+Shift+V`. The default is `Ctrl+V`; change `inject.paste_key` in
+  `%APPDATA%\voiceflow\config.yaml` if your editor wants the other one.
+- **The hotkey does nothing.** Another application may already own
+  `Ctrl+Shift+Space` — voiceflow says so in a toast and in the log at startup.
+  Pick a free chord via `hotkey.binding` (letters, digits, `space`, `insert`,
+  `pause`, `f1`–`f12`, with `ctrl`/`shift`/`alt`/`win`).
+- **Dictation is slow.** Run `voiceflow.exe status`: if it reports `cpu/int8`,
+  the GPU was rejected at startup and the reason is in the log.
 
 ## Known limitations (honest list)
 
-- **GPU**: CTranslate2 on Windows needs system cuBLAS/cuDNN for CUDA (the pip
-  CUDA wheels are Linux-only). Without them voiceflow automatically runs on
-  CPU int8 — fully functional, a few seconds per dictation instead of instant.
-  With an NVIDIA card, installing [cuDNN 9](https://developer.nvidia.com/cudnn)
-  enables `device: cuda`.
+- **GPU**: works out of the box on NVIDIA — the cuBLAS and cuDNN wheels are
+  installed alongside CTranslate2 and loaded by absolute path, exactly as on
+  Linux, so no CUDA Toolkit install is needed. That is roughly 1 GB of
+  dependencies; on a machine without a usable NVIDIA GPU voiceflow falls back
+  to CPU int8 at startup (fully functional, a few seconds per dictation).
 - **Per-app microphone mute**: Windows has no public per-application capture
   mute, so the "mute Discord's mic stream" feature is a no-op — use Discord's
   own mute or push-to-talk while dictating. Playback **ducking works fully**.
@@ -51,8 +78,9 @@ Diagnostics live in `%LOCALAPPDATA%\voiceflow\daemon.log`.
 
 ## Status
 
-This port is **beta**: written against the Win32 API and tested primarily on
-one machine. Bug reports with `%LOCALAPPDATA%\voiceflow` logs are very welcome
-— see the tracking issue for what remains. A signed .exe installer
+The port is verified end to end on Windows 11 with an NVIDIA GPU: hotkey,
+recording, CUDA transcription, clipboard injection, ducking, history, the
+command line and the single-instance guard. Bug reports with
+`%LOCALAPPDATA%\voiceflow\daemon.log` are very welcome. A signed .exe installer
 (PyInstaller/Inno Setup, built on Windows CI) is on the roadmap; the .bat
 bootstrap is the interim answer for non-technical users.

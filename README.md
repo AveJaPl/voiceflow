@@ -35,7 +35,7 @@ explains why). **Updating later: run the same command again.**
 > Prefer to read before you run? `curl -fsSL …/install.sh > install.sh`, open it,
 > then `bash install.sh`.
 
-### 🪟 Windows 10 / 11 (beta)
+### 🪟 Windows 10 / 11
 
 **Easiest — no terminal at all:**
 1. Download **`voiceflow-install.bat`** from the
@@ -120,7 +120,7 @@ same job with a local Whisper model:
 
 | | |
 |---|---|
-| OS | Linux with **PipeWire** (developed on Ubuntu 26.04) · **Windows 10/11 beta** — [docs/WINDOWS.md](docs/WINDOWS.md) |
+| OS | Linux with **PipeWire** (developed on Ubuntu 26.04) · **Windows 10/11** — [docs/WINDOWS.md](docs/WINDOWS.md) |
 | Desktop | **GNOME on Wayland** (developed on GNOME 50) · **KDE / Hyprland / Sway** — experimental: the hotkey installer speaks all four ([#1](https://github.com/AveJaPl/voiceflow/issues/1)) |
 | System packages | `ydotool`, `wl-clipboard`, `python3-gi-cairo` (the last package enables charts in the GTK application) |
 | GPU | optional; NVIDIA with ~2.5 GB free VRAM for `large-v3-turbo` (CUDA libraries come from pip — **no CUDA Toolkit install needed**) |
@@ -151,7 +151,7 @@ model:
   vocabulary: []          # names the decoder should lean towards
 inject:
   method: clipboard       # clipboard | ydotool | auto
-  paste_key: ctrl+shift+v # terminals paste with shift; GUI apps may want ctrl+v
+  paste_key: ctrl+shift+v # Linux terminals paste with shift; Windows uses ctrl+v
 mute_apps:
   apps: [WEBRTC VoiceEngine]   # Discord's mic stream; find others via pw-dump
   duck_volume: 0.4        # duck the call to 40% while dictating
@@ -171,7 +171,7 @@ mute_apps:
 | `audio.source` | `null` | PipeWire source; `null` = default mic |
 | `audio.max_seconds` | `300` | safety cap on one recording |
 | `inject.method` | `clipboard` | `ydotool` types ASCII only; `clipboard` is safe for all languages |
-| `inject.paste_key` | `ctrl+shift+v` | the paste chord that gets sent |
+| `inject.paste_key` | `ctrl+shift+v` (Linux), `ctrl+v` (Windows) | the paste chord that gets sent |
 | `inject.restore_clipboard` | `true` | put the previous clipboard back |
 | `preview.enabled` | `true` | live preview while speaking |
 | `preview.interval_seconds` | `1.0` | preview refresh rate |
@@ -240,9 +240,10 @@ logic, vocabulary, and config are already platform-neutral; only `recorder`,
   report in [#1](https://github.com/AveJaPl/voiceflow/issues/1)
 - [ ] **Prebuilt packages** — .deb, AUR, Flatpak/AppImage (the `/dev/uinput` access
   needs design work in sandboxed formats) ([#4](https://github.com/AveJaPl/voiceflow/issues/4))
-- [x] **Windows (beta)** — same core, Win32 backends: in-daemon global hotkey,
+- [x] **Windows 10/11** — same core, Win32 backends: in-daemon global hotkey,
   PortAudio recording, clipboard+`SendInput` injection, no-focus tkinter overlay,
-  Core Audio ducking. See [docs/WINDOWS.md](docs/WINDOWS.md); feedback in
+  Core Audio ducking, CUDA transcription, toasts, and the same command line over
+  a local control channel. See [docs/WINDOWS.md](docs/WINDOWS.md); feedback in
   [#2](https://github.com/AveJaPl/voiceflow/issues/2)
 - [ ] **macOS** — AVFoundation recorder, CGEvent paste, NSPanel overlay, Accessibility
   permissions; Apple Silicon inference via CPU or an mlx/whisper.cpp backend ([#3](https://github.com/AveJaPl/voiceflow/issues/3))

@@ -56,6 +56,17 @@ def daemon_socket_path() -> Path:
     return runtime_dir() / "daemon.sock"
 
 
+def daemon_endpoint_path() -> Path:
+    """Return the Windows IPC descriptor path.
+
+    Windows has no unix sockets, so the daemon listens on a loopback port and
+    publishes ``{"port": ..., "token": ...}`` here. The token is what the unix
+    socket's 0600 mode gives us for free on Linux: only a process that can read
+    this file — i.e. this user — can drive the daemon.
+    """
+    return runtime_dir() / "daemon.json"
+
+
 def ydotool_socket_path() -> Path:
     """Return the configured or default ydotool daemon socket path."""
     value = os.environ.get("YDOTOOL_SOCKET")

@@ -21,10 +21,10 @@ Discord Rich Presence — is the same code as on Linux. The OS layer is swapped:
 double-click it. (SmartScreen may warn about an unrecognized file — choose
 "More info → Run anyway"; the script is 20 lines, readable in Notepad.)
 
-Or from PowerShell:
+Or from any terminal (PowerShell **or** cmd, any drive):
 
-```powershell
-irm https://raw.githubusercontent.com/AveJaPl/voiceflow/main/windows/install.ps1 | iex
+```
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/AveJaPl/voiceflow/main/windows/install.ps1 | iex"
 ```
 
 After installing, **voiceflow appears in the Start Menu** (with its icon) and

@@ -42,13 +42,11 @@ explains why). **Updating later: run the same command again.**
    [latest release](https://github.com/AveJaPl/voiceflow/releases/latest) (Assets section)
 2. Double-click it; if SmartScreen warns, choose *More info → Run anyway*
 
-**Or from a terminal — PowerShell specifically:**
-1. Press the **Windows key**, type `PowerShell`, press Enter
-   (the prompt line starts with `PS` — that is how you know you are in the right place)
-2. Paste:
+**Or from a terminal** — this exact command works in **both** PowerShell and cmd,
+from any drive or directory:
 
-```powershell
-irm https://raw.githubusercontent.com/AveJaPl/voiceflow/main/windows/install.ps1 | iex
+```
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/AveJaPl/voiceflow/main/windows/install.ps1 | iex"
 ```
 
 **Updating later: same file / same command again.** A signed `.exe` installer is

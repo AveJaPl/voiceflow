@@ -496,3 +496,48 @@ def copy_to_clipboard(text: str) -> None:
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip()
         raise RuntimeError(detail or f"wl-copy zakończył się kodem {result.returncode}")
+
+
+def installed_version() -> str:
+    """App version from the project's pyproject.toml (single source of truth)."""
+    pyproject = Path(__file__).resolve().parent.parent.parent / "pyproject.toml"
+    try:
+        for line in pyproject.read_text(encoding="utf-8").splitlines():
+            if line.startswith("version"):
+                return line.split('"')[1]
+    except (OSError, IndexError):
+        pass
+    return "0.0.0"
+
+
+def check_update() -> tuple[str, str] | None:
+    """Return (latest, url) when a newer release exists; None otherwise.
+
+    One anonymous request; the caller runs this off the main thread and only
+    when the daemon-side daily cache would allow it anyway — the app checks
+    once per launch.
+    """
+    import urllib.request
+
+    request = urllib.request.Request(
+        "https://api.github.com/repos/AveJaPl/voiceflow/releases/latest",
+        headers={"User-Agent": "voiceflow-app"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return None
+    tag = str(data.get("tag_name", ""))
+    url = str(data.get("html_url", "https://github.com/AveJaPl/voiceflow/releases"))
+
+    def parse(text: str) -> tuple[int, ...]:
+        parts = []
+        for chunk in text.strip().lstrip("vV").split("."):
+            digits = "".join(ch for ch in chunk if ch.isdigit())
+            if not digits:
+                break
+            parts.append(int(digits))
+        return tuple(parts) or (0,)
+
+    return (tag, url) if parse(tag) > parse(installed_version()) else None

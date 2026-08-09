@@ -25,6 +25,7 @@ from voiceflow.presence import DiscordPresence
 from voiceflow.preview import PreviewLoop
 from voiceflow.recorder import Recorder
 from voiceflow.transcriber import Transcriber, TranscriptionResult
+from voiceflow.updates import check as check_updates
 
 _WINDOWS = os.name == "nt"
 
@@ -134,6 +135,9 @@ class VoiceflowDaemon:
                 config.audio, runtime_dir(), self._max_duration_reached
             )
         self._server: _UnixServer | None = None
+        threading.Thread(
+            target=self._announce_update, name="voiceflow-update-check", daemon=True
+        ).start()
         self._preview: PreviewLoop | None = None
 
     def handle_command(self, command: str) -> dict[str, Any]:
@@ -315,6 +319,20 @@ class VoiceflowDaemon:
                 LOGGER.warning("Nie można usunąć pliku %s: %s", audio_path, exc)
             with self._lock:
                 self.state = State.IDLE
+
+    def _announce_update(self) -> None:
+        """Daily background check; a newer release becomes one calm notification."""
+        try:
+            info = check_updates(self.config.updates)
+        except Exception:
+            LOGGER.exception("Sprawdzenie aktualizacji nie powiodło się")
+            return
+        if info is not None and info.newer:
+            LOGGER.info("Dostępna aktualizacja voiceflow: %s", info.latest)
+            self.notifier.send(
+                f"Dostępna nowa wersja voiceflow ({info.latest}) — "
+                "zaktualizuj tą samą komendą, którą instalowałeś"
+            )
 
     def _max_duration_reached(self) -> None:
         LOGGER.warning("Automatycznie kończę nagranie po limicie czasu")

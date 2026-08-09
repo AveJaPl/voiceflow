@@ -198,10 +198,36 @@ class VoiceflowWindow(Adw.ApplicationWindow):
         version = Gtk.Label(label=f"v{__version__}", xalign=0)
         version.add_css_class("version-label")
         footer.append(version)
+        # Hidden until the once-per-launch check finds a newer release.
+        self.update_button = Gtk.Button(label="Dostępna aktualizacja")
+        self.update_button.add_css_class("secondary-button")
+        self.update_button.set_visible(False)
+        footer.append(self.update_button)
         sidebar.append(footer)
         if first_row is not None:
             self.nav_list.select_row(first_row)
         return sidebar
+
+    def _check_update(self) -> None:
+        """Once per launch; a newer release becomes a button in the footer."""
+        result = services.check_update()
+        if result is None:
+            return
+        latest, url = result
+
+        def show() -> bool:
+            self.update_button.set_label(f"Aktualizacja: {latest}")
+            self.update_button.set_tooltip_text(
+                "Zobacz, co się zmieniło, i zaktualizuj tą samą komendą, "
+                "którą instalowano voiceflow"
+            )
+            self.update_button.connect(
+                "clicked", lambda _b: Gtk.show_uri(self, url, 0)
+            )
+            self.update_button.set_visible(True)
+            return GLib.SOURCE_REMOVE
+
+        GLib.idle_add(show)
 
     @staticmethod
     def _build_brand_wave() -> Gtk.Widget:
@@ -358,6 +384,9 @@ class VoiceflowWindow(Adw.ApplicationWindow):
                 return
             GLib.idle_add(self._finish_apply, True, "", data)
 
+        threading.Thread(
+            target=self._check_update, name="app-update-check", daemon=True
+        ).start()
         threading.Thread(target=worker, name="config-apply", daemon=True).start()
 
     def _finish_apply(self, success: bool, detail: str, data: dict[str, Any]) -> bool:

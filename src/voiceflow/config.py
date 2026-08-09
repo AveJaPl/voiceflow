@@ -58,6 +58,10 @@ presence:
   # at discord.com/developers, name it voiceflow, paste its Application ID here.
   enabled: false
   client_id: ""
+updates:
+  # Once a day voiceflow asks github.com whether a newer release exists - the
+  # ONLY network request the project makes. Set false to go fully offline.
+  check: true
 history:
   # Every dictation is logged locally (~/.local/share/voiceflow/history.jsonl)
   # so text is recoverable when a paste lands in the wrong window, and so the
@@ -139,6 +143,13 @@ class MuteAppsConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class UpdatesConfig:
+    """Daily check for a newer release (the project's only network access)."""
+
+    check: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class HotkeyConfig:
     """Global hotkey registered by the daemon itself (Windows only).
 
@@ -194,6 +205,7 @@ class Config:
     history: HistoryConfig = field(default_factory=HistoryConfig)
     presence: PresenceConfig = field(default_factory=PresenceConfig)
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
+    updates: UpdatesConfig = field(default_factory=UpdatesConfig)
     overlay: OverlayConfig = field(default_factory=OverlayConfig)
     notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
     log_level: str = "INFO"
@@ -208,6 +220,7 @@ _SCHEMA: dict[str, set[str] | None] = {
     "history": {"enabled", "store_text", "max_entries"},
     "presence": {"enabled", "client_id"},
     "hotkey": {"binding"},
+    "updates": {"check"},
     "overlay": {"enabled"},
     "notifications": {"enabled"},
     "log_level": None,
@@ -322,6 +335,7 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
     history = _section(root, "history")
     presence = _section(root, "presence")
     hotkey = _section(root, "hotkey")
+    updates = _section(root, "updates")
     overlay = _section(root, "overlay")
     notifications = _section(root, "notifications")
 
@@ -382,6 +396,9 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
         ),
         hotkey=HotkeyConfig(
             binding=str(hotkey.get("binding", "ctrl+shift+space") or "ctrl+shift+space"),
+        ),
+        updates=UpdatesConfig(
+            check=_boolean(updates.get("check", True), True, "updates.check"),
         ),
         overlay=OverlayConfig(
             enabled=_boolean(overlay.get("enabled", True), True, "overlay.enabled"),

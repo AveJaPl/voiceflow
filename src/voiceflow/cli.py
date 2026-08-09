@@ -48,6 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     last = subparsers.add_parser("last", help="pokaż ostatnie dyktowania (ratunek po wklejce w złe okno)")
     last.add_argument("-n", type=int, default=1, metavar="N", help="ile ostatnich wpisów pokazać")
     last.add_argument("--copy", action="store_true", help="skopiuj najnowszy tekst do schowka")
+    subparsers.add_parser("update", help="sprawdź, czy jest nowsza wersja")
     return parser
 
 
@@ -138,6 +139,33 @@ def _print_last(count: int, copy: bool) -> int:
     return 0
 
 
+def _print_update() -> int:
+    import os
+
+    from voiceflow.updates import check, installed_version
+
+    from voiceflow.config import UpdatesConfig
+
+    info = check(UpdatesConfig(), force=True)
+    current = installed_version()
+    if info is None:
+        print(f"Zainstalowana wersja: {current}. Nie udało się sprawdzić GitHuba (offline?).")
+        return 1
+    if not info.newer:
+        print(f"Masz najnowszą wersję ({current}).")
+        return 0
+    print(f"Dostępna nowa wersja: {info.latest} (masz {current})")
+    print(f"Co się zmieniło: {info.url}")
+    if os.name == "nt":
+        print("Aktualizacja: uruchom ponownie voiceflow-install.bat")
+    else:
+        print(
+            "Aktualizacja: curl -fsSL "
+            "https://raw.githubusercontent.com/AveJaPl/voiceflow/main/install.sh | bash"
+        )
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the voiceflow command-line interface."""
     parser = build_parser()
@@ -146,6 +174,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _print_models()
     if arguments.command == "last":
         return _print_last(arguments.n, arguments.copy)
+    if arguments.command == "update":
+        return _print_update()
     try:
         config = load_config()
     except RuntimeError as exc:

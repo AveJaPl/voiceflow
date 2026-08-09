@@ -121,7 +121,7 @@ same job with a local Whisper model:
 | | |
 |---|---|
 | OS | Linux with **PipeWire** (developed on Ubuntu 26.04) · **Windows 10/11 beta** — [docs/WINDOWS.md](docs/WINDOWS.md) |
-| Desktop | **GNOME on Wayland** (developed on GNOME 50) — other compositors: [see roadmap](#roadmap) |
+| Desktop | **GNOME on Wayland** (developed on GNOME 50) · **KDE / Hyprland / Sway** — experimental: the hotkey installer speaks all four ([#1](https://github.com/AveJaPl/voiceflow/issues/1)) |
 | System packages | `ydotool`, `wl-clipboard`, `python3-gi-cairo` (the last package enables charts in the GTK application) |
 | GPU | optional; NVIDIA with ~2.5 GB free VRAM for `large-v3-turbo` (CUDA libraries come from pip — **no CUDA Toolkit install needed**) |
 | Disk | ~1.6 GB model + ~2.7 GB environment |
@@ -234,9 +234,10 @@ logic, vocabulary, and config are already platform-neutral; only `recorder`,
 
 - [ ] **Native settings app** (GTK4/libadwaita) — status, model & language, vocabulary
   editor, voice-chat ducking, all without touching YAML *(in progress)*
-- [ ] **Other Wayland compositors** (KDE, Hyprland, Sway) — easiest port: they
-  implement `virtual-keyboard`/layer-shell, so injection and overlay get *simpler*
-  ([#1](https://github.com/AveJaPl/voiceflow/issues/1))
+- [ ] **Other Wayland compositors** (KDE, Hyprland, Sway) — *experimental*: the
+  hotkey installer now configures all four desktops; injection (ydotool) and
+  clipboard (wl-copy) are compositor-agnostic already. Needs testers —
+  report in [#1](https://github.com/AveJaPl/voiceflow/issues/1)
 - [ ] **Prebuilt packages** — .deb, AUR, Flatpak/AppImage (the `/dev/uinput` access
   needs design work in sandboxed formats) ([#4](https://github.com/AveJaPl/voiceflow/issues/4))
 - [x] **Windows (beta)** — same core, Win32 backends: in-daemon global hotkey,

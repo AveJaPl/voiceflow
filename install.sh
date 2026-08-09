@@ -81,10 +81,11 @@ systemctl --user enable voiceflow.service
 systemctl --user restart voiceflow.service
 bash "$DEST/scripts/install-hotkey.sh"
 
+say "Downloading the speech model (~1.6 GB) — progress below"
+"$DEST/.venv/bin/voiceflow" download-model || true
+
 say "Done"
 echo
-echo "  First start downloads the speech model (~1.6 GB); watch with:"
-echo "      journalctl --user -u voiceflow -f"
-echo "  Then press Super+G, speak, press Super+G again."
+echo "  Press Super+G, speak, press Super+G again — it works right away."
 echo "  Health check:   voiceflow status"
 echo "  Configuration:  ~/.config/voiceflow/config.yaml"

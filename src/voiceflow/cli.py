@@ -50,6 +50,9 @@ def build_parser() -> argparse.ArgumentParser:
     last.add_argument("-n", type=int, default=1, metavar="N", help="ile ostatnich wpisów pokazać")
     last.add_argument("--copy", action="store_true", help="skopiuj najnowszy tekst do schowka")
     subparsers.add_parser("update", help="sprawdź, czy jest nowsza wersja")
+    subparsers.add_parser(
+        "download-model", help="pobierz model mowy z paskiem postępu (używane przez instalator)"
+    )
     return parser
 
 
@@ -154,6 +157,28 @@ def _print_last(count: int, copy: bool) -> int:
     return 0
 
 
+def _download_model(config: Config) -> int:
+    """Fetch the configured model up front, with visible progress.
+
+    Called at the end of installation so the first dictation is instant —
+    a silent background download of 1.6 GB was rightly rejected as bad UX.
+    huggingface_hub renders tqdm progress bars in a terminal by itself.
+    """
+    from faster_whisper import download_model
+
+    name = config.model.name
+    print(f"Pobieranie modelu mowy: {name}")
+    print("(pliki i pasek postępu poniżej; pobrane raz, używane lokalnie)")
+    try:
+        path = download_model(name)
+    except Exception as exc:
+        print(f"Nie udało się pobrać modelu: {exc}", file=sys.stderr)
+        print("Model pobierze się automatycznie przy pierwszym dyktowaniu.", file=sys.stderr)
+        return 1
+    print(f"Model gotowy: {path}")
+    return 0
+
+
 def _print_update() -> int:
     import os
 
@@ -197,6 +222,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Błąd konfiguracji: {exc}", file=sys.stderr)
         return 2
     _configure_logging(config)
+    if arguments.command == "download-model":
+        return _download_model(config)
     if arguments.command == "daemon":
         try:
             VoiceflowDaemon(config).run()

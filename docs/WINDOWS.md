@@ -30,8 +30,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubus
 After installing, **voiceflow appears in the Start Menu** (with its icon) and
 autostarts on login. It runs silently in the background — no console window;
 the on-screen overlay appearing when you press the hotkey is the sign of life.
-First start downloads the model (~1.6 GB), so give the very first dictation a
-few minutes. Press **Ctrl+Shift+Space**, speak, press it again.
+The installer downloads the speech model (~1.6 GB) with a visible progress bar
+as its final step, so dictation works immediately after install.
+Press **Ctrl+Shift+Space**, speak, press it again.
+Diagnostics live in `%LOCALAPPDATA%\voiceflow\daemon.log`.
 
 ## Known limitations (honest list)
 

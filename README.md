@@ -59,10 +59,10 @@ page when ready. Details and current limitations: [docs/WINDOWS.md](docs/WINDOWS
 
 ### After installing (both systems)
 
-First start downloads the speech model (~1.6 GB) — give the very first
-dictation a few minutes. Then: press the hotkey (**`Super+G`** on Linux,
-**`Ctrl+Shift+Space`** on Windows), speak, press it again. The text lands in
-whatever window has focus.
+The installer downloads the speech model (~1.6 GB) **with a visible progress
+bar as its final step** — so once it says done, everything works immediately.
+Press the hotkey (**`Super+G`** on Linux, **`Ctrl+Shift+Space`** on Windows),
+speak, press it again. The text lands in whatever window has focus.
 
 <details>
 <summary>Manual install from source (Linux)</summary>

@@ -51,7 +51,12 @@ foreach ($LinkPath in @($StartMenu, $Startup)) {
     $Link.Save()
 }
 
+Write-Host "==> Downloading the speech model (~1.6 GB) - progress below" -ForegroundColor Cyan
+Push-Location $Dest
+uv run voiceflow download-model
+Pop-Location
+
 Write-Host ""
 Write-Host "Done. Find *voiceflow* in the Start Menu (it also autostarts on login)." -ForegroundColor Green
-Write-Host "First start downloads the speech model (~1.6 GB)."
-Write-Host "Hotkey: Ctrl+Shift+Space (change in %APPDATA%\voiceflow\config.yaml)."
+Write-Host "Press Ctrl+Shift+Space, speak, press it again - it works right away."
+Write-Host "Hotkey change: %APPDATA%\voiceflow\config.yaml."

@@ -19,21 +19,55 @@ Release the hotkey and the final, full-context transcription is pasted where you
 
 ## Install
 
-One command, no git needed:
+Pick your operating system — the commands are **not** interchangeable.
+
+### 🐧 Linux (Ubuntu, GNOME on Wayland)
+
+Open a terminal and run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AveJaPl/voiceflow/main/install.sh | bash
 ```
 
-(Prefer to look before you run? `curl -fsSL …/install.sh > install.sh`, read it, then
-`bash install.sh`. The only step that needs sudo is installing `ydotool` and a udev
-rule for `/dev/uinput` — the script explains why.)
+The only step that asks for sudo installs `ydotool` + a udev rule (the script
+explains why). **Updating later: run the same command again.**
 
-First start downloads the speech model (~1.6 GB). After that: press **`Super+G`**,
-speak, press **`Super+G`** again. That's the whole workflow.
+> Prefer to read before you run? `curl -fsSL …/install.sh > install.sh`, open it,
+> then `bash install.sh`.
+
+### 🪟 Windows 10 / 11 (beta)
+
+**Easiest — no terminal at all:**
+1. Download **`voiceflow-install.bat`** from the
+   [latest release](https://github.com/AveJaPl/voiceflow/releases/latest) (Assets section)
+2. Double-click it; if SmartScreen warns, choose *More info → Run anyway*
+
+**Or from a terminal — PowerShell specifically:**
+1. Press the **Windows key**, type `PowerShell`, press Enter
+   (the prompt line starts with `PS` — that is how you know you are in the right place)
+2. Paste:
+
+```powershell
+irm https://raw.githubusercontent.com/AveJaPl/voiceflow/main/windows/install.ps1 | iex
+```
+
+**Updating later: same file / same command again.** A signed `.exe` installer is
+planned and will appear on the [Releases](https://github.com/AveJaPl/voiceflow/releases)
+page when ready. Details and current limitations: [docs/WINDOWS.md](docs/WINDOWS.md).
+
+> ⚠ Do **not** run the Linux command on Windows: if WSL is installed, `| bash`
+> silently executes it inside WSL, where dictation cannot work (the installer
+> now detects this and stops, but save yourself the round trip).
+
+### After installing (both systems)
+
+First start downloads the speech model (~1.6 GB) — give the very first
+dictation a few minutes. Then: press the hotkey (**`Super+G`** on Linux,
+**`Ctrl+Shift+Space`** on Windows), speak, press it again. The text lands in
+whatever window has focus.
 
 <details>
-<summary>Manual install from source</summary>
+<summary>Manual install from source (Linux)</summary>
 
 ```bash
 git clone https://github.com/AveJaPl/voiceflow && cd voiceflow

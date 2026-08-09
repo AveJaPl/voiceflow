@@ -16,6 +16,13 @@ Discord Rich Presence — is the same code as on Linux. The OS layer is swapped:
 
 ## Install
 
+**Easiest:** download **`voiceflow-install.bat`** from the
+[latest release](https://github.com/AveJaPl/voiceflow/releases/latest) and
+double-click it. (SmartScreen may warn about an unrecognized file — choose
+"More info → Run anyway"; the script is 20 lines, readable in Notepad.)
+
+Or from PowerShell:
+
 ```powershell
 irm https://raw.githubusercontent.com/AveJaPl/voiceflow/main/windows/install.ps1 | iex
 ```
@@ -42,4 +49,6 @@ autostarts). First start downloads the model (~1.6 GB). Press
 
 This port is **beta**: written against the Win32 API and tested primarily on
 one machine. Bug reports with `%LOCALAPPDATA%\voiceflow` logs are very welcome
-— see the tracking issue for what remains.
+— see the tracking issue for what remains. A signed .exe installer
+(PyInstaller/Inno Setup, built on Windows CI) is on the roadmap; the .bat
+bootstrap is the interim answer for non-technical users.

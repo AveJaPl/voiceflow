@@ -1,97 +1,114 @@
 # voiceflow
 
-**Local, GPU-accelerated voice dictation for Linux.** Press a hotkey, speak, press it
-again — the transcribed text lands in whatever window has focus. Whisper runs on your
-own hardware: no cloud, no subscription, no audio leaving your machine.
+**Press a hotkey. Speak. Your words appear in whatever window has focus.**
 
-Built as a free alternative to paid dictation apps (Wispr Flow and friends), on a stack
-where those apps do not run at all: **GNOME on Wayland**.
+Local, GPU-accelerated voice dictation for Linux — a free, open-source alternative to
+paid dictation apps, built for the platform they all skipped: **GNOME on Wayland**.
+Whisper runs on *your* hardware. No cloud, no subscription, no audio ever leaving
+your machine.
 
+[![tests](https://github.com/AveJaPl/voiceflow/actions/workflows/ci.yml/badge.svg)](https://github.com/AveJaPl/voiceflow/actions)
+[![license: MIT](https://img.shields.io/badge/license-MIT-white.svg)](LICENSE)
+[![python 3.13](https://img.shields.io/badge/python-3.13-white.svg)](pyproject.toml)
+[![platform](https://img.shields.io/badge/platform-Linux%20%C2%B7%20GNOME%2FWayland-white.svg)](#requirements)
+
+![live preview while dictating](docs/assets/preview.png)
+
+*The on-screen preview while you speak — it updates every second and never steals focus.
+Release the hotkey and the final, full-context transcription is pasted where your cursor is.*
+
+## Install
+
+One command, no git needed:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AveJaPl/voiceflow/main/install.sh | bash
 ```
-┌──────────────────────────────────────────────────┐
-│  ●  write me a function that computes the mean   │
-│     of a list and returns zero when it is empty… │
-└──────────────────────────────────────────────────┘
-        on-screen preview while you speak
+
+(Prefer to look before you run? `curl -fsSL …/install.sh > install.sh`, read it, then
+`bash install.sh`. The only step that needs sudo is installing `ydotool` and a udev
+rule for `/dev/uinput` — the script explains why.)
+
+First start downloads the speech model (~1.6 GB). After that: press **`Super+G`**,
+speak, press **`Super+G`** again. That's the whole workflow.
+
+<details>
+<summary>Manual install from source</summary>
+
+```bash
+git clone https://github.com/AveJaPl/voiceflow && cd voiceflow
+sudo bash scripts/install-system-deps.sh   # ydotool, wl-clipboard, udev rule
+uv sync                                    # pinned Python 3.13 + dependencies
+mkdir -p ~/.local/bin
+printf '#!/usr/bin/env bash\nexec "%s/.venv/bin/voiceflow" "$@"\n' "$PWD" > ~/.local/bin/voiceflow
+chmod +x ~/.local/bin/voiceflow
+systemctl --user enable --now ydotool.service
+cp systemd/voiceflow.service ~/.config/systemd/user/
+systemctl --user daemon-reload && systemctl --user enable --now voiceflow.service
+bash scripts/install-hotkey.sh             # Super+G by default
 ```
+</details>
 
-## What it does
+## Why this exists
 
-- **Hotkey-driven dictation** (`Super+G` by default): toggle recording, speak, toggle
-  again, text is pasted into the focused window — terminal, browser, editor, anything.
-- **Live preview**: a small always-on-top card shows what the model hears *while you
-  are still speaking*, with a pulsing recording indicator. It never steals focus.
-- **Fast**: the daemon keeps the Whisper model loaded in VRAM. On an RTX 3070,
-  `large-v3-turbo` transcribes 4 s of speech in ~0.04 s. Falls back to CPU (`int8`)
-  automatically when CUDA is unavailable.
-- **Voice-chat aware**: while you dictate, the microphone stream of Discord (or any
-  configured app) is muted so your call does not hear your prompts, and the call's
-  playback is ducked so it does not distract you. Both restored the moment recording
-  ends. Your manual mute state is respected.
-- **Any language Whisper supports** — set `model.language` in the config (the default
-  config ships with `pl`; use `en`, `de`, … or `null` for auto-detection).
-- **Custom vocabulary**: a list of names/jargon the decoder should lean towards
-  (`model.vocabulary`), so it stops mangling your product names. Biases decoding only —
-  never rewrites your words.
+Dictating prompts to AI assistants beats typing them — but the good dictation apps are
+subscription cloud services, and none of them run on Linux at all. voiceflow does the
+same job with a local Whisper model:
+
+|  | voiceflow | typical paid dictation app |
+|---|---|---|
+| price | free, MIT | ~$15/month |
+| audio leaves your machine | never | always |
+| Linux / GNOME / Wayland | native | unsupported |
+| latency after you stop speaking | ~0.1 s on a GPU | network round-trip |
+| works offline | yes | no |
+
+## Features
+
+- **Fast.** A user daemon keeps the model warm in VRAM: on an RTX 3070,
+  `large-v3-turbo` transcribes 4 s of speech in ~0.04 s. No GPU? It falls back to
+  CPU (`int8`) automatically — slower, still private.
+- **Live preview.** A minimal always-on-top card shows what the model hears while you
+  are still talking, with a pulsing recording indicator. The pasted text is a second,
+  full-context pass — accuracy is never sacrificed for the preview.
+- **Voice-chat aware.** Dictating while on Discord? Your mic stream to the call is
+  muted (they never hear your prompts) and the call's audio is ducked to 40% (it stops
+  derailing your sentence). Both restored the instant recording ends; your manual mute
+  is respected.
+- **Any language.** Whatever Whisper speaks — set `model.language` (`en`, `de`, `pl`, …
+  or `null` to auto-detect).
+- **Custom vocabulary.** Your product names and jargon, biased into the decoder so it
+  stops mangling them (`model.vocabulary`). It biases only — never rewrites your words.
+- **Honest with your clipboard.** Text is injected via paste (the only non-ASCII-safe
+  path on GNOME Wayland) and your previous clipboard is put back afterwards.
+- **Tested without hardware.** 67 tests, none need a GPU, microphone, or display —
+  they run in CI on every commit.
 
 ## Requirements
 
 | | |
 |---|---|
-| OS | Linux with **PipeWire** (tested: Ubuntu 26.04) |
-| Desktop | **GNOME on Wayland** (tested: GNOME 50; see [Why GNOME/Wayland is hard](#why-gnomewayland-is-hard) — other compositors likely need changes) |
-| GPU | NVIDIA with ~2.5 GB free VRAM for `large-v3-turbo` (optional — CPU fallback works, just slower) |
-| Python | 3.13 via [uv](https://docs.astral.sh/uv/) (3.14 not yet supported by CTranslate2) |
-| Disk | ~1.6 GB model weights + ~2.7 GB virtualenv (CUDA libraries from pip — no system CUDA Toolkit needed) |
-
-## Install
-
-```bash
-git clone https://github.com/AveJaPl/voiceflow
-cd voiceflow
-
-# 1. System dependencies: ydotool, wl-clipboard, /dev/uinput udev rule
-sudo bash scripts/install-system-deps.sh
-
-# 2. Python environment (uv downloads a pinned Python 3.13 by itself)
-uv sync
-
-# 3. Make the CLI available
-mkdir -p ~/.local/bin
-printf '#!/usr/bin/env bash\nexec "%s/.venv/bin/voiceflow" "$@"\n' "$PWD" > ~/.local/bin/voiceflow
-chmod +x ~/.local/bin/voiceflow
-
-# 4. Start the ydotool daemon and the voiceflow daemon (user services, no root)
-systemctl --user enable --now ydotool.service
-cp systemd/voiceflow.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now voiceflow.service
-
-# 5. Register the GNOME hotkey (default Super+G; see the script for overrides)
-bash scripts/install-hotkey.sh
-```
-
-First start downloads the model (~1.6 GB) and can take a few minutes; check progress
-with `journalctl --user -u voiceflow -f`. Every later start loads from cache in ~1.5 s.
-
-Verify with `voiceflow status` — it reports the daemon state, the device the model
-actually loaded on, and a full injection-path diagnostic.
+| OS | Linux with **PipeWire** (developed on Ubuntu 26.04) |
+| Desktop | **GNOME on Wayland** (developed on GNOME 50) — other compositors: [see roadmap](#roadmap) |
+| GPU | optional; NVIDIA with ~2.5 GB free VRAM for `large-v3-turbo` (CUDA libraries come from pip — **no CUDA Toolkit install needed**) |
+| Disk | ~1.6 GB model + ~2.7 GB environment |
 
 ## Usage
 
 | | |
 |---|---|
-| dictate | `Super+G`, speak, `Super+G` |
+| dictate | `Super+G` → speak → `Super+G` |
 | cancel without pasting | `voiceflow cancel` |
-| health check | `voiceflow status` |
+| health check & diagnostics | `voiceflow status` |
 | logs | `journalctl --user -u voiceflow -f` |
-| change hotkey | `VOICEFLOW_BINDING='<Control><Alt>space' bash scripts/install-hotkey.sh` |
+| change the hotkey | `VOICEFLOW_BINDING='<Control><Alt>space' bash scripts/install-hotkey.sh` |
+| free the VRAM (before gaming) | `systemctl --user stop voiceflow` |
 | stress-test / leak check | `bash scripts/audit.sh` |
 
 ## Configuration
 
-`~/.config/voiceflow/config.yaml`, created with commented defaults on first run.
-Restart the daemon after editing (`systemctl --user restart voiceflow`).
+`~/.config/voiceflow/config.yaml` — created with commented defaults on first run;
+restart the daemon after editing.
 
 ```yaml
 model:
@@ -99,81 +116,107 @@ model:
   device: cuda            # cuda | cpu | auto
   language: pl            # ISO 639-1; null = auto-detect
   vocabulary: []          # names the decoder should lean towards
-audio:
-  source: null            # PipeWire source; null = default mic
 inject:
   method: clipboard       # clipboard | ydotool | auto
   paste_key: ctrl+shift+v # terminals paste with shift; GUI apps may want ctrl+v
-  restore_clipboard: true # put the previous clipboard back after pasting
-preview:
-  enabled: true           # live preview while speaking
 mute_apps:
-  enabled: true
-  apps: [WEBRTC VoiceEngine]   # Discord's mic stream; find yours via pw-dump
-  duck_enabled: true
+  apps: [WEBRTC VoiceEngine]   # Discord's mic stream; find others via pw-dump
   duck_volume: 0.4        # duck the call to 40% while dictating
-overlay:
-  enabled: true           # the on-screen indicator card
 ```
 
-Note: the config file is generated once and not migrated — new options appear in fresh
-installs. Delete the file to regenerate with current defaults.
+<details>
+<summary>Full configuration reference</summary>
 
-## Architecture
+| key | default | meaning |
+|---|---|---|
+| `model.name` | `large-v3-turbo` | any faster-whisper model id |
+| `model.device` | `cuda` | `cuda` / `cpu` / `auto`; CUDA failure falls back to CPU |
+| `model.compute_type` | `float16` | precision on GPU; CPU uses `int8` |
+| `model.language` | `pl` | ISO 639-1 code or `null` for auto-detect |
+| `model.beam_size` | `5` | decoder beam width |
+| `model.vocabulary` | `[]` | terms biased into decoding |
+| `audio.source` | `null` | PipeWire source; `null` = default mic |
+| `audio.max_seconds` | `300` | safety cap on one recording |
+| `inject.method` | `clipboard` | `ydotool` types ASCII only; `clipboard` is safe for all languages |
+| `inject.paste_key` | `ctrl+shift+v` | the paste chord that gets sent |
+| `inject.restore_clipboard` | `true` | put the previous clipboard back |
+| `preview.enabled` | `true` | live preview while speaking |
+| `preview.interval_seconds` | `1.0` | preview refresh rate |
+| `mute_apps.enabled` | `true` | mute configured apps' mic streams while recording |
+| `mute_apps.apps` | `[WEBRTC VoiceEngine]` | PipeWire `application.name` values |
+| `mute_apps.duck_enabled` | `true` | also duck those apps' playback |
+| `mute_apps.duck_volume` | `0.4` | duck target as a fraction of full volume |
+| `overlay.enabled` | `true` | the on-screen indicator card |
+
+The config file is generated once and not migrated — delete it to regenerate with
+current defaults.
+</details>
+
+## How it works
 
 ```
-hotkey → voiceflow toggle ──unix socket──▶ voiceflow daemon (systemd --user)
-                                            ├─ recorder    pw-record, 16 kHz WAV
-                                            ├─ transcriber faster-whisper, model held in VRAM
-                                            ├─ preview     re-transcribes the tail every 1 s
-                                            ├─ overlay     separate GTK3 process (X11 popup)
-                                            ├─ micmute     mutes/ducks voice chats via wpctl
-                                            └─ injector    wl-copy + ydotool paste keystroke
+hotkey ─▶ voiceflow toggle ──unix socket──▶ voiceflow daemon (systemd --user)
+                                             ├─ recorder     pw-record, 16 kHz WAV
+                                             ├─ transcriber  faster-whisper, warm in VRAM
+                                             ├─ preview      re-transcribes the tail every 1 s
+                                             ├─ overlay      separate GTK3 process (X11 popup)
+                                             ├─ micmute      mutes/ducks voice chats (wpctl)
+                                             └─ injector     wl-copy + paste keystroke
 ```
 
-A thin client talks to a persistent daemon over a unix socket, so the hotkey responds
-in ~0.1 s while the model stays warm. The modules do not know about each other; the
-daemon composes them, which keeps each one testable without a GPU or a microphone
-(67 tests, none require hardware).
+A thin client (~0.1 s startup) talks to a persistent daemon, so the model loads once
+per login, not once per dictation. The modules do not import each other — the daemon
+composes them — which is what keeps the test suite hardware-free and the platform
+ports tractable.
 
-## Why GNOME/Wayland is hard
+<details>
+<summary>Why GNOME/Wayland needed all this (field notes)</summary>
 
-These are the platform constraints this project exists to work around — useful reading
-before porting it anywhere:
+Constraints discovered the hard way — read this before porting:
 
-- **You cannot type into another window.** Wayland forbids input injection, and GNOME
-  implements no `virtual-keyboard` protocol, so `wtype` is out. `ydotool` works via
-  `/dev/uinput` (kernel level), but its `type` command silently drops non-ASCII
-  characters — fatal for most languages. Hence the default path: clipboard + a real
-  paste keystroke, with the previous clipboard restored afterwards.
-- **A window cannot refuse focus.** A normal preview window would steal focus and
-  swallow the paste. The overlay is an X11 override-redirect popup (via XWayland) —
-  the one window type the compositor neither focuses nor repositions.
-- **`pw-record` exits 1 after SIGINT** even when the WAV is perfectly fine. The exit
-  code is not a success signal; the WAV header is.
-- **`wl-copy` forks** and its child owns the Wayland selection; piping its stdio and
-  waiting for EOF deadlocks every paste.
-- **User services race the login.** Started from `default.target`, the daemon gets no
-  `DISPLAY`/`XAUTHORITY` and the overlay cannot authenticate to X. The unit binds to
-  `graphical-session.target`, plus a runtime fallback that locates Mutter's
-  XWayland auth cookie.
+- **You cannot type into another window.** Wayland forbids input injection and GNOME
+  implements no `virtual-keyboard` protocol, so `wtype` is out. `ydotool` works at the
+  kernel level via `/dev/uinput`, but its `type` command silently drops non-ASCII
+  characters. Hence: clipboard + a real paste keystroke, clipboard restored after.
+- **A window cannot refuse focus** — a normal preview window would swallow the paste.
+  The overlay is an X11 override-redirect popup via XWayland: the one window type the
+  compositor neither focuses nor repositions.
+- **`pw-record` exits 1 after SIGINT** even when the WAV is complete. Success must be
+  judged by parsing the WAV header, not the exit code.
+- **`wl-copy` forks**, and its child owns the Wayland selection; piping its stdio and
+  waiting for EOF deadlocks every paste. No pipes to self-daemonizing processes.
+- **User services race the login.** From `default.target` the daemon gets no
+  `DISPLAY`/`XAUTHORITY`; the unit binds to `graphical-session.target`, with a runtime
+  fallback that locates Mutter's XWayland auth cookie.
+</details>
+
+## Roadmap
+
+Ordered by how much of the codebase carries over — the daemon, transcriber, preview
+logic, vocabulary, and config are already platform-neutral; only `recorder`,
+`injector`, `overlay`, and `micmute` touch the OS:
+
+- [ ] **Other Wayland compositors** (KDE, Hyprland, Sway) — easiest port: they
+  implement `virtual-keyboard`/layer-shell, so injection and overlay get *simpler*
+- [ ] **Prebuilt packages** — .deb, AUR, Flatpak/AppImage (the `/dev/uinput` access
+  needs design work in sandboxed formats)
+- [ ] **Windows** — CUDA works out of the box; needs a WASAPI recorder, `SendInput`
+  injection, a layered-window overlay, and a global hotkey
+- [ ] **macOS** — needs an AVFoundation/CoreAudio recorder, CGEvent paste, an NSPanel
+  overlay, and Accessibility permissions; Apple Silicon inference via CPU or CTranslate2
+- [ ] **i18n** of user-facing strings (currently Polish — the author dictates in Polish)
+
+Each item has a tracking issue with implementation notes — grab one, comment, and go.
 
 ## Contributing
 
-Issues and PRs welcome. Things that would genuinely help:
+PRs and issues welcome. Ground rules are short:
 
-- **Other compositors** (KDE, Hyprland, Sway) — the injector and overlay are the two
-  modules with GNOME-specific assumptions; both are isolated behind small interfaces.
-- **Packaging** — a .deb, an AUR package, a Flatpak (the uinput access needs thought).
-- **i18n** — user-facing strings are currently Polish (the author dictates in Polish);
-  extracting them is a small, well-contained task.
-- **A GNOME Shell extension overlay** — would allow real background blur and drop the
-  XWayland dependency.
-
-Run the test suite with `uv run pytest` (no GPU or microphone needed). Please keep the
-module boundaries: `recorder`/`transcriber`/`injector`/`overlay`/`micmute` must not
-import each other.
+- `uv run pytest` must stay green and hardware-free — mock the OS, not the logic.
+- Module boundaries are load-bearing: `recorder`/`transcriber`/`injector`/`overlay`/
+  `micmute` must not import each other. The daemon is the only composer.
+- One platform assumption per module, documented in its docstring.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) © Filip Piątek

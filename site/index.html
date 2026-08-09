@@ -6,149 +6,192 @@
 <title>voiceflow — local voice dictation, free &amp; open source</title>
 <meta name="description" content="Press a hotkey, speak, and your words appear in whatever window has focus. Whisper on your own GPU — no cloud, no subscription, no audio ever leaving your machine. Linux &amp; Windows.">
 <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
-<meta property="og:title" content="voiceflow — local voice dictation">
-<meta property="og:description" content="Press a hotkey. Speak. Your words appear in whatever window has focus. Free, open source, 100% local.">
+<meta property="og:title" content="voiceflow — speak, and it is written">
+<meta property="og:description" content="Local voice dictation. Whisper on your own hardware — free, open source, private.">
 <meta property="og:url" content="https://voiceflow.pbdevs.com">
 <meta property="og:type" content="website">
-<meta property="og:image" content="https://voiceflow.pbdevs.com/assets/preview.png">
+<meta property="og:image" content="https://voiceflow.pbdevs.com/assets/hero-statue.webp">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
 <script defer src="https://umami.pbdevs.com/script.js" data-website-id="7c5b575e-29f3-4376-94e1-a2335105a80b"></script>
 <style>
 :root{
-  --bg:#0a0a0b; --surface:#131315; --surface-2:#1a1a1d;
-  --text:#f5f5f7; --muted:#9a9aa2; --faint:#55555c; --border:#232326;
-  --maxw:1120px; --radius:14px;
-  --font:"Inter",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,monospace;
+  --bg:#0b0a09; --surface:#14110f; --text:#ede8df; --muted:#9c948a;
+  --faint:#5d574e; --border:#272220; --gold:#c9a45c; --gold-dim:rgba(201,164,92,.35);
+  --maxw:1200px;
+  --serif:"Cormorant Garamond",Georgia,serif;
+  --sans:"Inter",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,monospace;
 }
 *{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth}
-body{background:var(--bg);color:var(--text);font:400 1rem/1.7 var(--font);-webkit-font-smoothing:antialiased}
+body{background:var(--bg);color:var(--text);font:400 1rem/1.75 var(--sans);-webkit-font-smoothing:antialiased}
 a{color:inherit;text-decoration:none}
-.wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+img{display:block;max-width:100%}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 32px}
+
+.eyebrow{font-size:.75rem;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--gold)}
+.serif{font-family:var(--serif)}
 
 /* nav */
-nav{position:sticky;top:0;z-index:10;background:rgba(10,10,11,.82);backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
-.nav-inner{display:flex;align-items:center;gap:32px;height:64px}
-.mark{display:flex;align-items:center;gap:10px;font-weight:600;letter-spacing:-.02em}
-.mark svg{display:block}
-.nav-links{display:flex;gap:28px;margin-left:auto;font-size:.9rem;color:var(--muted)}
+nav{position:sticky;top:0;z-index:20;background:rgba(11,10,9,.85);backdrop-filter:blur(14px);border-bottom:1px solid var(--border)}
+.nav-inner{display:flex;align-items:center;gap:36px;height:72px}
+.wordmark{font-family:var(--serif);font-size:1.5rem;font-weight:600;letter-spacing:.01em}
+.wordmark span{color:var(--gold)}
+.nav-links{display:flex;gap:30px;margin-left:auto;font-size:.85rem;color:var(--muted)}
 .nav-links a:hover{color:var(--text)}
-.btn{display:inline-flex;align-items:center;gap:8px;border-radius:10px;padding:10px 18px;font-size:.9rem;font-weight:500;transition:transform .15s ease,box-shadow .15s ease,background .15s ease;cursor:pointer}
-.btn-primary{background:var(--text);color:#0a0a0b}
-.btn-primary:hover{transform:translateY(-1px);box-shadow:0 0 24px rgba(245,245,247,.18)}
-.btn-ghost{border:1px solid var(--border);color:var(--text)}
-.btn-ghost:hover{background:var(--surface);border-color:#3a3a40}
-.nav-cta{margin-left:8px}
+.btn{display:inline-flex;align-items:center;gap:10px;border:1px solid var(--gold-dim);color:var(--text);
+  padding:12px 22px;font-size:.85rem;font-weight:500;letter-spacing:.04em;
+  transition:background .25s ease,color .25s ease,border-color .25s ease;cursor:pointer;background:none}
+.btn:hover{background:var(--gold);color:#0b0a09;border-color:var(--gold)}
+.btn:hover svg{stroke:#0b0a09}
+.btn svg{stroke:var(--gold);transition:stroke .25s ease}
+.btn.solid{border-color:var(--gold);color:var(--gold)}
 
 /* hero */
-header{position:relative;overflow:hidden}
-#wave{position:absolute;inset:auto 0 0 0;width:100%;height:340px;opacity:.9;pointer-events:none}
-.hero{position:relative;z-index:1;padding:110px 0 300px;text-align:center}
-.eyebrow{display:inline-flex;gap:10px;align-items:center;font-size:.8rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:6px 16px;margin-bottom:34px}
-.eyebrow .dot{width:7px;height:7px;border-radius:50%;background:var(--text);animation:pulse 2s ease-in-out infinite}
-@keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(245,245,247,.4)}50%{opacity:.55;box-shadow:0 0 0 6px rgba(245,245,247,0)}}
-h1{font-size:clamp(2.8rem,7vw,5.4rem);font-weight:600;letter-spacing:-.045em;line-height:1.04}
-h1 .dim{color:var(--faint)}
-.sub{max-width:640px;margin:28px auto 40px;color:var(--muted);font-size:1.125rem}
-.cta-row{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+header{position:relative;border-bottom:1px solid var(--border);overflow:hidden}
+.hero-img{position:absolute;inset:0;z-index:0}
+.hero-img img{width:100%;height:100%;object-fit:cover;object-position:left center;opacity:.92}
+.hero-img::after{content:"";position:absolute;inset:0;
+  background:linear-gradient(90deg,rgba(11,10,9,.25) 0%,rgba(11,10,9,.05) 35%,rgba(11,10,9,.68) 62%,rgba(11,10,9,.96) 100%),
+             linear-gradient(0deg,var(--bg) 0%,transparent 22%),
+             linear-gradient(180deg,rgba(11,10,9,.6) 0%,transparent 18%)}
+.hero{position:relative;z-index:1;min-height:88vh;display:flex;align-items:center;justify-content:flex-end;padding:120px 0}
+.hero-copy{max-width:560px;text-align:left}
+.hero h1{font-family:var(--serif);font-weight:500;font-size:clamp(3.2rem,6.5vw,5.8rem);line-height:1.02;letter-spacing:.005em;margin:26px 0 30px}
+.hero h1 em{font-style:italic;color:var(--gold)}
+.hero p.lead-hero{color:var(--muted);font-size:1.06rem;max-width:46ch}
+.cta-row{display:flex;gap:16px;margin-top:44px;flex-wrap:wrap}
+.hero-note{margin-top:26px;font-size:.8rem;color:var(--faint);letter-spacing:.04em}
 
-/* stats strip */
-.stats{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-top:-160px;position:relative;z-index:2;background:var(--surface)}
-.stat{padding:28px 20px;text-align:center;border-left:1px solid var(--border)}
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--border)}
+.stat{padding:44px 28px;border-left:1px solid var(--border)}
 .stat:first-child{border-left:none}
-.stat b{display:block;font-size:1.9rem;font-weight:600;letter-spacing:-.03em}
-.stat span{font-size:.85rem;color:var(--muted)}
+.stat b{display:block;font-family:var(--serif);font-weight:500;font-size:2.8rem;line-height:1;color:var(--gold)}
+.stat span{display:block;margin-top:10px;font-size:.85rem;color:var(--muted);max-width:24ch}
 
-/* sections */
-section{padding:130px 0 0}
-.kicker{font-size:.8rem;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:14px}
-h2{font-size:clamp(1.9rem,4vw,2.8rem);font-weight:600;letter-spacing:-.035em;line-height:1.15;max-width:640px}
-.lead{color:var(--muted);max-width:600px;margin-top:18px}
+/* chapters */
+section{padding:150px 0 0}
+.chapter{display:flex;align-items:baseline;gap:26px;border-top:1px solid var(--border);padding-top:34px}
+.chapter .num{font-family:var(--serif);font-size:1.1rem;color:var(--gold);letter-spacing:.08em}
+.chapter h2{font-family:var(--serif);font-weight:500;font-size:clamp(2.2rem,4vw,3.4rem);line-height:1.1;max-width:640px}
+.chapter h2 em{font-style:italic;color:var(--gold)}
+.lead{color:var(--muted);max-width:600px;margin-top:22px;margin-left:calc(26px + 2.1ch)}
 
-/* overlay demo */
-.demo{display:flex;justify-content:center;margin-top:56px}
-.overlay-card{width:min(560px,100%);background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:26px 30px;box-shadow:inset 0 1px 0 rgba(245,245,247,.06)}
-.overlay-head{display:flex;align-items:center;gap:12px;margin-bottom:14px}
-.rec-dot{width:10px;height:10px;border-radius:50%;background:var(--text);animation:pulse 1.6s ease-in-out infinite}
-.overlay-head span{font-size:.8rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
-#type-line{font-family:var(--mono);font-size:.95rem;min-height:3.4em;color:var(--text)}
-#type-line .caret{display:inline-block;width:8px;height:1.1em;background:var(--text);vertical-align:text-bottom;animation:blink 1s steps(1) infinite;margin-left:2px}
+/* demo */
+.demo{display:flex;justify-content:center;margin-top:70px}
+.overlay-card{width:min(620px,100%);background:var(--surface);border:1px solid var(--border);padding:30px 36px}
+.overlay-head{display:flex;align-items:center;gap:14px;margin-bottom:16px}
+.rec-dot{width:9px;height:9px;border-radius:50%;background:var(--gold);animation:pulse 1.8s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 var(--gold-dim)}50%{opacity:.5;box-shadow:0 0 0 7px transparent}}
+.overlay-head span{font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+#type-line{font-family:var(--mono);font-size:.92rem;min-height:3.6em;color:var(--text)}
+#type-line .caret{display:inline-block;width:8px;height:1.1em;background:var(--gold);vertical-align:text-bottom;animation:blink 1s steps(1) infinite;margin-left:3px}
 @keyframes blink{50%{opacity:0}}
-.demo-caption{text-align:center;color:var(--faint);font-size:.85rem;margin-top:18px}
+.demo-caption{text-align:center;color:var(--faint);font-size:.8rem;margin-top:20px;letter-spacing:.05em}
 
-/* features */
-.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:56px}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:30px 28px;transition:background .2s ease,border-color .2s ease}
-.card:hover{background:var(--surface-2);border-color:#33333a}
-.card svg{margin-bottom:18px}
-.card h3{font-size:1.05rem;font-weight:600;letter-spacing:-.01em;margin-bottom:8px}
-.card p{color:var(--muted);font-size:.925rem}
-.card code{font-family:var(--mono);font-size:.85em;color:var(--text);background:var(--surface-2);padding:1px 6px;border-radius:5px}
+/* uses */
+.uses{display:grid;grid-template-columns:repeat(3,1fr);margin-top:70px;border-top:1px solid var(--border);border-left:1px solid var(--border)}
+.use{padding:40px 34px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);transition:background .3s ease}
+.use:hover{background:var(--surface)}
+.use svg{stroke:var(--gold);margin-bottom:20px}
+.use h3{font-family:var(--serif);font-weight:600;font-size:1.35rem;margin-bottom:8px}
+.use p{color:var(--muted);font-size:.9rem;margin-bottom:18px}
+.use .sample{font-family:var(--mono);font-size:.78rem;color:var(--faint);border-left:2px solid var(--gold-dim);padding-left:12px;line-height:1.6}
+.use .sample b{color:var(--muted);font-weight:400}
+
+/* portrait split */
+.split{display:grid;grid-template-columns:1.05fr .95fr;gap:80px;align-items:center;margin-top:70px}
+.split-img{position:relative}
+.split-img img{width:100%;height:auto}
+.split-img::after{content:"";position:absolute;inset:0;box-shadow:inset 0 0 120px 60px var(--bg)}
+.split h3{font-family:var(--serif);font-weight:500;font-size:clamp(2rem,3.4vw,2.9rem);line-height:1.12;margin-bottom:24px}
+.split h3 em{font-style:italic;color:var(--gold)}
+.split p{color:var(--muted);margin-bottom:16px}
+.split .rule-list{margin-top:28px;border-top:1px solid var(--border)}
+.split .rule-list div{display:flex;gap:16px;align-items:center;padding:16px 4px;border-bottom:1px solid var(--border);font-size:.92rem}
+.split .rule-list svg{stroke:var(--gold);flex-shrink:0}
+
+/* features editorial list */
+.features{margin-top:70px;border-top:1px solid var(--border)}
+.feature{display:grid;grid-template-columns:90px 300px 1fr;gap:30px;padding:34px 4px;border-bottom:1px solid var(--border)}
+.feature .fnum{font-family:var(--serif);color:var(--gold);font-size:1.05rem}
+.feature h3{font-family:var(--serif);font-weight:600;font-size:1.45rem;line-height:1.2}
+.feature p{color:var(--muted);font-size:.94rem;max-width:60ch}
+.feature code{font-family:var(--mono);font-size:.82em;color:var(--text);background:var(--surface);padding:1px 7px;border:1px solid var(--border)}
 
 /* compare */
-table{width:100%;border-collapse:collapse;margin-top:56px;font-size:.95rem}
-th,td{padding:16px 20px;text-align:left;border-bottom:1px solid var(--border)}
-th{font-weight:500;color:var(--muted);font-size:.85rem;letter-spacing:.06em;text-transform:uppercase}
+table{width:100%;border-collapse:collapse;margin-top:70px;font-size:.95rem}
+th,td{padding:18px 22px;text-align:left;border-bottom:1px solid var(--border)}
+th{font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:600}
+th:nth-child(2){color:var(--gold)}
 td:first-child{color:var(--muted)}
-td:nth-child(2){font-weight:500}
+td:nth-child(2){color:var(--text);font-weight:500}
+td:nth-child(3){color:var(--faint)}
 tr:hover td{background:var(--surface)}
-.good{color:var(--text)}
-.bad{color:var(--faint)}
 
 /* install */
-.install-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:56px}
-.install-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:34px 32px;min-width:0}
-.install-card h3{font-size:1.2rem;font-weight:600;letter-spacing:-.02em;display:flex;align-items:center;gap:10px}
-.os-tag{font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);border:1px solid var(--border);border-radius:999px;padding:3px 10px}
-.install-card p{color:var(--muted);font-size:.9rem;margin:14px 0 20px}
-.cmd{position:relative;background:#0d0d0f;border:1px solid var(--border);border-radius:10px;padding:16px 52px 16px 18px;font-family:var(--mono);font-size:.82rem;line-height:1.6;overflow-x:auto;white-space:pre;color:#d8d8de}
-.cmd::-webkit-scrollbar{height:5px}
-.cmd::-webkit-scrollbar-track{background:transparent}
-.cmd::-webkit-scrollbar-thumb{background:#2c2c31;border-radius:3px}
-.cmd{scrollbar-width:thin;scrollbar-color:#2c2c31 transparent}
-.copy{position:absolute;top:10px;right:10px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;color:var(--muted);width:34px;height:34px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:color .15s,border-color .15s}
-.copy:hover{color:var(--text);border-color:#3a3a40}
-.install-note{margin-top:20px;font-size:.85rem;color:var(--faint)}
+.install-grid{display:grid;grid-template-columns:1fr 1fr;gap:60px;margin-top:70px}
+.install-card{min-width:0}
+.install-card h3{font-family:var(--serif);font-weight:600;font-size:1.7rem;display:flex;align-items:baseline;gap:14px}
+.os-tag{font-family:var(--sans);font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);border:1px solid var(--border);padding:4px 12px}
+.install-card>p{color:var(--muted);font-size:.92rem;margin:16px 0 22px;max-width:52ch}
+.cmd{position:relative;background:var(--surface);border:1px solid var(--border);padding:18px 56px 18px 20px;font-family:var(--mono);font-size:.8rem;line-height:1.6;overflow-x:auto;white-space:pre;color:#d6cfc2}
+.cmd::-webkit-scrollbar{height:4px}
+.cmd::-webkit-scrollbar-thumb{background:#3a332c}
+.cmd{scrollbar-width:thin;scrollbar-color:#3a332c transparent}
+.copy{position:absolute;top:10px;right:10px;background:none;border:1px solid var(--border);color:var(--muted);width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:color .2s,border-color .2s}
+.copy:hover{color:var(--gold);border-color:var(--gold-dim)}
+.install-note{margin-top:18px;font-size:.83rem;color:var(--faint)}
 .install-note a{color:var(--muted);border-bottom:1px solid var(--border)}
-.install-note a:hover{color:var(--text)}
-.bat-link{margin-top:16px;display:inline-flex}
+.install-note a:hover{color:var(--gold);border-color:var(--gold-dim)}
+.bat-link{margin-top:18px}
 
 /* platforms */
-.platforms{margin-top:56px;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
-.platform{display:flex;align-items:center;gap:18px;padding:22px 28px;border-top:1px solid var(--border);background:var(--surface)}
-.platform:first-child{border-top:none}
-.platform:hover{background:var(--surface-2)}
-.p-name{font-weight:500;min-width:190px;letter-spacing:-.01em}
-.p-desc{color:var(--muted);font-size:.9rem;flex:1}
-.p-status{font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;border:1px solid var(--border);border-radius:999px;padding:4px 12px;color:var(--muted);white-space:nowrap}
-.p-status.live{color:#0a0a0b;background:var(--text);border-color:var(--text)}
-.p-status.beta{color:var(--text);border-color:#4a4a52}
-.mission{margin-top:64px;border-left:2px solid var(--text);padding:6px 0 6px 28px;max-width:720px}
-.mission p{font-size:1.15rem;color:var(--text);line-height:1.7}
-.mission p+p{margin-top:14px;color:var(--muted);font-size:1rem}
+.plat-split{display:grid;grid-template-columns:1fr 380px;gap:80px;margin-top:70px;align-items:start}
+.platforms{border-top:1px solid var(--border)}
+.platform{display:flex;align-items:center;gap:20px;padding:22px 4px;border-bottom:1px solid var(--border)}
+.p-name{font-family:var(--serif);font-weight:600;font-size:1.2rem;min-width:210px}
+a.p-name:hover{color:var(--gold)}
+.p-desc{color:var(--muted);font-size:.88rem;flex:1}
+.p-status{font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;border:1px solid var(--border);padding:5px 13px;color:var(--muted);white-space:nowrap}
+.p-status.live{color:#0b0a09;background:var(--gold);border-color:var(--gold)}
+.p-status.beta{color:var(--gold);border-color:var(--gold-dim)}
+.aside-img{position:relative}
+.aside-img img{width:100%}
+.aside-img::after{content:"";position:absolute;inset:0;box-shadow:inset 0 0 100px 50px var(--bg)}
+.mission{font-family:var(--serif);font-style:italic;font-size:1.5rem;line-height:1.5;color:var(--text);margin-top:30px}
+.mission-sub{color:var(--muted);font-size:.92rem;margin-top:16px}
+.mission-sub a{color:var(--gold);border-bottom:1px solid var(--gold-dim)}
 
 /* footer */
-footer{margin-top:150px;border-top:1px solid var(--border);padding:48px 0 56px}
-.foot{display:flex;align-items:center;gap:28px;flex-wrap:wrap;color:var(--faint);font-size:.875rem}
-.foot a{color:var(--muted)}
-.foot a:hover{color:var(--text)}
-.foot .mark{margin-right:auto;color:var(--text)}
+footer{margin-top:170px;border-top:1px solid var(--border);padding:56px 0 64px}
+.foot{display:flex;align-items:center;gap:32px;flex-wrap:wrap;color:var(--faint);font-size:.85rem}
+.foot .wordmark{margin-right:auto;font-size:1.25rem}
+.foot a:hover{color:var(--gold)}
 
 /* reveal */
-.reveal{opacity:0;transform:translateY(8px);transition:opacity .5s ease-out,transform .5s ease-out}
+.reveal{opacity:0;transform:translateY(10px);transition:opacity .6s ease-out,transform .6s ease-out}
 .reveal.in{opacity:1;transform:none}
 
-@media (max-width:900px){.grid{grid-template-columns:1fr 1fr}}
-@media (max-width:720px){
+@media (max-width:1000px){
+  .uses{grid-template-columns:1fr 1fr}
+  .feature{grid-template-columns:60px 1fr;grid-template-rows:auto auto}
+  .feature p{grid-column:2}
+  .split,.plat-split{grid-template-columns:1fr;gap:40px}
+  .install-grid{grid-template-columns:1fr;gap:50px}
+}
+@media (max-width:760px){
   .nav-links{display:none}
-  .grid,.install-grid{grid-template-columns:1fr}
+  .uses{grid-template-columns:1fr}
   .stats{grid-template-columns:1fr 1fr}
-  .stat:nth-child(3){border-left:none}
   .stat{border-top:1px solid var(--border)}
   .stat:nth-child(-n+2){border-top:none}
-  .hero{padding:80px 0 240px}
+  .stat:nth-child(3){border-left:none}
+  .hero{min-height:72vh;justify-content:flex-start;padding:90px 0 60px}
+  .hero-img img{object-position:38% center;opacity:.5}
   .platform{flex-wrap:wrap}
 }
 @media (prefers-reduced-motion:reduce){
@@ -161,122 +204,157 @@ footer{margin-top:150px;border-top:1px solid var(--border);padding:48px 0 56px}
 
 <nav>
   <div class="wrap nav-inner">
-    <a class="mark" href="#">
-      <svg width="26" height="26" viewBox="0 0 128 128"><rect width="128" height="128" rx="28" fill="#141416" stroke="#232326"/><g fill="#f5f5f7"><rect x="32" y="52" width="8" height="24" rx="4"/><rect x="46" y="42" width="8" height="44" rx="4"/><rect x="60" y="32" width="8" height="64" rx="4"/><rect x="74" y="42" width="8" height="44" rx="4"/><rect x="88" y="52" width="8" height="24" rx="4"/></g></svg>
-      voiceflow
-    </a>
+    <a class="wordmark" href="#">voiceflow<span>.</span></a>
     <div class="nav-links">
+      <a href="#uses">Uses</a>
       <a href="#features">Features</a>
       <a href="#install">Install</a>
       <a href="#platforms">Platforms</a>
       <a href="https://github.com/AveJaPl/voiceflow/blob/main/CHANGELOG.md" data-umami-event="nav-changelog">Changelog</a>
     </div>
-    <a class="btn btn-ghost nav-cta" href="https://github.com/AveJaPl/voiceflow" data-umami-event="github-nav">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+    <a class="btn" href="https://github.com/AveJaPl/voiceflow" data-umami-event="github-nav">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.4 5.4 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>
       GitHub
     </a>
   </div>
 </nav>
 
 <header>
+  <div class="hero-img"><img src="assets/hero-statue.webp" alt="" fetchpriority="high"></div>
   <div class="wrap hero">
-    <div class="eyebrow"><span class="dot"></span>open source · MIT · 100% local</div>
-    <h1>Press a hotkey. Speak.<br><span class="dim">Your words appear.</span></h1>
-    <p class="sub">Local, GPU-accelerated voice dictation. Whisper runs on <em>your</em> hardware —
-    no cloud, no subscription, no audio ever leaving your machine. Built for the platform
-    the paid apps skipped: Linux. Now on Windows too.</p>
-    <div class="cta-row">
-      <a class="btn btn-primary" href="#install" data-umami-event="cta-install">Install in one command</a>
-      <a class="btn btn-ghost" href="https://github.com/AveJaPl/voiceflow" data-umami-event="github-hero">Star on GitHub</a>
+    <div class="hero-copy">
+      <p class="eyebrow">Free &amp; open source · Local Whisper · MIT</p>
+      <h1>Speak, and it is <em>written.</em></h1>
+      <p class="lead-hero">Press a hotkey. Say what you mean. Your words appear in whatever
+      window has focus — transcribed on <em>your</em> hardware, in your language,
+      with your vocabulary. No cloud. No subscription. Nothing leaves the machine.</p>
+      <div class="cta-row">
+        <a class="btn solid" href="#install" data-umami-event="cta-install">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M12 3v12m0 0 4-4m-4 4-4-4" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 21h16" stroke-linecap="round"/></svg>
+          Install in one command
+        </a>
+        <a class="btn" href="https://github.com/AveJaPl/voiceflow" data-umami-event="github-hero">View the source</a>
+      </div>
+      <p class="hero-note">Linux · GNOME on Wayland — native. Windows 10/11 — beta. More on the way.</p>
     </div>
   </div>
-  <canvas id="wave"></canvas>
 </header>
 
 <div class="wrap">
   <div class="stats reveal">
-    <div class="stat"><b>0.04&nbsp;s</b><span>to transcribe 4 s of speech (RTX&nbsp;3070)</span></div>
+    <div class="stat"><b>0.04&nbsp;s</b><span>to transcribe four seconds of speech on an RTX&nbsp;3070</span></div>
     <div class="stat"><b>$0</b><span>forever — your GPU, your model, MIT license</span></div>
-    <div class="stat"><b>0 bytes</b><span>of audio leave your machine</span></div>
+    <div class="stat"><b>0&nbsp;bytes</b><span>of audio ever leave your machine</span></div>
     <div class="stat"><b>96</b><span>hardware-free tests run in CI on every commit</span></div>
   </div>
 </div>
 
 <section id="demo">
   <div class="wrap">
-    <p class="kicker">Live preview</p>
-    <h2 class="reveal">See what it hears, while you're still talking.</h2>
-    <p class="lead reveal">A minimal always-on-top card shows the transcription as it forms — and never
-    steals focus from the window you're dictating into. Release the hotkey and a final,
-    full-context pass is pasted at your cursor.</p>
+    <div class="chapter reveal"><span class="num">01</span><h2>One key. One breath. <em>Done.</em></h2></div>
+    <p class="lead reveal">While you speak, a quiet card shows what the model hears — it never steals
+    focus from your work. Release the key, and a final full-context pass lands the text at your cursor.</p>
     <div class="demo reveal">
       <div class="overlay-card">
-        <div class="overlay-head"><span class="rec-dot"></span><span>listening</span></div>
+        <div class="overlay-head"><span class="rec-dot"></span><span>Listening</span></div>
         <div id="type-line"><span class="caret"></span></div>
       </div>
     </div>
-    <p class="demo-caption">Faithful replica of the real overlay — matte, monochrome, focus-proof.</p>
+    <p class="demo-caption">A faithful replica of the on-screen preview.</p>
+  </div>
+</section>
+
+<section id="uses">
+  <div class="wrap">
+    <div class="chapter reveal"><span class="num">02</span><h2>What will you <em>dictate?</em></h2></div>
+    <p class="lead reveal">Anywhere a cursor blinks, voiceflow writes. The same hotkey, every application.</p>
+    <div class="uses reveal">
+      <div class="use">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+        <h3>E-mail</h3>
+        <p>Draft three replies in the time typing one used to take.</p>
+        <div class="sample"><b>“Dear Anna, thanks for the offer — let's schedule a call for Tuesday…”</b></div>
+      </div>
+      <div class="use">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
+        <h3>Messages</h3>
+        <p>Slack, WhatsApp, Discord — answer at the speed of speech.</p>
+        <div class="sample"><b>“I'll be 10 minutes late, start without me.”</b></div>
+      </div>
+      <div class="use">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><polyline points="4 17 10 11 4 5" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="19" x2="20" y2="19" stroke-linecap="round"/></svg>
+        <h3>Code &amp; AI prompts</h3>
+        <p>Born in a terminal: the author dictates prompts to coding agents all day.</p>
+        <div class="sample"><b>“Refactor the auth module and add tests for expired tokens.”</b></div>
+      </div>
+      <div class="use">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h8M8 17h5"/></svg>
+        <h3>Documents</h3>
+        <p>Reports, essays, meeting notes — flow first, polish later.</p>
+        <div class="sample"><b>“Section two: findings. The measurements show a clear trend…”</b></div>
+      </div>
+      <div class="use">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M13 4 9 20M19 4l-4 16" stroke-linecap="round"/><path d="M5 8h14M3 16h14" stroke-linecap="round"/></svg>
+        <h3>Notes &amp; capture</h3>
+        <p>Ideas evaporate faster than you can type. Not faster than you speak.</p>
+        <div class="sample"><b>“Idea: bias the decoder with the project glossary…”</b></div>
+      </div>
+      <div class="use">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/></svg>
+        <h3>Mid-call</h3>
+        <p>On Discord, your mic is muted to the call and the call is turned down —
+        they never hear your prompts.</p>
+        <div class="sample"><b>Call at 40% · mic muted · restored the instant you finish</b></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="private">
+  <div class="wrap split">
+    <div>
+      <h3 class="reveal">Made for those who <em>think out loud.</em></h3>
+      <p class="reveal">Every other dictation tool ships your voice to a server and bills you
+      monthly for the privilege. voiceflow keeps the entire pipeline on your machine:
+      the model, the audio, the history, the vocabulary.</p>
+      <p class="reveal">That is not a feature toggle — it is the architecture. The only network
+      call in the codebase is an optional, once-a-day update check.</p>
+      <div class="rule-list reveal">
+        <div><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></svg>Audio, transcripts and history never leave your disk</div>
+        <div><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M3.5 12h17M12 3c2.5 2.4 3.8 5.5 3.8 9s-1.3 6.6-3.8 9c-2.5-2.4-3.8-5.5-3.8-9S9.5 5.4 12 3Z"/></svg>Any language Whisper speaks — plus your own vocabulary</div>
+        <div><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16" stroke-linecap="round" stroke-linejoin="round"/></svg>Works offline, on a plane, behind any firewall</div>
+      </div>
+    </div>
+    <div class="split-img reveal"><img src="assets/portrait-dictating.webp" alt="A person dictating; a golden waveform in the air" loading="lazy"></div>
   </div>
 </section>
 
 <section id="features">
   <div class="wrap">
-    <p class="kicker">Features</p>
-    <h2 class="reveal">Everything a dictation tool should do.<br>Nothing phoning home.</h2>
-    <div class="grid">
-      <div class="card reveal">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#f5f5f7" stroke-width="1.5"><path d="M13 2 4.5 13.5H11L10 22l8.5-11.5H12L13 2Z" stroke-linejoin="round"/></svg>
-        <h3>Instant on your GPU</h3>
-        <p>A daemon keeps Whisper <code>large-v3-turbo</code> warm in VRAM: the text lands the moment
-        you stop speaking. No GPU? Automatic CPU fallback — slower, still private.</p>
-      </div>
-      <div class="card reveal">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#f5f5f7" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 12h1M11 10v4M15 9v6M19 12h-1" stroke-linecap="round"/></svg>
-        <h3>Live preview</h3>
-        <p>An on-screen card shows the transcription while you speak, refreshed every second —
-        engineered so no compositor can hand it focus.</p>
-      </div>
-      <div class="card reveal">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#f5f5f7" stroke-width="1.5"><path d="M12 4a3 3 0 0 1 3 3v4a3 3 0 1 1-6 0V7a3 3 0 0 1 3-3Z"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3" stroke-linecap="round"/></svg>
-        <h3>Voice-chat aware</h3>
-        <p>Dictating mid-call? Your mic stream to Discord is muted — the call never hears your
-        prompts — and the call's audio is ducked so it stops derailing your sentence.</p>
-      </div>
-      <div class="card reveal">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#f5f5f7" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M3.5 12h17M12 3c2.5 2.4 3.8 5.5 3.8 9S14.5 18.6 12 21c-2.5-2.4-3.8-5.5-3.8-9S9.5 5.4 12 3Z"/></svg>
-        <h3>Any language, your jargon</h3>
-        <p>Dictate in whatever Whisper speaks. Feed your product names into the custom vocabulary
-        and the decoder stops mangling them — it biases, never rewrites.</p>
-      </div>
-      <div class="card reveal">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#f5f5f7" stroke-width="1.5"><path d="M12 8v4l3 2" stroke-linecap="round"/><circle cx="12" cy="12" r="9"/></svg>
-        <h3>History &amp; statistics</h3>
-        <p>Pasted into the wrong window? Every dictation is kept locally — recover it with
-        <code>voiceflow last --copy</code>. Words per day, charts, a GitHub-style activity calendar.</p>
-      </div>
-      <div class="card reveal">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#f5f5f7" stroke-width="1.5"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></svg>
-        <h3>Private by design</h3>
-        <p>The model, the audio, the history, the config — all on your disk. The only network
-        call in the codebase is an optional once-a-day update check. That's it.</p>
-      </div>
+    <div class="chapter reveal"><span class="num">03</span><h2>The <em>craft</em> under it.</h2></div>
+    <div class="features reveal">
+      <div class="feature"><span class="fnum">i</span><h3>Warm in VRAM</h3><p>A user daemon keeps Whisper <code>large-v3-turbo</code> loaded, so text lands the moment you stop speaking. No GPU? Automatic CPU fallback — slower, equally private.</p></div>
+      <div class="feature"><span class="fnum">ii</span><h3>Live preview</h3><p>The on-screen card is engineered so no compositor can hand it focus — the pasted text always goes where you were working.</p></div>
+      <div class="feature"><span class="fnum">iii</span><h3>Voice-chat aware</h3><p>Dictating mid-call mutes your mic stream to the call and ducks its volume; both are restored the instant recording ends. Your manual mute is respected.</p></div>
+      <div class="feature"><span class="fnum">iv</span><h3>Your vocabulary</h3><p>Product names and jargon are biased into the decoder — it stops mangling them, and it never rewrites what you actually said.</p></div>
+      <div class="feature"><span class="fnum">v</span><h3>History &amp; statistics</h3><p>Pasted into the wrong window? <code>voiceflow last --copy</code> recovers it. Words per day, charts, an activity calendar.</p></div>
+      <div class="feature"><span class="fnum">vi</span><h3>Honest clipboard</h3><p>Text is injected via paste — the only path that survives every alphabet — and your previous clipboard is put back afterwards.</p></div>
     </div>
   </div>
 </section>
 
 <section id="compare">
   <div class="wrap">
-    <p class="kicker">Why voiceflow</p>
-    <h2 class="reveal">The paid apps are great.<br>They just aren't yours.</h2>
+    <div class="chapter reveal"><span class="num">04</span><h2>The paid apps are great.<br>They just aren't <em>yours.</em></h2></div>
     <table class="reveal">
       <thead><tr><th></th><th>voiceflow</th><th>typical paid dictation app</th></tr></thead>
       <tbody>
-        <tr><td>price</td><td class="good">free, MIT</td><td class="bad">~$15/month</td></tr>
-        <tr><td>audio leaves your machine</td><td class="good">never</td><td class="bad">always</td></tr>
-        <tr><td>Linux / GNOME / Wayland</td><td class="good">native</td><td class="bad">unsupported</td></tr>
-        <tr><td>latency after you stop speaking</td><td class="good">~0.1 s on a GPU</td><td class="bad">network round-trip</td></tr>
-        <tr><td>works offline</td><td class="good">yes</td><td class="bad">no</td></tr>
-        <tr><td>source code</td><td class="good">all of it, on GitHub</td><td class="bad">closed</td></tr>
+        <tr><td>price</td><td>free, MIT</td><td>~$15/month</td></tr>
+        <tr><td>audio leaves your machine</td><td>never</td><td>always</td></tr>
+        <tr><td>Linux / GNOME / Wayland</td><td>native</td><td>unsupported</td></tr>
+        <tr><td>latency after you stop speaking</td><td>~0.1 s on a GPU</td><td>network round-trip</td></tr>
+        <tr><td>works offline</td><td>yes</td><td>no</td></tr>
+        <tr><td>source code</td><td>all of it, on GitHub</td><td>closed</td></tr>
       </tbody>
     </table>
   </div>
@@ -284,32 +362,31 @@ footer{margin-top:150px;border-top:1px solid var(--border);padding:48px 0 56px}
 
 <section id="install">
   <div class="wrap">
-    <p class="kicker">Install</p>
-    <h2 class="reveal">One command. Everything included.</h2>
-    <p class="lead reveal">The installer sets up the environment, the hotkey, the background service,
-    and downloads the speech model with a visible progress bar — when it says done, dictation works.
-    Updating later? Run the same command again.</p>
+    <div class="chapter reveal"><span class="num">05</span><h2>One command. <em>Everything</em> included.</h2></div>
+    <p class="lead reveal">Environment, hotkey, background service — and the speech model, downloaded
+    with a visible progress bar as the final step. When the installer says done, dictation works.
+    Updating later? The same command again.</p>
     <div class="install-grid">
       <div class="install-card reveal">
         <h3>Linux <span class="os-tag">Ubuntu · GNOME on Wayland</span></h3>
-        <p>One step asks for sudo (input tooling + udev rule — the script explains why).
-        Press <strong>Super&nbsp;+&nbsp;G</strong>, speak, press it again.</p>
+        <p>One step asks for sudo (input tooling and a udev rule — the script explains why).
+        Then press <strong>Super&nbsp;+&nbsp;G</strong>, speak, press it again.</p>
         <div class="cmd" id="cmd-linux">curl -fsSL https://raw.githubusercontent.com/AveJaPl/voiceflow/main/install.sh | bash</div>
         <p class="install-note">Prefer to read it first? <a href="https://github.com/AveJaPl/voiceflow/blob/main/install.sh">View install.sh on GitHub</a>.</p>
       </div>
       <div class="install-card reveal">
         <h3>Windows 10 / 11 <span class="os-tag">beta</span></h3>
         <p>Works in PowerShell <em>and</em> cmd, from any directory.
-        Press <strong>Ctrl&nbsp;+&nbsp;Shift&nbsp;+&nbsp;Space</strong>, speak, press it again.</p>
+        Then press <strong>Ctrl&nbsp;+&nbsp;Shift&nbsp;+&nbsp;Space</strong>, speak, press it again.</p>
         <div class="cmd" id="cmd-win">powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/AveJaPl/voiceflow/main/windows/install.ps1 | iex"</div>
-        <p class="install-note">No terminal? Download the double-clickable installer:</p>
-        <a class="btn btn-ghost bat-link" href="https://github.com/AveJaPl/voiceflow/releases/latest/download/voiceflow-install.bat" data-umami-event="download-bat">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 19h16" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <p class="install-note">No terminal? A double-clickable installer:</p>
+        <a class="btn bat-link" href="https://github.com/AveJaPl/voiceflow/releases/latest/download/voiceflow-install.bat" data-umami-event="download-bat">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M12 3v12m0 0 4-4m-4 4-4-4" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 21h16" stroke-linecap="round"/></svg>
           voiceflow-install.bat
         </a>
       </div>
     </div>
-    <p class="install-note reveal" style="margin-top:28px">Details, requirements and current limitations:
+    <p class="install-note reveal" style="margin-top:34px">Requirements, details and honest limitations:
       <a href="https://github.com/AveJaPl/voiceflow#readme">README</a> ·
       <a href="https://github.com/AveJaPl/voiceflow/blob/main/docs/WINDOWS.md">Windows notes</a> ·
       <a href="https://github.com/AveJaPl/voiceflow/releases">all releases</a></p>
@@ -318,32 +395,30 @@ footer{margin-top:150px;border-top:1px solid var(--border);padding:48px 0 56px}
 
 <section id="platforms">
   <div class="wrap">
-    <p class="kicker">Platforms</p>
-    <h2 class="reveal">Every platform. That's the plan.</h2>
-    <div class="platforms reveal">
-      <div class="platform"><span class="p-name">Linux — GNOME/Wayland</span><span class="p-desc">The birthplace. GPU pipeline, overlay, ducking, GTK settings app.</span><span class="p-status live">live</span></div>
-      <div class="platform"><span class="p-name">Windows 10 / 11</span><span class="p-desc">Same core, Win32 layer: global hotkey, clipboard paste, audio ducking.</span><span class="p-status beta">beta</span></div>
-      <div class="platform"><a class="p-name" href="https://github.com/AveJaPl/voiceflow/issues/1">KDE · Hyprland · Sway</a><span class="p-desc">Easiest port — these compositors have the protocols GNOME lacks.</span><span class="p-status">planned</span></div>
-      <div class="platform"><a class="p-name" href="https://github.com/AveJaPl/voiceflow/issues/3">macOS</a><span class="p-desc">AVFoundation recording, CGEvent paste, Apple Silicon inference.</span><span class="p-status">planned</span></div>
-      <div class="platform"><a class="p-name" href="https://github.com/AveJaPl/voiceflow/issues/6">Android</a><span class="p-desc">A system keyboard (IME) with on-device Whisper — dictate in every app.</span><span class="p-status">in progress</span></div>
-      <div class="platform"><a class="p-name" href="https://github.com/AveJaPl/voiceflow/issues/7">iOS</a><span class="p-desc">Keyboard extension, sibling of the Android app.</span><span class="p-status">planned</span></div>
-    </div>
-    <div class="mission reveal">
-      <p>voiceflow stays free and open source — on every platform we can reach.</p>
-      <p>Good dictation shouldn't cost $15 a month or require shipping your voice to someone
-      else's server. If you want it on your platform sooner, the issues above have
-      implementation notes waiting — grab one, comment, and go.
-      <a href="https://github.com/AveJaPl/voiceflow/issues" style="border-bottom:1px solid var(--border)">Contributions welcome.</a></p>
+    <div class="chapter reveal"><span class="num">06</span><h2>Every platform. <em>That is the plan.</em></h2></div>
+    <div class="plat-split">
+      <div class="platforms reveal">
+        <div class="platform"><span class="p-name">Linux — GNOME/Wayland</span><span class="p-desc">The birthplace. GPU pipeline, overlay, ducking, GTK settings app.</span><span class="p-status live">live</span></div>
+        <div class="platform"><span class="p-name">Windows 10 / 11</span><span class="p-desc">Same core, Win32 layer: global hotkey, clipboard paste, ducking.</span><span class="p-status beta">beta</span></div>
+        <div class="platform"><a class="p-name" href="https://github.com/AveJaPl/voiceflow/issues/6">Android</a><span class="p-desc">A voice keyboard (IME) with on-device Whisper — dictate in every app.</span><span class="p-status beta">in progress</span></div>
+        <div class="platform"><a class="p-name" href="https://github.com/AveJaPl/voiceflow/issues/1">KDE · Hyprland · Sway</a><span class="p-desc">The easiest port — these compositors have the protocols GNOME lacks.</span><span class="p-status">planned</span></div>
+        <div class="platform"><a class="p-name" href="https://github.com/AveJaPl/voiceflow/issues/3">macOS</a><span class="p-desc">AVFoundation recording, CGEvent paste, Apple Silicon inference.</span><span class="p-status">planned</span></div>
+        <div class="platform"><a class="p-name" href="https://github.com/AveJaPl/voiceflow/issues/7">iOS</a><span class="p-desc">Keyboard extension, sibling of the Android app.</span><span class="p-status">planned</span></div>
+      </div>
+      <div class="reveal">
+        <div class="aside-img"><img src="assets/statue-hand.webp" alt="" loading="lazy"></div>
+        <p class="mission">Good dictation should not cost fifteen dollars a month, nor require
+        shipping your voice to a stranger's server.</p>
+        <p class="mission-sub">voiceflow stays free and open source on every platform we can reach.
+        The issues above carry implementation notes — <a href="https://github.com/AveJaPl/voiceflow/issues">grab one and go</a>.</p>
+      </div>
     </div>
   </div>
 </section>
 
 <footer>
   <div class="wrap foot">
-    <a class="mark" href="#">
-      <svg width="22" height="22" viewBox="0 0 128 128"><rect width="128" height="128" rx="28" fill="#141416" stroke="#232326"/><g fill="#f5f5f7"><rect x="32" y="52" width="8" height="24" rx="4"/><rect x="46" y="42" width="8" height="44" rx="4"/><rect x="60" y="32" width="8" height="64" rx="4"/><rect x="74" y="42" width="8" height="44" rx="4"/><rect x="88" y="52" width="8" height="24" rx="4"/></g></svg>
-      voiceflow
-    </a>
+    <a class="wordmark" href="#">voiceflow<span>.</span></a>
     <a href="https://github.com/AveJaPl/voiceflow">GitHub</a>
     <a href="https://github.com/AveJaPl/voiceflow/releases">Releases</a>
     <a href="https://github.com/AveJaPl/voiceflow/blob/main/CHANGELOG.md">Changelog</a>
@@ -353,48 +428,15 @@ footer{margin-top:150px;border-top:1px solid var(--border);padding:48px 0 56px}
 </footer>
 
 <script>
-/* waveform — monochrome breathing lines */
-(function(){
-  const c=document.getElementById("wave");
-  if(!c)return;
-  const reduced=matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const ctx=c.getContext("2d");
-  let w,h,raf;
-  function size(){w=c.width=c.offsetWidth*devicePixelRatio;h=c.height=c.offsetHeight*devicePixelRatio}
-  size();addEventListener("resize",size);
-  const LINES=5;
-  function draw(t){
-    ctx.clearRect(0,0,w,h);
-    for(let l=0;l<LINES;l++){
-      const alpha=0.05+0.09*(l/LINES);
-      ctx.strokeStyle=`rgba(245,245,247,${alpha})`;
-      ctx.lineWidth=1*devicePixelRatio;
-      ctx.beginPath();
-      const base=h*0.62+l*10*devicePixelRatio;
-      for(let x=0;x<=w;x+=4*devicePixelRatio){
-        const p=x/w;
-        const env=Math.sin(p*Math.PI);           /* fade at edges */
-        const y=base
-          +Math.sin(p*14+t/900+l*1.7)*26*env*devicePixelRatio
-          +Math.sin(p*31-t/1400+l*0.8)*14*env*devicePixelRatio;
-        x===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
-      }
-      ctx.stroke();
-    }
-    raf=requestAnimationFrame(draw);
-  }
-  if(reduced){draw(0);cancelAnimationFrame(raf)}else{raf=requestAnimationFrame(draw)}
-})();
-
-/* overlay typing demo */
+/* dictation demo */
 (function(){
   const line=document.getElementById("type-line");
   if(!line)return;
   const reduced=matchMedia("(prefers-reduced-motion: reduce)").matches;
   const phrases=[
-    "Refactor the auth module so sessions are validated server-side and add tests for expired tokens...",
+    "Refactor the auth module so sessions are validated server-side, and add tests for expired tokens...",
     "Napisz mi funkcję, która parsuje nagłówek WAV i sprawdza, czy nagranie jest kompletne...",
-    "Summarize yesterday's commits and draft the changelog entry for the 0.3 release...",
+    "Dear Anna, thank you for the offer — Tuesday afternoon works; I'll send the agenda tonight...",
   ];
   const caret='<span class="caret"></span>';
   if(reduced){line.innerHTML=phrases[0]+caret;return}
@@ -403,32 +445,36 @@ footer{margin-top:150px;border-top:1px solid var(--border);padding:48px 0 56px}
     const p=phrases[pi];
     ci++;
     line.innerHTML=p.slice(0,ci)+caret;
-    if(ci<p.length){setTimeout(tick,34+Math.random()*40)}
-    else{setTimeout(()=>{ci=0;pi=(pi+1)%phrases.length;tick()},2600)}
+    if(ci<p.length){setTimeout(tick,34+Math.random()*42)}
+    else{setTimeout(()=>{ci=0;pi=(pi+1)%phrases.length;tick()},2800)}
   })();
 })();
 
 /* reveal on scroll */
 (function(){
   const els=document.querySelectorAll(".reveal");
-  const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add("in");io.unobserve(e.target)}}),{threshold:.15});
+  const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add("in");io.unobserve(e.target)}}),{threshold:.12});
   els.forEach(e=>io.observe(e));
 })();
 
 /* copy buttons */
+const COPY='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="9" y="9" width="11" height="11" rx="1"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+const CHECK='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 12 5 5L20 6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 document.querySelectorAll(".cmd").forEach(box=>{
   const btn=document.createElement("button");
   btn.className="copy";btn.setAttribute("aria-label","Copy command");
   btn.setAttribute("data-umami-event","copy-"+box.id);
-  btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+  btn.innerHTML=COPY;
   btn.addEventListener("click",()=>{
     navigator.clipboard.writeText(box.textContent.trim()).then(()=>{
-      btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 12 5 5L20 6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-      setTimeout(()=>{btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>'},1600);
+      btn.innerHTML=CHECK;
+      setTimeout(()=>{btn.innerHTML=COPY},1600);
     });
   });
   box.appendChild(btn);
 });
+/* svg default stroke */
+document.querySelectorAll("svg:not([stroke])").forEach(s=>s.setAttribute("stroke","currentColor"));
 </script>
 </body>
 </html>

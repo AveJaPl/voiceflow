@@ -1,53 +1,60 @@
-# voiceflow landing — design system
+# voiceflow landing — design system v2 ("Stoic")
 
-Reference aesthetic: **ElevenLabs** (dark cinematic, audio-waveform motifs),
-adapted to voiceflow's existing identity: matte black, monochrome, premium —
-the same language as the dictation overlay and the GTK app. One accent only:
-pure white. Inspiration pin: "Vocal — your voice, reimagined".
+Direction chosen by Filip (2026-08-09) from Pinterest: a mix of
+**STOICISM** (dignified dark editorial: classical sculpture, single gold
+accent, serif display, numbered chapters) and **Digital Designer**
+(a human in frame; the product shown concretely). Goal: premium, stately —
+"you enter and feel like a god". Not a SaaS template.
 
 ## 1. Atmosphere
-Cinematic matte black; the waveform is the only living element. Generous
-vertical whitespace, monumental typography, zero color noise.
+A dark gallery at night. Marble, one warm light, gold leaf. Generous
+emptiness; every section a numbered chapter. Imagery (Codex-generated):
+marble bust speaking a golden waveform, a suited figure dictating,
+a marble hand. Images vignette into the page background — no visible frames.
 
 ## 2. Color
---bg: #0a0a0b        page ground
---surface: #131315   cards
---surface-2: #1a1a1d hover / nested
---text: #f5f5f7      primary (the icon's white)
---muted: #9a9aa2     secondary
---faint: #55555c     tertiary / captions
---border: #232326    1px hairlines
---accent: #ffffff    CTAs (white button, black text)
+--bg: #0B0A09        warm near-black (images blend into it)
+--surface: #14110F   panels, code blocks
+--text: #EDE8DF      warm ivory
+--muted: #9C948A
+--faint: #5D574E
+--border: #272220    hairlines
+--gold: #C9A45C      THE accent: numerals, rules, icons, hover
+--gold-dim: #C9A45C59
 
 ## 3. Typography
-Display: Inter, weight 600, letter-spacing -0.045em, clamp(2.8rem → 5.5rem).
-Body: Inter 400/500, 1rem/1.7.
-Code/commands: JetBrains Mono 400, 0.875rem.
+Display: "Cormorant Garamond" 500/600 (+italic for emphasis), tight
+leading, large sizes — headline clamp(3rem → 6rem).
+Labels/eyebrows: Inter 600, 0.14em tracking, uppercase, 0.75rem.
+Body: Inter 400, 1rem/1.75. Code: JetBrains Mono.
+Numerals in stats: Cormorant, gold.
 
 ## 4. Components
-Primary button: white bg, black text, radius 10px, hover lifts 1px + subtle
-white glow. Secondary: transparent, 1px border, white text. Cards: surface,
-1px border, radius 14px, no shadows (matte — same rule as the overlay).
-Command boxes: mono font, surface, copy button appearing on hover.
+No cards-with-borders grids. Editorial lists separated by 1px hairlines;
+gold section numbers ("01", "02"…). Buttons: gold outline, serif-adjacent
+feel, fill-on-hover (gold bg, near-black text). Code blocks: surface,
+hairline, gold copy icon. Icons: Lucide inline SVG, stroke 1.5,
+currentColor (gold or ivory). NO emoji anywhere.
 
 ## 5. Layout
-max-width 1120px, 8px rhythm, sections separated by 120–160px. One column
-hero, features in 3-col grid (1-col mobile).
+max-width 1200px; hero full-bleed image; sections 140–180px apart with
+hairline + number + serif title pattern. Asymmetric two-column sections
+(image/text) for the portrait and the hand.
 
 ## 6. Depth
-Borders over shadows. Elevation = surface step (bg → surface → surface-2).
-The only glow allowed: the recording dot and canvas waveform.
+No shadows. Depth = photography and vignettes. Surfaces one step lighter.
 
 ## 7. Do / Don't
-DO: monochrome everything; waveform motifs; huge tight display type.
-DON'T: no colored accents, no gradients-as-decoration, no drop shadows,
-no rounded-pill buttons, no stock illustrations.
+DO: serif display, gold only as scarce accent, real imagery, numbered
+chapters, show the product doing real work (mail, chat, code).
+DON'T: emoji, colored gradients, rounded-pill buttons, card grids,
+more than one accent color, stock-photo brightness.
 
 ## 8. Responsive
-Breakpoint 720px: grid → 1 col, nav collapses to logo + GitHub, hero type
-clamps down. Touch targets ≥44px.
+≤760px: single column, images become section headers, hero text over
+darkened image, nav collapses to wordmark + GitHub.
 
 ## 9. Motion
-Waveform canvas ~60fps, amplitude breathes slowly. Reveal-on-scroll:
-opacity+8px translate, 0.5s ease-out, once. `prefers-reduced-motion`
-disables both.
+Slow and dignified: 0.6s ease-out reveals, the dictation demo types at
+human pace, waveform shimmer on gold lines only. prefers-reduced-motion
+disables all.

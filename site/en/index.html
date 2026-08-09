@@ -14,7 +14,7 @@
 <meta property="og:description" content="Local voice dictation. Whisper on your own hardware — free, open source, private.">
 <meta property="og:url" content="https://voiceflow.pbdevs.com/en/">
 <meta property="og:type" content="website">
-<meta property="og:image" content="https://voiceflow.pbdevs.com/assets/hero-statue.webp">
+<meta property="og:image" content="https://voiceflow.pbdevs.com/assets/hero-statue-4.webp">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
@@ -47,7 +47,8 @@ img{display:block;max-width:100%}
 /* nav */
 nav{position:sticky;top:0;z-index:20;background:rgba(11,11,12,.78);backdrop-filter:blur(16px);border-bottom:1px solid var(--border)}
 .nav-inner{display:flex;align-items:center;gap:34px;height:70px}
-.wordmark{font-family:var(--display);font-weight:700;font-size:1.15rem;letter-spacing:-.02em}
+.wordmark{font-family:var(--display);font-weight:700;font-size:1.45rem;letter-spacing:-.02em;display:inline-flex;align-items:center;gap:11px}
+.wordmark svg{flex-shrink:0}
 .wordmark span{color:var(--faint)}
 .nav-links{display:flex;gap:28px;margin-left:auto;font-size:.85rem;color:var(--muted)}
 .nav-links a:hover{color:var(--text)}
@@ -69,7 +70,7 @@ nav{position:sticky;top:0;z-index:20;background:rgba(11,11,12,.78);backdrop-filt
 /* hero */
 header{position:relative;border-bottom:1px solid var(--border);overflow:hidden}
 .hero-img{position:absolute;left:0;bottom:0;top:10%;width:46%;z-index:0;will-change:transform}
-.hero-img img{width:100%;height:100%;object-fit:contain;object-position:left bottom;opacity:.42;filter:grayscale(1)}
+.hero-img img{width:100%;height:100%;object-fit:contain;object-position:left bottom;opacity:.65;filter:grayscale(1)}
 .hero-img::after{content:"";position:absolute;inset:0;background:linear-gradient(0deg,var(--bg) 0%,transparent 26%)}
 .hero{position:relative;z-index:1;min-height:92vh;display:flex;align-items:center;justify-content:flex-end;padding:110px 0}
 .hero-copy{max-width:600px}
@@ -181,7 +182,11 @@ a.p-name:hover{color:var(--muted)}
 /* footer */
 footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;background:var(--surface);backdrop-filter:blur(8px)}
 .foot{display:flex;align-items:center;gap:32px;flex-wrap:wrap;color:var(--faint);font-size:.85rem}
-.foot .wordmark{margin-right:auto}
+.foot .wordmark{margin-right:auto;font-size:1.2rem}
+.foot-credits{display:flex;align-items:center;gap:18px}
+.foot-credits img{height:15px;width:auto;opacity:.65;transition:opacity .2s}
+.foot-credits a:hover img{opacity:1}
+.foot-credits .by{font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
 .foot a:hover{color:var(--text)}
 
 /* reveal */
@@ -220,7 +225,7 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
 
 <nav>
   <div class="wrap nav-inner">
-    <a class="wordmark" href="/en/">voiceflow<span>_</span></a>
+    <a class="wordmark" href="/en/"><svg width="24" height="24" viewBox="0 0 128 128" aria-hidden="true"><rect width="128" height="128" rx="28" fill="#1a1a1d" stroke="#3a3a40"/><g fill="#f5f5f7"><rect x="32" y="52" width="8" height="24" rx="4"/><rect x="46" y="42" width="8" height="44" rx="4"/><rect x="60" y="32" width="8" height="64" rx="4"/><rect x="74" y="42" width="8" height="44" rx="4"/><rect x="88" y="52" width="8" height="24" rx="4"/></g></svg>voiceflow<span>_</span></a>
     <div class="nav-links">
       <a href="#uses">Uses</a>
       <a href="#features">Features</a>
@@ -239,7 +244,7 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
 </nav>
 
 <header>
-  <div class="hero-img" id="heroImg"><img src="/assets/hero-statue.webp" alt="" fetchpriority="high"></div>
+  <div class="hero-img" id="heroImg"><img src="/assets/hero-statue-4.webp" alt="" fetchpriority="high"></div>
   <div class="wrap hero">
     <div class="hero-copy">
       <p class="eyebrow">Free &amp; open source · Local Whisper · MIT</p>
@@ -344,7 +349,7 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
         <div><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M12 2v8m0 0 3-3m-3 3L9 7" stroke-linecap="round" stroke-linejoin="round"/><path d="M20.4 14.5a9 9 0 1 1-16.8 0" stroke-linecap="round"/></svg>Works offline, on a plane, behind any firewall</div>
       </div>
     </div>
-    <div class="split-img reveal" id="museImg"><img src="/assets/statue-muse.webp" alt="A marble muse in profile" loading="lazy"></div>
+    <div class="split-img reveal" id="museImg"><img src="/assets/statue-muse-4.webp" alt="A marble muse in profile" loading="lazy"></div>
   </div>
 </section>
 
@@ -425,7 +430,7 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
         <div class="platform"><a class="p-name" href="https://github.com/AveJaPl/voiceflow/issues/7">iOS</a><span class="p-desc">Keyboard extension, sibling of the Android app.</span><span class="p-status">planned</span></div>
       </div>
       <div class="reveal">
-        <div class="aside-img" id="handImg"><img src="/assets/statue-hand.webp" alt="" loading="lazy"></div>
+        <div class="aside-img" id="handImg"><img src="/assets/statue-hand-4.webp" alt="" loading="lazy"></div>
         <p class="mission">Good dictation should not cost fifteen dollars a month, nor require
         shipping your voice to a stranger's server.</p>
         <p class="mission-sub">voiceflow stays free and open source on every platform we can reach.
@@ -442,7 +447,7 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
     <a href="https://github.com/AveJaPl/voiceflow/releases">Releases</a>
     <a href="https://github.com/AveJaPl/voiceflow/blob/main/CHANGELOG.md">Changelog</a>
     <a href="https://github.com/AveJaPl/voiceflow/issues">Issues</a>
-    <span>MIT © Filip Piątek (AveJa)</span>
+    <span class="foot-credits"><span class="by">MIT · built by</span><a href="https://pbdevs.com" data-umami-event="footer-pbdevs"><img src="/assets/pbdevs.png" alt="PB Devs"></a><a href="https://programo.pl" data-umami-event="footer-programo"><img src="/assets/programo.svg" alt="Programo"></a></span>
   </div>
 </footer>
 

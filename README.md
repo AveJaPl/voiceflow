@@ -37,7 +37,7 @@ speak, press **`Super+G`** again. That's the whole workflow.
 
 ```bash
 git clone https://github.com/AveJaPl/voiceflow && cd voiceflow
-sudo bash scripts/install-system-deps.sh   # ydotool, wl-clipboard, udev rule
+sudo bash scripts/install-system-deps.sh   # ydotool, wl-clipboard, python3-gi-cairo, udev
 uv sync                                    # pinned Python 3.13 + dependencies
 mkdir -p ~/.local/bin
 printf '#!/usr/bin/env bash\nexec "%s/.venv/bin/voiceflow" "$@"\n' "$PWD" > ~/.local/bin/voiceflow
@@ -81,7 +81,7 @@ same job with a local Whisper model:
   stops mangling them (`model.vocabulary`). It biases only — never rewrites your words.
 - **Honest with your clipboard.** Text is injected via paste (the only non-ASCII-safe
   path on GNOME Wayland) and your previous clipboard is put back afterwards.
-- **Tested without hardware.** 67 tests, none need a GPU, microphone, or display —
+- **Tested without hardware.** 82 tests, none need a GPU, microphone, or display —
   they run in CI on every commit.
 
 ## Requirements
@@ -90,6 +90,7 @@ same job with a local Whisper model:
 |---|---|
 | OS | Linux with **PipeWire** (developed on Ubuntu 26.04) |
 | Desktop | **GNOME on Wayland** (developed on GNOME 50) — other compositors: [see roadmap](#roadmap) |
+| System packages | `ydotool`, `wl-clipboard`, `python3-gi-cairo` (the last package enables charts in the GTK application) |
 | GPU | optional; NVIDIA with ~2.5 GB free VRAM for `large-v3-turbo` (CUDA libraries come from pip — **no CUDA Toolkit install needed**) |
 | Disk | ~1.6 GB model + ~2.7 GB environment |
 
@@ -146,6 +147,9 @@ mute_apps:
 | `mute_apps.apps` | `[WEBRTC VoiceEngine]` | PipeWire `application.name` values |
 | `mute_apps.duck_enabled` | `true` | also duck those apps' playback |
 | `mute_apps.duck_volume` | `0.4` | duck target as a fraction of full volume |
+| `mute_apps.duck_rules` | `{}` | per-application playback targets keyed by PipeWire `application.name` |
+| `presence.enabled` | `false` | show Discord Rich Presence while dictating |
+| `presence.client_id` | `""` | Discord developer application ID used for Rich Presence |
 | `overlay.enabled` | `true` | the on-screen indicator card |
 
 The config file is generated once and not migrated — delete it to regenerate with

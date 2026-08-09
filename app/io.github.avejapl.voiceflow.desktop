@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=voiceflow
+GenericName=Lokalne dyktowanie
+Comment=Sterowanie lokalnym dyktowaniem głosowym
+Exec=voiceflow-app
+Icon=io.github.avejapl.voiceflow
+Terminal=false
+Categories=Utility;
+Keywords=dyktowanie;głos;mowa;Whisper;mikrofon;
+StartupNotify=true
+DBusActivatable=false

@@ -1,0 +1,17 @@
+#!/usr/bin/python3
+"""Launch the system-Python voiceflow desktop application."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+
+APP_DIRECTORY = Path(__file__).resolve().parents[1] / "app"
+sys.path.insert(0, str(APP_DIRECTORY))
+
+from voiceflow_app.main import main  # noqa: E402
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

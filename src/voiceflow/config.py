@@ -245,6 +245,14 @@ def _positive_float(value: Any, default: float, path: str) -> float:
     return default
 
 
+def _fraction(value: Any, default: float, path: str) -> float:
+    """A volume fraction: 0.0 (silence) through 1.0 (untouched)."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and 0.0 <= float(value) <= 1.0:
+        return float(value)
+    LOGGER.warning("Nieprawidłowa wartość %s=%r; używam %s", path, value, default)
+    return default
+
+
 def _boolean(value: Any, default: bool, path: str) -> bool:
     if isinstance(value, bool):
         return value
@@ -347,7 +355,7 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
             enabled=_boolean(mute_apps.get("enabled", True), True, "mute_apps.enabled"),
             apps=_string_tuple(mute_apps.get("apps", ("WEBRTC VoiceEngine",)), "mute_apps.apps"),
             duck_enabled=_boolean(mute_apps.get("duck_enabled", True), True, "mute_apps.duck_enabled"),
-            duck_volume=_positive_float(mute_apps.get("duck_volume", 0.4), 0.4, "mute_apps.duck_volume"),
+            duck_volume=_fraction(mute_apps.get("duck_volume", 0.4), 0.4, "mute_apps.duck_volume"),
             duck_rules=_duck_rules(mute_apps.get("duck_rules"), "mute_apps.duck_rules"),
         ),
         history=HistoryConfig(

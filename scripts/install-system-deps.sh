@@ -5,6 +5,7 @@
 #   ydotool      - key injection through /dev/uinput (the only path that works
 #                  on GNOME Wayland, which implements no virtual-keyboard protocol)
 #   wl-clipboard - wl-copy/wl-paste, used for pasting the transcribed text
+#   python3-gi-cairo - Cairo context converter used by GTK application charts
 #
 # Configures:
 #   - a udev rule granting the active seat access to /dev/uinput via uaccess ACL.
@@ -21,7 +22,7 @@ fi
 
 echo "==> Installing packages"
 apt-get update -qq
-apt-get install -y ydotool wl-clipboard
+apt-get install -y ydotool wl-clipboard python3-gi-cairo
 
 echo "==> udev rule for /dev/uinput (uaccess, not the input group)"
 cat > /etc/udev/rules.d/60-voiceflow-uinput.rules <<'EOF'

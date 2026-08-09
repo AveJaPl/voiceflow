@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy — voiceflow</title>
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<link rel="canonical" href="https://voiceflow.pbdevs.com/en/privacy/">
+<meta name="robots" content="noindex">
+<style>
+:root{--bg:#0b0b0c;--text:#f5f5f7;--muted:#9a9aa2;--border:#28282c}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font:400 1rem/1.75 "Inter",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+main{max-width:720px;margin:0 auto;padding:80px 32px 120px}
+h1{font-family:"Archivo",system-ui,sans-serif;font-weight:700;font-size:2.2rem;letter-spacing:-.03em;text-transform:uppercase;margin-bottom:8px}
+.sub{color:var(--muted);font-size:.9rem;margin-bottom:48px}
+h2{font-family:"Archivo",system-ui,sans-serif;font-weight:600;font-size:1.05rem;letter-spacing:.02em;text-transform:uppercase;margin:40px 0 12px;padding-top:24px;border-top:1px solid var(--border)}
+p,li{color:var(--muted);font-size:.95rem}
+ul{padding-left:22px;margin:10px 0}
+a{color:var(--text);text-decoration:underline;text-underline-offset:3px}
+.back{display:inline-block;margin-bottom:40px;color:var(--muted);text-decoration:none;font-size:.85rem}
+.back:hover{color:var(--text)}
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<script defer src="https://umami.pbdevs.com/script.js" data-website-id="7c5b575e-29f3-4376-94e1-a2335105a80b"></script>
+</head><body><main>
+<a class="back" href="/en/">← voiceflow</a>
+<h1>Privacy</h1>
+<p class="sub">Last updated: 9 August 2026 · The short version: we designed voiceflow so there is almost nothing to write on this page.</p>
+
+<h2>The application</h2>
+<p>voiceflow runs entirely on your machine. Your audio, transcriptions, history,
+vocabulary and configuration are stored locally and are never sent anywhere.
+The application makes exactly two kinds of network requests:</p>
+<ul>
+<li><b>Model download</b> — once, from Hugging Face, when you install or change the speech model;</li>
+<li><b>Update check</b> — an optional, anonymous request to the GitHub API at most once a day
+(disable with <code>updates.check: false</code> in the config).</li>
+</ul>
+<p>There is no telemetry, no analytics and no account. The source code is public, so you can verify all of this.</p>
+
+<h2>This website</h2>
+<p>voiceflow.pbdevs.com uses a self-hosted instance of
+<a href="https://umami.is">Umami</a> to count visits. Umami is cookie-free and
+collects no personal data: no identifiers are stored, IP addresses are not
+retained, and nothing is shared with third parties. That is why you see no
+cookie banner — there is nothing to consent to. The site sets no cookies at all.</p>
+
+<h2>Contact</h2>
+<p>Questions? Open an issue at
+<a href="https://github.com/AveJaPl/voiceflow/issues">github.com/AveJaPl/voiceflow</a>.</p>
+</main></body></html>

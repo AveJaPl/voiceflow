@@ -213,6 +213,54 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
 @media (max-width:1000px){.shots{grid-template-columns:1fr 1fr}}
 @media (max-width:760px){.shots{grid-template-columns:1fr}}
 
+
+/* animated demos: desktop (Linux) and phone (Android) */
+.demo-desktop{position:relative;width:min(680px,100%);margin:70px auto 0;min-height:400px}
+.fakewin{background:var(--surface-solid);border:1px solid var(--border)}
+.fakewin-bar{display:flex;align-items:center;gap:7px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.fakewin-bar i{width:10px;height:10px;border-radius:50%;background:#2c2c31}
+.fakewin-bar span{margin-left:10px;font-family:var(--mono);font-size:.72rem;color:var(--faint)}
+.fakewin-body{padding:26px 28px;min-height:150px;font-family:var(--mono);font-size:.9rem;line-height:1.7;color:var(--text)}
+.fakewin-body .flash{animation:paste-flash .8s ease-out}
+@keyframes paste-flash{0%{background:rgba(245,245,247,.18)}100%{background:transparent}}
+.caret2{display:inline-block;width:8px;height:1.1em;background:var(--text);vertical-align:text-bottom;animation:blink 1s steps(1) infinite;margin-left:2px}
+.keycap{position:absolute;left:28px;bottom:118px;font-family:var(--mono);font-size:.8rem;letter-spacing:.06em;color:var(--muted);border:1px solid var(--border);border-bottom-width:3px;padding:9px 16px;background:var(--surface);transition:all .12s ease;z-index:2}
+.keycap.pressed{transform:translateY(2px);border-bottom-width:1px;background:var(--text);color:var(--bg);border-color:var(--text)}
+.demo-overlay{position:absolute;left:50%;transform:translateX(-50%) translateY(8px);bottom:0;width:min(480px,92%);background:rgba(22,22,24,.94);border:1px solid var(--border);padding:20px 24px;opacity:0;transition:opacity .35s ease,transform .35s ease;pointer-events:none}
+.demo-overlay.on{opacity:1;transform:translateX(-50%) translateY(0)}
+.demo-overlay .head{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.demo-overlay .head span{font-size:.66rem;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
+.demo-overlay .txt{font-family:var(--mono);font-size:.85rem;min-height:2.9em;color:var(--text)}
+.demo-caption2{text-align:center;color:var(--faint);font-size:.78rem;margin-top:22px;letter-spacing:.08em;text-transform:uppercase}
+
+.phone-wrap{display:flex;justify-content:center;margin-top:70px}
+.phone{width:310px;border:1px solid #33333a;border-radius:38px;background:#000;padding:12px;box-shadow:0 0 0 4px rgba(245,245,247,.04)}
+.phone-screen{border-radius:28px;overflow:hidden;background:#101012;display:flex;flex-direction:column;height:560px}
+.chat-head{padding:16px 18px 12px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center}
+.chat-head .ava{width:26px;height:26px;border-radius:50%;background:#2c2c31}
+.chat-head b{font-size:.82rem;font-weight:600}
+.chat-body{flex:1;padding:16px 14px;display:flex;flex-direction:column;gap:10px;overflow:hidden}
+.bubble{max-width:80%;padding:9px 13px;font-size:.78rem;line-height:1.5;border-radius:14px}
+.bubble.them{background:#1d1d21;color:var(--muted);align-self:flex-start;border-bottom-left-radius:4px}
+.bubble.me{background:var(--text);color:var(--bg);align-self:flex-end;border-bottom-right-radius:4px;opacity:0;transform:translateY(8px);transition:opacity .4s ease,transform .4s ease}
+.bubble.me.sent{opacity:1;transform:none}
+.chat-input{margin:0 12px 10px;border:1px solid var(--border);border-radius:18px;padding:9px 14px;font-size:.76rem;color:var(--text);min-height:36px;font-family:var(--mono)}
+.chat-input .ph{color:var(--faint);font-family:var(--sans)}
+.vf-kbd{background:#0a0a0b;border-top:1px solid var(--border);padding:12px 14px 16px;text-align:center}
+.vf-kbd .status{font-size:.62rem;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;min-height:1em}
+.vf-mic{width:58px;height:58px;border-radius:50%;background:#1a1a1d;border:1px solid #33333a;margin:0 auto;display:flex;align-items:center;justify-content:center;transition:all .3s ease;position:relative}
+.vf-mic svg{stroke:var(--text)}
+.vf-mic.rec{background:var(--text)}
+.vf-mic.rec svg{stroke:var(--bg)}
+.vf-mic.rec::after{content:"";position:absolute;inset:-7px;border-radius:50%;border:1px solid rgba(245,245,247,.4);animation:ring 1.4s ease-out infinite}
+@keyframes ring{0%{transform:scale(.85);opacity:1}100%{transform:scale(1.25);opacity:0}}
+.vf-row{display:flex;justify-content:center;gap:10px;margin-top:12px}
+.vf-row i{width:34px;height:26px;border:1px solid var(--border);border-radius:7px;background:#151517}
+.tap{position:absolute;width:34px;height:34px;border-radius:50%;background:rgba(245,245,247,.25);border:1px solid rgba(245,245,247,.5);opacity:0;pointer-events:none;transition:opacity .2s}
+.tap.show{opacity:1;animation:tapping .5s ease-out}
+@keyframes tapping{0%{transform:scale(.6)}100%{transform:scale(1.15)}}
+@media (max-width:760px){.keycap{bottom:150px}}
+
 /* reveal */
 .reveal{opacity:0;transform:translateY(14px);transition:opacity .6s ease-out,transform .6s ease-out}
 .reveal.in{opacity:1;transform:none}
@@ -300,13 +348,18 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
   <div class="wrap">
     <div class="chapter reveal"><span class="num">/01</span><h2>Jeden skrót. Jeden oddech. Gotowe.</h2></div>
     <p class="lead reveal">Dyskretna karta pokazuje, co słyszy model — bez zabierania focusu. Puszczasz skrót: tekst jest przy kursorze.</p>
-    <div class="demo reveal">
-      <div class="overlay-card">
-        <div class="overlay-head"><span class="rec-dot"></span><span>Słucham</span><span class="eq"><i></i><i></i><i></i><i></i><i></i></span></div>
-        <div id="type-line"><span class="caret"></span></div>
+    <div class="demo-desktop reveal" id="ddemo">
+      <div class="fakewin">
+        <div class="fakewin-bar"><i></i><i></i><i></i><span>notatki.txt</span></div>
+        <div class="fakewin-body"><span id="dd-text"></span><span class="caret2"></span></div>
+      </div>
+      <div class="keycap" id="dd-key">Super + G</div>
+      <div class="demo-overlay" id="dd-card">
+        <div class="head"><span class="rec-dot"></span><span id="dd-status">Słucham</span><span class="eq"><i></i><i></i><i></i><i></i><i></i></span></div>
+        <div class="txt" id="dd-cardtxt"></div>
       </div>
     </div>
-    <p class="demo-caption">Wierna replika ekranowego podglądu</p>
+    <p class="demo-caption2 reveal">TAK TO DZIAŁA NA LINUKSIE — SKRÓT, PODGLĄD NA ŻYWO, WKLEJENIE PRZY KURSORZE</p>
   </div>
 </section>
 
@@ -359,22 +412,23 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
 
 <section id="shots">
   <div class="wrap">
-    <div class="chapter reveal"><span class="num">/03</span><h2>Zobacz, jak działa.</h2></div>
-    <div class="shots reveal stagger">
-      <div class="shot">
-        <img src="/assets/shot-linux.webp" alt="Karta podglądu na Linuksie" loading="lazy">
-        <p class="cap"><b>Linux — podgląd na żywo</b>Prawdziwy overlay: pulsująca kropka i transkrypcja rosnąca, gdy mówisz.</p>
-      </div>
-      <div class="shot">
-        <img src="/assets/shot-android-kbd.webp" alt="Klawiatura głosowa na Androidzie" loading="lazy">
-        <p class="cap"><b>Android — klawiatura głosowa</b>Jeden klawisz mikrofonu zamiast klawiatury; tekst ląduje w każdej aplikacji.</p>
-      </div>
-      <div class="shot">
-        <img src="/assets/shot-android-setup.webp" alt="Ekran konfiguracji Androida" loading="lazy">
-        <p class="cap"><b>Android — konfiguracja w 3 krokach</b>Włącz, zezwól na mikrofon, wybierz model — dyktowanie gotowe.</p>
-      </div>
+    <div class="chapter reveal"><span class="num">/03</span><h2>Na telefonie tak samo.</h2></div>
+    <div class="phone-wrap reveal">
+      <div class="phone"><div class="phone-screen">
+        <div class="chat-head"><span class="ava"></span><b>Ania</b></div>
+        <div class="chat-body">
+          <div class="bubble them">Zrobisz zakupy w drodze do domu?</div>
+          <div class="bubble me" id="ph-bubble">Jasne, wezmę standardową listę — będę koło szóstej.</div>
+        </div>
+        <div class="chat-input" id="ph-input"><span class="ph">Wiadomość</span></div>
+        <div class="vf-kbd">
+          <div class="status" id="ph-status">STUKNIJ, BY DYKTOWAĆ</div>
+          <div class="vf-mic" id="ph-mic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M12 4a3 3 0 0 1 3 3v4a3 3 0 1 1-6 0V7a3 3 0 0 1 3-3Z"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3" stroke-linecap="round"/></svg><span class="tap" id="ph-tap"></span></div>
+          <div class="vf-row"><i></i><i></i><i></i><i></i></div>
+        </div>
+      </div></div>
     </div>
-    <p class="shots-note reveal">Windows działa w tym samym schemacie z natywnym overlayem — zrzuty dojdą wraz z szlifem bety.</p>
+    <p class="demo-caption2 reveal">KLAWIATURA ANDROID — STUKNIJ, POWIEDZ, WYSŁANE</p>
   </div>
 </section>
 
@@ -492,28 +546,6 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
 </footer>
 
 <script>
-/* dictation demo */
-(function(){
-  const line=document.getElementById("type-line");
-  if(!line)return;
-  const reduced=matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const phrases=[
-    "Refactor the auth module so sessions are validated server-side, and add tests for expired tokens...",
-    "Dzień dobry, dziękuję za ofertę — wtorek po południu pasuje; agendę wyślę wieczorem...",
-    "Napisz mi funkcję, która parsuje nagłówek WAV i sprawdza, czy nagranie jest kompletne...",
-  ];
-  const caret='<span class="caret"></span>';
-  if(reduced){line.innerHTML=phrases[0]+caret;return}
-  let pi=0,ci=0;
-  (function tick(){
-    const p=phrases[pi];
-    ci++;
-    line.innerHTML=p.slice(0,ci)+caret;
-    if(ci<p.length){setTimeout(tick,34+Math.random()*42)}
-    else{setTimeout(()=>{ci=0;pi=(pi+1)%phrases.length;tick()},2800)}
-  })();
-})();
-
 /* reveal on scroll */
 (function(){
   const els=document.querySelectorAll(".reveal");
@@ -570,6 +602,65 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
     })(t0);
   },{threshold:.5});
   io.observe(el);
+})();
+
+/* desktop pseudo-recording */
+(function(){
+  const key=document.getElementById("dd-key"),card=document.getElementById("dd-card"),
+        status=document.getElementById("dd-status"),cardtxt=document.getElementById("dd-cardtxt"),
+        wintxt=document.getElementById("dd-text");
+  if(!key)return;
+  const PHRASE='Zrefaktoruj moduł autoryzacji i dodaj testy wygasłych tokenów.';
+  if(matchMedia("(prefers-reduced-motion: reduce)").matches){wintxt.textContent=PHRASE;return}
+  function press(cb){key.classList.add("pressed");setTimeout(()=>{key.classList.remove("pressed");cb&&cb()},260)}
+  function typeCard(i,cb){
+    cardtxt.textContent=PHRASE.slice(0,i);
+    if(i<PHRASE.length)setTimeout(()=>typeCard(i+2,cb),46);else cb&&cb();
+  }
+  (function loop(){
+    wintxt.textContent="";cardtxt.textContent="";status.textContent='Słucham';
+    setTimeout(()=>press(()=>{
+      card.classList.add("on");
+      setTimeout(()=>typeCard(0,()=>press(()=>{
+        status.textContent='Transkrybuję';
+        setTimeout(()=>{
+          card.classList.remove("on");
+          wintxt.textContent=PHRASE;wintxt.classList.add("flash");
+          setTimeout(()=>wintxt.classList.remove("flash"),850);
+          setTimeout(loop,3400);
+        },750);
+      })),420);
+    }),900);
+  })();
+})();
+/* phone pseudo-recording */
+(function(){
+  const mic=document.getElementById("ph-mic"),tap=document.getElementById("ph-tap"),
+        status=document.getElementById("ph-status"),input=document.getElementById("ph-input"),
+        bubble=document.getElementById("ph-bubble");
+  if(!mic)return;
+  const MSG='Jasne, wezmę standardową listę — będę koło szóstej.',PH='<span class="ph">Wiadomość</span>';
+  if(matchMedia("(prefers-reduced-motion: reduce)").matches){bubble.classList.add("sent");return}
+  function tapNow(){tap.classList.add("show");setTimeout(()=>tap.classList.remove("show"),500)}
+  function typeIn(i,cb){
+    input.textContent=MSG.slice(0,i);
+    if(i<MSG.length)setTimeout(()=>typeIn(i+2,cb),40);else cb&&cb();
+  }
+  (function loop(){
+    bubble.classList.remove("sent");input.innerHTML=PH;status.textContent='STUKNIJ, BY DYKTOWAĆ';
+    setTimeout(()=>{
+      tapNow();mic.classList.add("rec");status.textContent='SŁUCHAM';
+      setTimeout(()=>{
+        tapNow();mic.classList.remove("rec");status.textContent='TRANSKRYBUJĘ';
+        setTimeout(()=>{
+          typeIn(0,()=>setTimeout(()=>{
+            bubble.classList.add("sent");input.innerHTML=PH;status.textContent='STUKNIJ, BY DYKTOWAĆ';
+            setTimeout(loop,3600);
+          },700));
+        },800);
+      },2600);
+    },1200);
+  })();
 })();
 
 /* copy buttons */

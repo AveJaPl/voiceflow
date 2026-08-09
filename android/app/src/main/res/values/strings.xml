@@ -1,0 +1,36 @@
+<resources>
+    <string name="app_name">voiceflow</string>
+    <string name="ime_label">voiceflow — voice keyboard</string>
+    <string name="ime_subtype">Voice dictation</string>
+
+    <string name="setup_tagline">Local voice dictation keyboard. Whisper runs on this phone — no audio ever leaves it.</string>
+    <string name="setup_step_keyboard">Enable the voiceflow keyboard</string>
+    <string name="setup_step_mic">Allow microphone access</string>
+    <string name="setup_step_model">Download the speech model (%1$s)</string>
+    <string name="setup_enable_keyboard">Open keyboard settings</string>
+    <string name="setup_pick_keyboard">Switch keyboard</string>
+    <string name="setup_grant_mic">Allow microphone</string>
+    <string name="setup_download_model">Download model</string>
+    <string name="setup_model_entry">%1$s (%2$d MB) — %3$s</string>
+    <string name="setup_downloading">Downloading %1$s (%2$d MB)…</string>
+    <string name="setup_download_done">Model ready.</string>
+    <string name="setup_download_failed">Download failed: %1$s</string>
+    <string name="setup_language">Language (ISO code or auto)</string>
+    <string name="setup_vocabulary">Custom vocabulary</string>
+    <string name="setup_vocabulary_hint">One term per line — names the model should recognize</string>
+    <string name="setup_save">Save</string>
+    <string name="setup_saved">Saved.</string>
+
+    <string name="status_idle">tap to dictate</string>
+    <string name="status_listening">listening — tap to finish</string>
+    <string name="status_transcribing">transcribing…</string>
+    <string name="status_setup_needed">tap to finish setup</string>
+    <string name="status_mic_error">microphone unavailable</string>
+    <string name="status_error">transcription failed</string>
+
+    <string name="key_switch">Switch keyboard</string>
+    <string name="key_backspace">Backspace</string>
+    <string name="key_space">Space</string>
+    <string name="key_enter">Enter</string>
+    <string name="key_settings">voiceflow settings</string>
+</resources>

@@ -245,10 +245,11 @@ logic, vocabulary, and config are already platform-neutral; only `recorder`,
   [#2](https://github.com/AveJaPl/voiceflow/issues/2)
 - [ ] **macOS** — AVFoundation recorder, CGEvent paste, NSPanel overlay, Accessibility
   permissions; Apple Silicon inference via CPU or an mlx/whisper.cpp backend ([#3](https://github.com/AveJaPl/voiceflow/issues/3))
-- [ ] **Android / iOS** — as custom keyboards (IME / keyboard extension) with on-device
-  whisper.cpp, so dictation works in every app; effectively sibling projects
-  ([#6](https://github.com/AveJaPl/voiceflow/issues/6),
-  [#7](https://github.com/AveJaPl/voiceflow/issues/7))
+- [ ] **Android** *(in progress — early alpha in [`android/`](android/))* — a custom
+  keyboard (IME) with on-device whisper.cpp, so dictation works in every app
+  ([#6](https://github.com/AveJaPl/voiceflow/issues/6))
+- [ ] **iOS** — keyboard extension, sibling of the Android app
+  ([#7](https://github.com/AveJaPl/voiceflow/issues/7))
 - [ ] **i18n** of user-facing strings (currently Polish — the author dictates in Polish)
   ([#5](https://github.com/AveJaPl/voiceflow/issues/5))
 

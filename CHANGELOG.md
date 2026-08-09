@@ -1,6 +1,16 @@
 # Changelog
 
-Platform tags: **[All]** · **[Linux]** · **[Windows]**
+Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[Web]**
+
+## Unreleased
+
+- **[Web]** Landing page at [voiceflow.pbdevs.com](https://voiceflow.pbdevs.com):
+  features, per-OS install commands, platform roadmap. Self-hosted, privacy-friendly
+  analytics (Umami) — no cookies, no third parties.
+- **[Android]** Early alpha of the voice keyboard (IME) in `android/`: on-device
+  whisper.cpp (arm64 + emulator), model download in-app (tiny/base/small q5_1),
+  language + custom vocabulary settings, monochrome dictation panel with
+  backspace/space/enter. Not yet packaged; build from source ([android/README.md](android/README.md)).
 
 ## 0.2.1 — 2026-08-09
 

@@ -1,0 +1,9 @@
+<resources>
+    <style name="Theme.Voiceflow" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="android:windowBackground">#0A0A0B</item>
+        <item name="android:statusBarColor">#0A0A0B</item>
+        <item name="android:navigationBarColor">#0A0A0B</item>
+        <item name="colorPrimary">#F5F5F7</item>
+        <item name="colorOnPrimary">#0A0A0B</item>
+    </style>
+</resources>

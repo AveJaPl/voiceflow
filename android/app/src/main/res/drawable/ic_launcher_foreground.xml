@@ -1,0 +1,19 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- The five waveform bars from the desktop icon, centered in the safe zone. -->
+    <group android:translateX="27" android:translateY="27">
+        <path android:fillColor="#F5F5F7"
+            android:pathData="M9.5,22 h3.4 a1.7,1.7 0 0 1 1.7,1.7 v6.6 a1.7,1.7 0 0 1 -1.7,1.7 h-3.4 a1.7,1.7 0 0 1 -1.7,-1.7 v-6.6 a1.7,1.7 0 0 1 1.7,-1.7 z"/>
+        <path android:fillColor="#F5F5F7"
+            android:pathData="M17.4,17.8 h3.4 a1.7,1.7 0 0 1 1.7,1.7 v15 a1.7,1.7 0 0 1 -1.7,1.7 h-3.4 a1.7,1.7 0 0 1 -1.7,-1.7 v-15 a1.7,1.7 0 0 1 1.7,-1.7 z"/>
+        <path android:fillColor="#F5F5F7"
+            android:pathData="M25.3,13.5 h3.4 a1.7,1.7 0 0 1 1.7,1.7 v23.6 a1.7,1.7 0 0 1 -1.7,1.7 h-3.4 a1.7,1.7 0 0 1 -1.7,-1.7 v-23.6 a1.7,1.7 0 0 1 1.7,-1.7 z"/>
+        <path android:fillColor="#F5F5F7"
+            android:pathData="M33.2,17.8 h3.4 a1.7,1.7 0 0 1 1.7,1.7 v15 a1.7,1.7 0 0 1 -1.7,1.7 h-3.4 a1.7,1.7 0 0 1 -1.7,-1.7 v-15 a1.7,1.7 0 0 1 1.7,-1.7 z"/>
+        <path android:fillColor="#F5F5F7"
+            android:pathData="M41.1,22 h3.4 a1.7,1.7 0 0 1 1.7,1.7 v6.6 a1.7,1.7 0 0 1 -1.7,1.7 h-3.4 a1.7,1.7 0 0 1 -1.7,-1.7 v-6.6 a1.7,1.7 0 0 1 1.7,-1.7 z"/>
+    </group>
+</vector>

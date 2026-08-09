@@ -1,0 +1,35 @@
+<resources>
+    <string name="ime_label">voiceflow — klawiatura głosowa</string>
+    <string name="ime_subtype">Dyktowanie głosem</string>
+
+    <string name="setup_tagline">Lokalna klawiatura dyktowania. Whisper działa na tym telefonie — żadne nagranie go nie opuszcza.</string>
+    <string name="setup_step_keyboard">Włącz klawiaturę voiceflow</string>
+    <string name="setup_step_mic">Zezwól na dostęp do mikrofonu</string>
+    <string name="setup_step_model">Pobierz model mowy (%1$s)</string>
+    <string name="setup_enable_keyboard">Otwórz ustawienia klawiatur</string>
+    <string name="setup_pick_keyboard">Przełącz klawiaturę</string>
+    <string name="setup_grant_mic">Zezwól na mikrofon</string>
+    <string name="setup_download_model">Pobierz model</string>
+    <string name="setup_model_entry">%1$s (%2$d MB) — %3$s</string>
+    <string name="setup_downloading">Pobieranie %1$s (%2$d MB)…</string>
+    <string name="setup_download_done">Model gotowy.</string>
+    <string name="setup_download_failed">Pobieranie nie powiodło się: %1$s</string>
+    <string name="setup_language">Język (kod ISO albo auto)</string>
+    <string name="setup_vocabulary">Własny słownik</string>
+    <string name="setup_vocabulary_hint">Jeden termin na linię — nazwy, które model ma rozpoznawać</string>
+    <string name="setup_save">Zapisz</string>
+    <string name="setup_saved">Zapisano.</string>
+
+    <string name="status_idle">stuknij, aby dyktować</string>
+    <string name="status_listening">słucham — stuknij, aby zakończyć</string>
+    <string name="status_transcribing">transkrybuję…</string>
+    <string name="status_setup_needed">stuknij, aby dokończyć konfigurację</string>
+    <string name="status_mic_error">mikrofon niedostępny</string>
+    <string name="status_error">transkrypcja nie powiodła się</string>
+
+    <string name="key_switch">Przełącz klawiaturę</string>
+    <string name="key_backspace">Backspace</string>
+    <string name="key_space">Spacja</string>
+    <string name="key_enter">Enter</string>
+    <string name="key_settings">Ustawienia voiceflow</string>
+</resources>

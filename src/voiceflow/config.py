@@ -46,10 +46,19 @@ mute_apps:
   # "WEBRTC VoiceEngine" is Discord's mic stream (check yours: pw-dump | grep -B2 Input/Audio).
   enabled: true
   apps: [WEBRTC VoiceEngine]
-  # Additionally duck what those apps PLAY (other people talking) while you
-  # dictate, so the conversation does not distract. 0.4 = duck to 40% volume.
+  # Additionally duck ALL application playback (music, calls, videos) while
+  # you dictate. duck_volume is the default target; duck_rules overrides it
+  # per app (PipeWire application.name; 1.0 = never duck that app).
   duck_enabled: true
-  duck_volume: 0.4
+  duck_volume: 0.4          # apps without a rule duck to 40%
+  duck_rules: {}            # e.g. {Spotify: 0.2, WEBRTC VoiceEngine: 0.3}
+history:
+  # Every dictation is logged locally (~/.local/share/voiceflow/history.jsonl)
+  # so text is recoverable when a paste lands in the wrong window, and so the
+  # settings app can show statistics. store_text: false keeps counts only.
+  enabled: true
+  store_text: true
+  max_entries: 20000
 overlay:
   # On-screen indicator: a pulsing dot while listening, live text, gone when done.
   # An X11 override-redirect window, because on GNOME/Wayland a normal window
@@ -113,11 +122,25 @@ class MuteAppsConfig:
     #: application.name values of PipeWire capture streams to silence.
     #: "WEBRTC VoiceEngine" is Discord's microphone stream.
     apps: tuple[str, ...] = ("WEBRTC VoiceEngine",)
-    #: Also turn DOWN what those apps play (other people talking) while dictating.
+    #: Also turn DOWN application playback (music, calls, videos) while dictating.
     duck_enabled: bool = True
-    #: Target playback volume during recording, as a fraction of full volume.
-    #: 0.4 means "duck to 40%", i.e. 60% quieter.
+    #: Default duck target for apps WITHOUT a specific rule, as a fraction of
+    #: full volume. 0.4 means "duck to 40%", i.e. 60% quieter.
     duck_volume: float = 0.4
+    #: Per-application overrides: PipeWire application.name -> target volume.
+    #: 1.0 means "never duck this app". Matched case-insensitively.
+    duck_rules: tuple[tuple[str, float], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryConfig:
+    """Persistent dictation history (retrieval + statistics)."""
+
+    enabled: bool = True
+    #: Store the transcribed text itself. Disable if you dictate sensitive
+    #: content; word counts (statistics) are kept either way.
+    store_text: bool = True
+    max_entries: int = 20000
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,6 +166,7 @@ class Config:
     inject: InjectConfig = field(default_factory=InjectConfig)
     preview: PreviewConfig = field(default_factory=PreviewConfig)
     mute_apps: MuteAppsConfig = field(default_factory=MuteAppsConfig)
+    history: HistoryConfig = field(default_factory=HistoryConfig)
     overlay: OverlayConfig = field(default_factory=OverlayConfig)
     notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
     log_level: str = "INFO"
@@ -153,7 +177,8 @@ _SCHEMA: dict[str, set[str] | None] = {
     "audio": {"source", "max_seconds"},
     "inject": {"method", "key_delay_ms", "paste_key", "restore_clipboard"},
     "preview": {"enabled", "interval_seconds", "window_seconds", "max_chars"},
-    "mute_apps": {"enabled", "apps", "duck_enabled", "duck_volume"},
+    "mute_apps": {"enabled", "apps", "duck_enabled", "duck_volume", "duck_rules"},
+    "history": {"enabled", "store_text", "max_entries"},
     "overlay": {"enabled"},
     "notifications": {"enabled"},
     "log_level": None,
@@ -229,6 +254,25 @@ def _string_tuple(value: Any, path: str) -> tuple[str, ...]:
     return tuple(terms)
 
 
+def _duck_rules(value: Any, path: str) -> tuple[tuple[str, float], ...]:
+    """Accept a YAML mapping of app name -> volume fraction (clamped to 0..1)."""
+    if value is None:
+        return ()
+    if not isinstance(value, Mapping):
+        LOGGER.warning("Nieprawidłowa wartość %s=%r; używam pustej mapy", path, value)
+        return ()
+    rules: list[tuple[str, float]] = []
+    for name, volume in value.items():
+        if not isinstance(name, str) or not name.strip():
+            LOGGER.warning("Pomijam nieprawidłowy klucz %s: %r", path, name)
+            continue
+        if not isinstance(volume, (int, float)) or isinstance(volume, bool):
+            LOGGER.warning("Pomijam nieprawidłową głośność %s[%s]=%r", path, name, volume)
+            continue
+        rules.append((name.strip(), min(max(float(volume), 0.0), 1.0)))
+    return tuple(rules)
+
+
 def parse_config(data: Mapping[str, Any] | None) -> Config:
     """Parse a mapping, filling missing or invalid fields with defaults."""
     root: Mapping[str, Any] = data or {}
@@ -238,6 +282,7 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
     inject = _section(root, "inject")
     preview = _section(root, "preview")
     mute_apps = _section(root, "mute_apps")
+    history = _section(root, "history")
     overlay = _section(root, "overlay")
     notifications = _section(root, "notifications")
 
@@ -285,6 +330,12 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
             apps=_string_tuple(mute_apps.get("apps", ("WEBRTC VoiceEngine",)), "mute_apps.apps"),
             duck_enabled=_boolean(mute_apps.get("duck_enabled", True), True, "mute_apps.duck_enabled"),
             duck_volume=_positive_float(mute_apps.get("duck_volume", 0.4), 0.4, "mute_apps.duck_volume"),
+            duck_rules=_duck_rules(mute_apps.get("duck_rules"), "mute_apps.duck_rules"),
+        ),
+        history=HistoryConfig(
+            enabled=_boolean(history.get("enabled", True), True, "history.enabled"),
+            store_text=_boolean(history.get("store_text", True), True, "history.store_text"),
+            max_entries=_positive_int(history.get("max_entries", 20000), 20000, "history.max_entries"),
         ),
         overlay=OverlayConfig(
             enabled=_boolean(overlay.get("enabled", True), True, "overlay.enabled"),

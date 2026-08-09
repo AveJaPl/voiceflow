@@ -6,10 +6,12 @@ application's capture as its own ``Stream/Input/Audio`` node, which means the
 chat's stream can be muted on its own — the physical microphone stays live for
 ``pw-record``.
 
-The same apps' PLAYBACK (``Stream/Output/Audio`` — other people talking) is
-ducked to a configured fraction while recording, because a conversation in the
-headphones derails the sentence being dictated. Original volumes are captured
-per stream and restored exactly.
+ALL application playback (``Stream/Output/Audio`` — music, calls, videos) is
+ducked while recording, because audio in the headphones derails the sentence
+being dictated. Each app ducks to its own remembered target (``duck_rules``),
+apps without a rule use the default (``duck_volume``), and a rule of 1.0 means
+"never duck this one". Original volumes are captured per stream and restored
+exactly.
 
 Node ids change between sessions and even between calls, so targets are resolved
 by ``application.name`` at mute time, never cached across recordings.
@@ -98,10 +100,15 @@ class MicMuter:
         self._ducked = []
 
     def _duck(self) -> None:
-        """Turn the configured apps' playback down to ``duck_volume``."""
-        # Clamp: values above 1.0 would make the call LOUDER while dictating.
-        duck_to = min(self.config.duck_volume, 1.0)
-        for target in self._find_targets("Stream/Output/Audio"):
+        """Duck every playing app to its own target volume."""
+        # Clamp: values above 1.0 would make audio LOUDER while dictating.
+        default = min(self.config.duck_volume, 1.0)
+        rules = {name.casefold(): volume for name, volume in self.config.duck_rules}
+        for target in self._find_playback_streams():
+            duck_to = min(rules.get(target.app.casefold(), default), 1.0)
+            if duck_to >= 1.0:
+                # An explicit "never duck this app" rule.
+                continue
             original = self._get_volume(target.node_id)
             if original is None or original <= duck_to:
                 # Already quieter than the duck target; leave it alone.
@@ -116,9 +123,18 @@ class MicMuter:
                     target.node_id,
                 )
 
+    def _find_playback_streams(self) -> list[_Target]:
+        """Every application playback stream — ducking is not limited to the
+        mic-mute list, because any audio distracts, not just the voice chat."""
+        return self._find_nodes("Stream/Output/Audio", wanted=None)
+
     # -- plumbing ----------------------------------------------------------
 
     def _find_targets(self, media_class: str) -> list[_Target]:
+        """Streams of the configured (mic-mute) apps only."""
+        return self._find_nodes(media_class, wanted={n.casefold() for n in self.config.apps})
+
+    def _find_nodes(self, media_class: str, wanted: set[str] | None) -> list[_Target]:
         try:
             result = subprocess.run(
                 [str(self._pw_dump)],
@@ -131,7 +147,6 @@ class MicMuter:
         except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
             LOGGER.warning("Nie można odczytać strumieni PipeWire: %s", exc)
             return []
-        wanted = {name.casefold() for name in self.config.apps}
         targets: list[_Target] = []
         for entry in objects:
             if entry.get("type") != "PipeWire:Interface:Node":
@@ -140,7 +155,9 @@ class MicMuter:
             if props.get("media.class") != media_class:
                 continue
             app = str(props.get("application.name", ""))
-            if app.casefold() in wanted:
+            if not app:
+                continue
+            if wanted is None or app.casefold() in wanted:
                 targets.append(_Target(int(entry["id"]), app))
         return targets
 

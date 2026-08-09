@@ -39,6 +39,16 @@ PW_DUMP = json.dumps(
                 }
             },
         },
+        {
+            "id": 95,
+            "type": "PipeWire:Interface:Node",
+            "info": {
+                "props": {
+                    "media.class": "Stream/Output/Audio",
+                    "application.name": "Spotify",
+                }
+            },
+        },
         {"id": 5, "type": "PipeWire:Interface:Client"},
     ]
 )
@@ -59,13 +69,12 @@ class _FakeMuter(MicMuter):
         self._wpctl = "/usr/bin/wpctl"
         self._pw_dump = "/usr/bin/pw-dump"
         self.premuted = premuted or set()
-        self.volumes = volumes if volumes is not None else {90: 1.0}
+        self.volumes = volumes if volumes is not None else {90: 1.0, 95: 1.0}
         self.mute_calls: list[tuple[int, bool]] = []
         self.volume_calls: list[tuple[int, float]] = []
 
-    def _find_targets(self, media_class):  # type: ignore[override]
+    def _find_nodes(self, media_class, wanted):  # type: ignore[override]
         objects = json.loads(PW_DUMP)
-        wanted = {name.casefold() for name in self.config.apps}
         found = []
         for entry in objects:
             if entry.get("type") != "PipeWire:Interface:Node":
@@ -74,7 +83,9 @@ class _FakeMuter(MicMuter):
             if props.get("media.class") != media_class:
                 continue
             app = str(props.get("application.name", ""))
-            if app.casefold() in wanted:
+            if not app:
+                continue
+            if wanted is None or app.casefold() in wanted:
                 found.append(_Target(int(entry["id"]), app))
         return found
 
@@ -150,20 +161,39 @@ def test_leftover_state_is_restored_before_a_new_mute() -> None:
     assert muter.mute_calls == [(84, True), (84, False), (84, True)]
 
 
-def test_ducks_playback_to_configured_fraction() -> None:
-    """Node 90 is Discord's OUTPUT (people talking): duck it, restore it exactly."""
-    muter = _FakeMuter(MuteAppsConfig(), volumes={90: 0.85})
+def test_ducks_every_playing_app_to_the_default() -> None:
+    """Discord (90) AND Spotify (95) both play: both duck to the default, both restored."""
+    muter = _FakeMuter(MuteAppsConfig(), volumes={90: 0.85, 95: 1.0})
 
     muter.mute()
-    assert muter.volume_calls == [(90, 0.4)]
+    assert sorted(muter.volume_calls) == [(90, 0.4), (95, 0.4)]
 
     muter.unmute()
-    assert muter.volume_calls == [(90, 0.4), (90, 0.85)]
+    assert sorted(muter.volume_calls[2:]) == [(90, 0.85), (95, 1.0)]
+
+
+def test_per_app_rules_override_the_default() -> None:
+    """Remembered per-app targets: Discord to 30%, Spotify to 20%."""
+    config = MuteAppsConfig(duck_rules=(("WEBRTC VoiceEngine", 0.3), ("spotify", 0.2)))
+    muter = _FakeMuter(config, volumes={90: 1.0, 95: 1.0})
+
+    muter.mute()
+
+    assert sorted(muter.volume_calls) == [(90, 0.3), (95, 0.2)]
+
+
+def test_rule_of_one_means_never_duck() -> None:
+    config = MuteAppsConfig(duck_rules=(("Spotify", 1.0),))
+    muter = _FakeMuter(config, volumes={90: 1.0, 95: 1.0})
+
+    muter.mute()
+
+    assert muter.volume_calls == [(90, 0.4)]
 
 
 def test_quieter_stream_is_not_ducked_up() -> None:
-    """If Discord already plays at 30%, ducking to 40% would make it LOUDER."""
-    muter = _FakeMuter(MuteAppsConfig(duck_volume=0.4), volumes={90: 0.3})
+    """If an app already plays below its target, ducking would make it LOUDER."""
+    muter = _FakeMuter(MuteAppsConfig(duck_volume=0.4), volumes={90: 0.3, 95: 0.2})
 
     muter.mute()
     muter.unmute()
@@ -172,7 +202,7 @@ def test_quieter_stream_is_not_ducked_up() -> None:
 
 
 def test_duck_disabled_leaves_volume_alone() -> None:
-    muter = _FakeMuter(MuteAppsConfig(duck_enabled=False), volumes={90: 1.0})
+    muter = _FakeMuter(MuteAppsConfig(duck_enabled=False), volumes={90: 1.0, 95: 1.0})
 
     muter.mute()
 
@@ -182,11 +212,11 @@ def test_duck_disabled_leaves_volume_alone() -> None:
 
 def test_duck_volume_above_one_is_clamped() -> None:
     """A config typo like duck_volume: 40 must not blast the call at 4000%."""
-    muter = _FakeMuter(MuteAppsConfig(duck_volume=40.0), volumes={90: 0.85})
+    muter = _FakeMuter(MuteAppsConfig(duck_volume=40.0), volumes={90: 0.85, 95: 0.9})
 
     muter.mute()
 
-    assert muter.volume_calls == []  # 0.85 <= 1.0 (clamped), so left alone
+    assert muter.volume_calls == []  # clamped to 1.0 => nothing is louder than that
 
 
 def test_config_parses_duck_settings() -> None:
@@ -207,3 +237,9 @@ def test_config_defaults_to_discord() -> None:
 
     assert config.mute_apps.enabled is True
     assert config.mute_apps.apps == ("WEBRTC VoiceEngine",)
+
+
+def test_config_parses_duck_rules() -> None:
+    config = parse_config({"mute_apps": {"duck_rules": {"Spotify": 0.2, "Discord": 0.3}}})
+
+    assert dict(config.mute_apps.duck_rules) == {"Spotify": 0.2, "Discord": 0.3}

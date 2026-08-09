@@ -79,9 +79,14 @@ class _RequestHandler(socketserver.StreamRequestHandler):
         self.wfile.write(json.dumps(response, ensure_ascii=False).encode("utf-8") + b"\n")
 
 
-class _UnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
-    daemon_threads = True
-    allow_reuse_address = False
+if hasattr(socketserver, "UnixStreamServer"):
+
+    class _UnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+        daemon_threads = True
+        allow_reuse_address = False
+
+else:  # Windows: no unix sockets; the daemon runs hotkey-driven, serverless.
+    _UnixServer = None  # type: ignore[assignment,misc]
 
 
 class VoiceflowDaemon:
@@ -118,7 +123,12 @@ class VoiceflowDaemon:
             self.micmuter = MicMuter(config.mute_apps)
         self.history = history or History(config.history)
         self.presence = DiscordPresence(config.presence)
-        self.injector = injector or Injector(config.inject)
+        if _WINDOWS and injector is None:
+            from voiceflow.winplat.injector import WinInjector
+
+            self.injector = WinInjector(config.inject)
+        else:
+            self.injector = injector or Injector(config.inject)
         if transcriber is None:
             # Refuse a second instance before downloading/loading a large model.
             _remove_stale_socket(daemon_socket_path())
@@ -461,6 +471,11 @@ def _remove_orphan_recordings(directory: Path) -> None:
 
 def send_request(command: str, *, socket_path: Path | None = None, timeout: float = 1.0) -> dict[str, Any]:
     """Send one JSON-line request and return one JSON-line response."""
+    if not hasattr(socket, "AF_UNIX"):
+        raise RuntimeError(
+            "Na Windowsie demon działa bez socketu — steruje nim skrót klawiszowy "
+            "(Ctrl+Shift+Space); log: %LOCALAPPDATA%\\voiceflow\\daemon.log"
+        )
     path = socket_path or daemon_socket_path()
     payload = json.dumps({"command": command}, ensure_ascii=False).encode("utf-8") + b"\n"
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

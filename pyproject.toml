@@ -22,6 +22,9 @@ dependencies = [
   "PyYAML",
   "nvidia-cublas-cu12; sys_platform == 'linux' and platform_machine == 'x86_64'",
   "nvidia-cudnn-cu12; sys_platform == 'linux' and platform_machine == 'x86_64'",
+  "sounddevice; sys_platform == 'win32'",
+  "pycaw; sys_platform == 'win32'",
+  "comtypes; sys_platform == 'win32'",
 ]
 
 [project.urls]

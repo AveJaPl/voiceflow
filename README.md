@@ -88,7 +88,7 @@ same job with a local Whisper model:
 
 | | |
 |---|---|
-| OS | Linux with **PipeWire** (developed on Ubuntu 26.04) |
+| OS | Linux with **PipeWire** (developed on Ubuntu 26.04) · **Windows 10/11 beta** — [docs/WINDOWS.md](docs/WINDOWS.md) |
 | Desktop | **GNOME on Wayland** (developed on GNOME 50) — other compositors: [see roadmap](#roadmap) |
 | System packages | `ydotool`, `wl-clipboard`, `python3-gi-cairo` (the last package enables charts in the GTK application) |
 | GPU | optional; NVIDIA with ~2.5 GB free VRAM for `large-v3-turbo` (CUDA libraries come from pip — **no CUDA Toolkit install needed**) |
@@ -207,8 +207,10 @@ logic, vocabulary, and config are already platform-neutral; only `recorder`,
   ([#1](https://github.com/AveJaPl/voiceflow/issues/1))
 - [ ] **Prebuilt packages** — .deb, AUR, Flatpak/AppImage (the `/dev/uinput` access
   needs design work in sandboxed formats) ([#4](https://github.com/AveJaPl/voiceflow/issues/4))
-- [ ] **Windows** — CUDA works out of the box; needs a WASAPI recorder, `SendInput`
-  injection, a layered-window overlay, and a global hotkey ([#2](https://github.com/AveJaPl/voiceflow/issues/2))
+- [x] **Windows (beta)** — same core, Win32 backends: in-daemon global hotkey,
+  PortAudio recording, clipboard+`SendInput` injection, no-focus tkinter overlay,
+  Core Audio ducking. See [docs/WINDOWS.md](docs/WINDOWS.md); feedback in
+  [#2](https://github.com/AveJaPl/voiceflow/issues/2)
 - [ ] **macOS** — AVFoundation recorder, CGEvent paste, NSPanel overlay, Accessibility
   permissions; Apple Silicon inference via CPU or an mlx/whisper.cpp backend ([#3](https://github.com/AveJaPl/voiceflow/issues/3))
 - [ ] **Android / iOS** — as custom keyboards (IME / keyboard extension) with on-device

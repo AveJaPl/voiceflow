@@ -139,6 +139,16 @@ class MuteAppsConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class HotkeyConfig:
+    """Global hotkey registered by the daemon itself (Windows only).
+
+    On GNOME the binding lives in gsettings and runs the thin client, so this
+    section is ignored there."""
+
+    binding: str = "ctrl+shift+space"
+
+
+@dataclass(frozen=True, slots=True)
 class PresenceConfig:
     """Discord Rich Presence while dictating."""
 
@@ -183,6 +193,7 @@ class Config:
     mute_apps: MuteAppsConfig = field(default_factory=MuteAppsConfig)
     history: HistoryConfig = field(default_factory=HistoryConfig)
     presence: PresenceConfig = field(default_factory=PresenceConfig)
+    hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
     overlay: OverlayConfig = field(default_factory=OverlayConfig)
     notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
     log_level: str = "INFO"
@@ -196,6 +207,7 @@ _SCHEMA: dict[str, set[str] | None] = {
     "mute_apps": {"enabled", "apps", "duck_enabled", "duck_volume", "duck_rules"},
     "history": {"enabled", "store_text", "max_entries"},
     "presence": {"enabled", "client_id"},
+    "hotkey": {"binding"},
     "overlay": {"enabled"},
     "notifications": {"enabled"},
     "log_level": None,
@@ -309,6 +321,7 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
     mute_apps = _section(root, "mute_apps")
     history = _section(root, "history")
     presence = _section(root, "presence")
+    hotkey = _section(root, "hotkey")
     overlay = _section(root, "overlay")
     notifications = _section(root, "notifications")
 
@@ -366,6 +379,9 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
         presence=PresenceConfig(
             enabled=_boolean(presence.get("enabled", False), False, "presence.enabled"),
             client_id=str(presence.get("client_id", "") or ""),
+        ),
+        hotkey=HotkeyConfig(
+            binding=str(hotkey.get("binding", "ctrl+shift+space") or "ctrl+shift+space"),
         ),
         overlay=OverlayConfig(
             enabled=_boolean(overlay.get("enabled", True), True, "overlay.enabled"),

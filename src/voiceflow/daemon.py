@@ -26,6 +26,8 @@ from voiceflow.preview import PreviewLoop
 from voiceflow.recorder import Recorder
 from voiceflow.transcriber import Transcriber, TranscriptionResult
 
+_WINDOWS = os.name == "nt"
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -101,8 +103,18 @@ class VoiceflowDaemon:
         self._shutdown_requested = threading.Event()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="voiceflow-worker")
         self.notifier = notifier or Notifier(config.notifications)
-        self.overlay = overlay or Overlay(config.overlay)
-        self.micmuter = MicMuter(config.mute_apps)
+        if _WINDOWS and overlay is None:
+            from voiceflow.winplat.overlay import WinOverlay
+
+            self.overlay = WinOverlay(config.overlay)
+        else:
+            self.overlay = overlay or Overlay(config.overlay)
+        if _WINDOWS:
+            from voiceflow.winplat.micmute import WinMicMuter
+
+            self.micmuter = WinMicMuter(config.mute_apps)
+        else:
+            self.micmuter = MicMuter(config.mute_apps)
         self.history = history or History(config.history)
         self.presence = DiscordPresence(config.presence)
         self.injector = injector or Injector(config.inject)
@@ -113,7 +125,14 @@ class VoiceflowDaemon:
             self.transcriber = Transcriber(config.model)
         else:
             self.transcriber = transcriber
-        self.recorder = recorder or Recorder(config.audio, runtime_dir(), self._max_duration_reached)
+        if _WINDOWS and recorder is None:
+            from voiceflow.winplat.recorder import WinRecorder
+
+            self.recorder = WinRecorder(config.audio, runtime_dir(), self._max_duration_reached)
+        else:
+            self.recorder = recorder or Recorder(
+                config.audio, runtime_dir(), self._max_duration_reached
+            )
         self._server: _UnixServer | None = None
         self._preview: PreviewLoop | None = None
 
@@ -320,7 +339,14 @@ class VoiceflowDaemon:
         }
 
     def run(self) -> None:
-        """Serve requests until SIGINT, SIGTERM, or a shutdown command."""
+        """Serve until shutdown.
+
+        Linux: unix-socket server driven by the thin client and the GNOME
+        hotkey. Windows: no client processes — the daemon registers the global
+        hotkey itself and idles on an event."""
+        if _WINDOWS:
+            self._run_windows()
+            return
         socket_path = daemon_socket_path()
         _remove_stale_socket(socket_path)
         server = _UnixServer(str(socket_path), _RequestHandler)
@@ -344,7 +370,26 @@ class VoiceflowDaemon:
             signal.signal(signal.SIGINT, previous_sigint)
             self._cleanup(socket_path)
 
-    def _cleanup(self, socket_path: Path) -> None:
+    def _run_windows(self) -> None:  # pragma: no cover - Windows runtime path
+        from voiceflow.winplat.hotkey import HotkeyListener
+
+        listener = HotkeyListener(self.config.hotkey.binding, lambda: self.handle_command("toggle"))
+        listener.start()
+
+        def request_shutdown(signum: int, _frame: object) -> None:
+            LOGGER.info("Odebrano sygnał %d; zatrzymuję demona", signum)
+            self._shutdown_requested.set()
+
+        signal.signal(signal.SIGINT, request_shutdown)
+        LOGGER.info("voiceflow działa — skrót: %s (Ctrl+C kończy)", self.config.hotkey.binding)
+        try:
+            while not self._shutdown_requested.wait(0.5):
+                pass
+        finally:
+            listener.stop()
+            self._cleanup(None)
+
+    def _cleanup(self, socket_path: Path | None) -> None:
         with self._lock:
             was_recording = self.state is State.RECORDING
             if was_recording:
@@ -362,10 +407,11 @@ class VoiceflowDaemon:
         if self._server is not None:
             self._server.server_close()
         self._executor.shutdown(wait=True, cancel_futures=True)
-        try:
-            socket_path.unlink(missing_ok=True)
-        except OSError as exc:
-            LOGGER.warning("Nie można usunąć socketu %s: %s", socket_path, exc)
+        if socket_path is not None:
+            try:
+                socket_path.unlink(missing_ok=True)
+            except OSError as exc:
+                LOGGER.warning("Nie można usunąć socketu %s: %s", socket_path, exc)
         LOGGER.info("Demon zatrzymany")
 
 

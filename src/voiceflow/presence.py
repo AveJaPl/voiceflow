@@ -42,10 +42,36 @@ def _encode(opcode: int, payload: dict) -> bytes:
 
 
 def _socket_candidates() -> list[Path]:
-    """Discord's IPC socket, including snap and flatpak install locations."""
+    """Discord's IPC endpoints per platform.
+
+    Linux: unix sockets in the runtime dir (plus snap/flatpak subdirs).
+    Windows: named pipes (backslash-backslash-dot) pipe discord-ipc-N.
+    """
+    if os.name == "nt":
+        return [Path(rf"\\.\pipe\discord-ipc-{index}") for index in range(10)]
     runtime = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
     bases = [runtime, runtime / "snap.discord", runtime / "app" / "com.discordapp.Discord"]
     return [base / f"discord-ipc-{index}" for base in bases for index in range(10)]
+
+
+class _PipeTransport:
+    """File-object adapter giving a named pipe the socket sendall/recv shape."""
+
+    def __init__(self, path: Path) -> None:
+        # Buffering must be off: frames are small and must flush immediately.
+        self._handle = open(path, "r+b", buffering=0)  # noqa: SIM115
+
+    def sendall(self, data: bytes) -> None:
+        self._handle.write(data)
+
+    def recv(self, count: int) -> bytes:
+        return self._handle.read(count) or b""
+
+    def settimeout(self, _value: float) -> None:  # parity with socket API
+        return
+
+    def close(self) -> None:
+        self._handle.close()
 
 
 class DiscordPresence:
@@ -109,12 +135,15 @@ class DiscordPresence:
         if self._socket is not None:
             return self._socket
         for candidate in _socket_candidates():
-            if not candidate.exists():
+            if os.name != "nt" and not candidate.exists():
                 continue
             try:
-                connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                connection.settimeout(_TIMEOUT)
-                connection.connect(str(candidate))
+                if os.name == "nt":
+                    connection = _PipeTransport(candidate)
+                else:
+                    connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                    connection.settimeout(_TIMEOUT)
+                    connection.connect(str(candidate))
                 connection.sendall(
                     _encode(_OP_HANDSHAKE, {"v": 1, "client_id": self.config.client_id})
                 )

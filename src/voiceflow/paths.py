@@ -1,19 +1,31 @@
-"""XDG-compliant paths used by voiceflow."""
+"""Per-platform paths used by voiceflow.
+
+Linux follows the XDG spec; Windows uses APPDATA (roaming config) and
+LOCALAPPDATA (machine-local data and runtime files).
+"""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
+_WINDOWS = os.name == "nt"
+
 
 def config_dir() -> Path:
     """Return the voiceflow configuration directory."""
+    if _WINDOWS:
+        base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+        return base / "voiceflow"
     base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     return base / "voiceflow"
 
 
 def data_dir() -> Path:
     """Return the voiceflow data directory."""
+    if _WINDOWS:
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        return base / "voiceflow"
     base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
     return base / "voiceflow"
 
@@ -24,6 +36,8 @@ def runtime_base_dir() -> Path:
     Graphical sessions set ``XDG_RUNTIME_DIR``. The conventional systemd path is
     used as a defensive fallback for manually started shells.
     """
+    if _WINDOWS:
+        return data_dir() / "run"
     configured = os.environ.get("XDG_RUNTIME_DIR")
     return Path(configured) if configured else Path("/run/user") / str(os.getuid())
 

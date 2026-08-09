@@ -73,8 +73,11 @@ class _FakeMuter(MicMuter):
         self.mute_calls: list[tuple[int, bool]] = []
         self.volume_calls: list[tuple[int, float]] = []
 
+        self.dead_nodes: set[int] = set()
+        self.pw_objects = json.loads(PW_DUMP)
+
     def _find_nodes(self, media_class, wanted):  # type: ignore[override]
-        objects = json.loads(PW_DUMP)
+        objects = self.pw_objects
         found = []
         for entry in objects:
             if entry.get("type") != "PipeWire:Interface:Node":
@@ -100,9 +103,34 @@ class _FakeMuter(MicMuter):
         return self.volumes.get(node_id)
 
     def _set_volume(self, node_id: int, volume: float) -> bool:  # type: ignore[override]
+        if node_id in self.dead_nodes:
+            return False
         self.volume_calls.append((node_id, volume))
         self.volumes[node_id] = volume
         return True
+
+    # test helpers ---------------------------------------------------------
+
+    def kill_node(self, node_id: int) -> None:
+        """Simulate a stream vanishing (silent call: Discord suspends it)."""
+        self.dead_nodes.add(node_id)
+        self.pw_objects = [o for o in self.pw_objects if o.get("id") != node_id]
+
+    def spawn_output(self, node_id: int, app: str, volume: float) -> None:
+        """Simulate a fresh playback stream of ``app`` appearing."""
+        self.pw_objects.append(
+            {
+                "id": node_id,
+                "type": "PipeWire:Interface:Node",
+                "info": {
+                    "props": {
+                        "media.class": "Stream/Output/Audio",
+                        "application.name": app,
+                    }
+                },
+            }
+        )
+        self.volumes[node_id] = volume
 
 
 def test_mutes_only_the_configured_capture_stream() -> None:
@@ -217,6 +245,40 @@ def test_duck_volume_above_one_is_clamped() -> None:
     muter.mute()
 
     assert muter.volume_calls == []  # clamped to 1.0 => nothing is louder than that
+
+
+def test_vanished_stream_is_restored_on_its_replacement_node() -> None:
+    """The ducked node died, but the app already has a fresh stream: restore it.
+
+    Without this, WirePlumber persists the ducked volume under the app's name
+    and every future stream of that app is born quiet.
+    """
+    muter = _FakeMuter(MuteAppsConfig(), volumes={90: 1.0, 95: 1.0})
+    muter.mute()  # ducks node 90 (Discord) to 0.4
+
+    muter.kill_node(90)
+    muter.spawn_output(97, "WEBRTC VoiceEngine", volume=0.4)  # persisted duck
+    muter.unmute()
+
+    assert muter.volumes[97] == 1.0
+
+
+def test_vanished_stream_is_restored_at_the_next_recording() -> None:
+    """No stream at unmute time at all: the restore waits for the app's return."""
+    muter = _FakeMuter(MuteAppsConfig(), volumes={90: 1.0, 95: 1.0})
+    muter.mute()
+    muter.kill_node(90)
+    muter.unmute()  # nothing to restore onto — parked as pending
+
+    # The call comes back, born quiet from WirePlumber's persisted state.
+    muter.spawn_output(97, "WEBRTC VoiceEngine", volume=0.4)
+    muter.mute()
+
+    # Fixed to 100% BEFORE ducking, so this duck saved the true original...
+    assert (97, 1.0) in muter.volume_calls
+    muter.unmute()
+    # ...and the second unmute restores it to 100% again.
+    assert muter.volumes[97] == 1.0
 
 
 def test_config_parses_duck_settings() -> None:

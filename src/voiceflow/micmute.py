@@ -15,6 +15,14 @@ exactly.
 
 Node ids change between sessions and even between calls, so targets are resolved
 by ``application.name`` at mute time, never cached across recordings.
+
+One trap shaped this module's restore path: a voice chat's playback stream
+*disappears mid-recording* whenever the call goes silent (Discord suspends the
+node), and WirePlumber persists the last-seen volume **per application name**.
+If the ducked value is what gets persisted, every future stream of that app is
+born quiet — permanently, surviving reboots. Restoring must therefore never
+give up on a dead node id: it falls back to re-resolving the app by name, and
+failed restores are remembered and retried when the app's stream reappears.
 """
 
 from __future__ import annotations
@@ -50,6 +58,9 @@ class MicMuter:
         self._muted: list[_Target] = []
         #: (target, original volume) pairs for playback streams we turned down.
         self._ducked: list[tuple[_Target, float]] = []
+        #: app (casefolded) -> (display name, original volume) for restores that
+        #: found no live stream; retried whenever the app shows up again.
+        self._pending_restores: dict[str, tuple[str, float]] = {}
         self._wpctl = shutil.which("wpctl")
         self._pw_dump = shutil.which("pw-dump")
         if config.enabled and (self._wpctl is None or self._pw_dump is None):
@@ -71,6 +82,9 @@ class MicMuter:
             # those streams now than to lose track of them entirely.
             LOGGER.warning("Lista wyciszonych nie była pusta; przywracam poprzednie")
             self.unmute()
+        # A stream that vanished before its restore may be back by now — fix it
+        # BEFORE ducking, so the duck records the true original volume.
+        self._retry_pending_restores()
         for target in self._find_targets("Stream/Input/Audio"):
             if self._is_muted(target.node_id):
                 LOGGER.debug("Strumień %s już wyciszony ręcznie; zostawiam", target.app)
@@ -97,7 +111,39 @@ class MicMuter:
                     original * 100,
                     target.node_id,
                 )
+                continue
+            # The node died mid-recording (silent call => Discord suspends the
+            # stream). WirePlumber has already persisted the DUCKED volume for
+            # this app name, so simply forgetting would leave every future
+            # stream quiet. Try the app's current streams; else park it.
+            if not self._restore_by_app(target.app, original):
+                LOGGER.warning(
+                    "Strumień %s zniknął przed przywróceniem głośności; "
+                    "spróbuję ponownie, gdy się pojawi",
+                    target.app,
+                )
+                self._pending_restores[target.app.casefold()] = (target.app, original)
         self._ducked = []
+
+    def _restore_by_app(self, app: str, original: float) -> bool:
+        """Set ``original`` on every current playback stream of ``app``."""
+        restored = False
+        for node in self._find_nodes("Stream/Output/Audio", wanted={app.casefold()}):
+            if self._set_volume(node.node_id, original):
+                LOGGER.info(
+                    "Przywrócono głośność %s do %.0f%% (nowy node %d)",
+                    app,
+                    original * 100,
+                    node.node_id,
+                )
+                restored = True
+        return restored
+
+    def _retry_pending_restores(self) -> None:
+        """Fix apps whose restore failed because their stream was gone."""
+        for key, (app, original) in list(self._pending_restores.items()):
+            if self._restore_by_app(app, original):
+                del self._pending_restores[key]
 
     def _duck(self) -> None:
         """Duck every playing app to its own target volume."""

@@ -2,6 +2,21 @@
 
 Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[Web]**
 
+## 0.4.0 — 2026-08-10
+
+- **[Windows]** Added the desktop window. All five pages the Linux application
+  has — przegląd, historia, statystyki, ustawienia, słownik — with daemon
+  start/stop, searchable history, charts, the full `config.yaml` editor and the
+  vocabulary. **voiceflow** in the Start Menu now opens it instead of silently
+  re-launching an already-running daemon.
+- **[Windows]** The window is Qt, not a port of the GTK code: PyGObject
+  publishes no Windows wheel at all, so libadwaita is not reachable there. The
+  daemon underneath is unchanged, and the window edits the same `config.yaml`
+  and speaks the same control channel as the command line.
+- **[All]** Config edits are read-modify-write under a lock. Two pages saving
+  from their own threads previously raced, and whichever wrote first lost its
+  changes; keys the window does not know about are preserved either way.
+
 ## 0.3.2 — 2026-08-10
 
 - **[Windows]** Fixed: clicking the Start Menu entry while voiceflow was already

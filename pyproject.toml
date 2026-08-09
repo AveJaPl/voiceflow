@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "voiceflow"
-version = "0.3.2"
+version = "0.4.0"
 description = "Local, GPU-accelerated voice dictation for Linux and Windows. Press a hotkey, speak, get text in any window. Whisper on your own hardware — no cloud, no subscription."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
@@ -31,6 +31,9 @@ dependencies = [
   "sounddevice; sys_platform == 'win32'",
   "pycaw; sys_platform == 'win32'",
   "comtypes; sys_platform == 'win32'",
+  # The desktop window. Linux has the GTK4/libadwaita app in app/; PyGObject
+  # publishes no Windows wheel at all, so the Windows UI is Qt.
+  "PySide6; sys_platform == 'win32'",
 ]
 
 [project.urls]
@@ -39,6 +42,11 @@ Issues = "https://github.com/AveJaPl/voiceflow/issues"
 
 [project.scripts]
 voiceflow = "voiceflow.cli:main"
+
+# A gui-script gets a launcher bound to pythonw.exe, so opening the window from
+# the Start Menu never flashes a console behind it.
+[project.gui-scripts]
+voiceflow-app = "voiceflow.gui.app:main"
 
 [dependency-groups]
 dev = ["pytest"]

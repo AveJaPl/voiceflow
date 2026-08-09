@@ -10,6 +10,7 @@ Discord Rich Presence — is the same code as on Linux. The OS layer is swapped:
 | text injection | wl-copy + ydotool paste | Win32 clipboard + `SendInput` (default chord `ctrl+v`) |
 | preview overlay | GTK popup via XWayland | tkinter always-on-top window with `WS_EX_NOACTIVATE` |
 | ducking | wpctl per-stream | Core Audio sessions (`pycaw`); rules match the process name, e.g. `Spotify.exe` or `Spotify` |
+| desktop window | GTK4 + libadwaita (`app/`) | Qt/PySide6 (`src/voiceflow/gui/`) — PyGObject ships no Windows wheel |
 | notifications | notify-send | Windows toast (Action Center) |
 | control channel | unix socket, mode 0600 | loopback TCP + a token in `%LOCALAPPDATA%\voiceflow\run\voiceflow\daemon.json` |
 | Discord presence | unix socket | named pipe `\\.\pipe\discord-ipc-N` |
@@ -40,6 +41,17 @@ the daemon — dictation works immediately, without waiting for a sign-out.
 **voiceflow appears in the Start Menu** (with its icon) and autostarts on
 login. It runs silently in the background — no console window.
 Press **Ctrl+Shift+Space**, speak, press it again.
+
+## The desktop window
+
+**voiceflow** in the Start Menu opens the settings window: daemon status with
+start/stop, dictation history with search, statistics, the full `config.yaml`
+editor, and the vocabulary. It is a front end — it edits the same file the
+daemon reads and talks to it over the same control channel the command line
+uses, so nothing it shows is a second source of truth.
+
+Closing the window does not stop dictation; the daemon keeps running. The
+window is optional, and the hotkey works whether or not it is open.
 
 Is it alive? Ask it:
 
@@ -73,8 +85,10 @@ Windows toast, so a failed dictation never fails silently.
   mute, so the "mute Discord's mic stream" feature is a no-op — use Discord's
   own mute or push-to-talk while dictating. Playback **ducking works fully**.
 - **Overlay styling** is simpler than the Linux card (tkinter, not GTK).
-- The GTK settings app is Linux-only for now; on Windows edit
-  `%APPDATA%\voiceflow\config.yaml` (same format, same keys).
+- The desktop window is a **separate implementation** from the GTK one, not a
+  port of it: PyGObject publishes no Windows wheel, so the UI layer is Qt while
+  the daemon underneath is the same code. Expect small differences in polish
+  between the two.
 
 ## Status
 

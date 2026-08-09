@@ -49,21 +49,31 @@ $Pythonw = Join-Path $Dest ".venv\Scripts\pythonw.exe"
 if (-not (Test-Path $Pythonw)) { throw "uv sync did not produce $Pythonw" }
 
 Write-Host "==> Creating Start Menu entry and autostart" -ForegroundColor Cyan
-# pythonw.exe has no console attached at all, so there is no window to hide and
-# no cmd/uv/python chain to keep alive - one process, started directly.
+# Two different things, deliberately:
+#   Start Menu -> the desktop window, because that is what clicking an app icon
+#                 must do. Pointing it at the daemon meant clicking it did
+#                 nothing at all once the daemon was already running.
+#   Startup    -> the daemon, headless, via pythonw.exe so no console exists to
+#                 flash or to hide.
 $Ico = Join-Path $Dest "windows\voiceflow.ico"
-$StartMenu = Join-Path ([Environment]::GetFolderPath("Programs")) "voiceflow.lnk"
-$Startup = Join-Path ([Environment]::GetFolderPath("Startup")) "voiceflow.lnk"
 $Shell = New-Object -ComObject WScript.Shell
-foreach ($LinkPath in @($StartMenu, $Startup)) {
-    $Link = $Shell.CreateShortcut($LinkPath)
-    $Link.TargetPath = $Pythonw
-    $Link.Arguments = "-m voiceflow daemon"
-    $Link.WorkingDirectory = $Dest
-    if (Test-Path $Ico) { $Link.IconLocation = $Ico }
-    $Link.Description = "voiceflow - dyktowanie glosowe (Ctrl+Shift+Space)"
-    $Link.Save()
-}
+
+$StartMenu = Join-Path ([Environment]::GetFolderPath("Programs")) "voiceflow.lnk"
+$Link = $Shell.CreateShortcut($StartMenu)
+$Link.TargetPath = Join-Path $Dest ".venv\Scripts\voiceflow-app.exe"
+$Link.WorkingDirectory = $Dest
+if (Test-Path $Ico) { $Link.IconLocation = $Ico }
+$Link.Description = "voiceflow - ustawienia, historia i statystyki dyktowania"
+$Link.Save()
+
+$Startup = Join-Path ([Environment]::GetFolderPath("Startup")) "voiceflow.lnk"
+$Link = $Shell.CreateShortcut($Startup)
+$Link.TargetPath = $Pythonw
+$Link.Arguments = "-m voiceflow daemon"
+$Link.WorkingDirectory = $Dest
+if (Test-Path $Ico) { $Link.IconLocation = $Ico }
+$Link.Description = "voiceflow - dyktowanie glosowe (Ctrl+Shift+Space)"
+$Link.Save()
 # Superseded by the direct pythonw launch; leaving it behind would keep an
 # older, uv-dependent path alive in anyone's Startup folder.
 $LegacyVbs = Join-Path $Root "voiceflow-hidden.vbs"
@@ -87,6 +97,7 @@ Write-Host "    daemon started" -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "Done. voiceflow is running now and autostarts on login." -ForegroundColor Green
 Write-Host "Press Ctrl+Shift+Space, speak, press it again - the text lands in the focused window."
+Write-Host "Open *voiceflow* in the Start Menu for settings, history and statistics."
 Write-Host "Check it any time:  %LOCALAPPDATA%\voiceflow\app\.venv\Scripts\voiceflow.exe status"
 Write-Host "Hotkey and settings: %APPDATA%\voiceflow\config.yaml"
 Write-Host "Log:                 %LOCALAPPDATA%\voiceflow\daemon.log"

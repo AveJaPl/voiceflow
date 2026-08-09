@@ -2,8 +2,14 @@
 
 Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[Web]**
 
-## Unreleased
+## 0.3.0 — 2026-08-09
 
+- **[Linux]** Fixed: a voice chat could stay quiet forever after dictation if its
+  stream vanished mid-recording (WirePlumber persisted the ducked volume per app
+  name). Restores now fall back to the application name and retry when the
+  stream returns.
+- **[Web]** The landing page grew: bilingual (/en, /pl), animated demos of the
+  Linux flow and the Android keyboard, a speech-vs-typing chart, privacy pages.
 - **[Web]** Landing page at [voiceflow.pbdevs.com](https://voiceflow.pbdevs.com):
   features, per-OS install commands, platform roadmap. Self-hosted, privacy-friendly
   analytics (Umami) — no cookies, no third parties.

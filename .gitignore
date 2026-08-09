@@ -1,0 +1,11 @@
+__pycache__/
+.venv/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+models/
+*.bin
+*.onnx
+*.safetensors
+

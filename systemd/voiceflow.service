@@ -1,0 +1,22 @@
+[Unit]
+Description=voiceflow local speech dictation daemon
+# Ubuntu's ydotool package ships the daemon as ydotool.service, not ydotoold.service.
+After=graphical-session.target ydotool.service
+Wants=ydotool.service
+# Stop with the session so a fresh login always restarts us with its environment.
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+Environment=YDOTOOL_SOCKET=%t/.ydotool_socket
+ExecStart=%h/.local/bin/voiceflow daemon
+Restart=on-failure
+RestartSec=2
+
+[Install]
+# graphical-session.target, NOT default.target: with default.target the daemon
+# races the login and starts without DISPLAY/XAUTHORITY, so the overlay window
+# cannot authenticate to X. graphical-session.target only activates once the
+# session is up and has pushed its environment into the user manager.
+WantedBy=graphical-session.target
+

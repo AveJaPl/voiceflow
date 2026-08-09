@@ -47,3 +47,10 @@ def ydotool_socket_path() -> Path:
     value = os.environ.get("YDOTOOL_SOCKET")
     return Path(value) if value else runtime_base_dir() / ".ydotool_socket"
 
+
+
+def history_file() -> Path:
+    """Return the dictation history file (JSONL) in the data directory."""
+    directory = data_dir()
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return directory / "history.jsonl"

@@ -45,6 +45,9 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("cancel", help="anuluj bieżące nagranie")
     subparsers.add_parser("status", help="pokaż stan i diagnostykę")
     subparsers.add_parser("models", help="pokaż dostępne modele")
+    last = subparsers.add_parser("last", help="pokaż ostatnie dyktowania (ratunek po wklejce w złe okno)")
+    last.add_argument("-n", type=int, default=1, metavar="N", help="ile ostatnich wpisów pokazać")
+    last.add_argument("--copy", action="store_true", help="skopiuj najnowszy tekst do schowka")
     return parser
 
 
@@ -102,12 +105,47 @@ def _print_models() -> int:
     return 0
 
 
+def _print_last(count: int, copy: bool) -> int:
+    from voiceflow.history import read_records
+
+    records = [r for r in read_records(limit=max(count, 1) * 3) if r.text]
+    if not records:
+        print("Historia jest pusta (albo history.store_text jest wyłączone).")
+        return 1
+    for record in records[-count:]:
+        print(f"[{record.timestamp}] ({record.words} słów)")
+        print(f"  {record.text}")
+    if copy:
+        import shutil as _shutil
+        import subprocess as _subprocess
+
+        wl_copy = _shutil.which("wl-copy")
+        if wl_copy is None:
+            print("Brak wl-copy — nie mogę skopiować.", file=sys.stderr)
+            return 1
+        process = _subprocess.Popen(
+            [wl_copy],
+            stdin=_subprocess.PIPE,
+            stdout=_subprocess.DEVNULL,
+            stderr=_subprocess.DEVNULL,
+            shell=False,
+        )
+        assert process.stdin is not None
+        process.stdin.write(records[-1].text.encode("utf-8"))  # type: ignore[union-attr]
+        process.stdin.close()
+        process.wait(timeout=3)
+        print("Skopiowano najnowszy tekst do schowka — wklej Ctrl+Shift+V.")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the voiceflow command-line interface."""
     parser = build_parser()
     arguments = parser.parse_args(argv)
     if arguments.command == "models":
         return _print_models()
+    if arguments.command == "last":
+        return _print_last(arguments.n, arguments.copy)
     try:
         config = load_config()
     except RuntimeError as exc:

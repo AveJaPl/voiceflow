@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from voiceflow.config import Config
+from voiceflow.history import History, Record
 from voiceflow.injector import InjectionResult, Injector
 from voiceflow.micmute import MicMuter
 from voiceflow.notifier import Notifier
@@ -91,6 +92,7 @@ class VoiceflowDaemon:
         injector: Injector | None = None,
         notifier: Notifier | None = None,
         overlay: Overlay | None = None,
+        history: History | None = None,
     ) -> None:
         self.config = config
         self.state = State.IDLE
@@ -100,6 +102,7 @@ class VoiceflowDaemon:
         self.notifier = notifier or Notifier(config.notifications)
         self.overlay = overlay or Overlay(config.overlay)
         self.micmuter = MicMuter(config.mute_apps)
+        self.history = history or History(config.history)
         self.injector = injector or Injector(config.inject)
         if transcriber is None:
             # Refuse a second instance before downloading/loading a large model.
@@ -255,7 +258,24 @@ class VoiceflowDaemon:
             if self._shutdown_requested.is_set():
                 LOGGER.info("Demon jest zatrzymywany; pomijam wstrzykiwanie")
                 return
-            injection: InjectionResult = self.injector.inject(result.text)
+            injected = True
+            try:
+                injection: InjectionResult = self.injector.inject(result.text)
+            except Exception:
+                injected = False
+                raise
+            finally:
+                # Record even failed injections: the text is exactly what the
+                # user needs to recover via `voiceflow last` or the app.
+                self.history.append(
+                    Record.now(
+                        result.text,
+                        audio_seconds=result.audio_seconds,
+                        transcription_seconds=result.transcription_seconds,
+                        injected=injected,
+                        store_text=self.config.history.store_text,
+                    )
+                )
             if injection.fallback_reason:
                 LOGGER.info("Wstrzyknięto przez %s: %s", injection.method, injection.fallback_reason)
             # No success notification: the text landing in the focused window is

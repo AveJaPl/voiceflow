@@ -6,8 +6,9 @@ import threading
 import time
 from pathlib import Path
 
-from voiceflow.config import Config
+from voiceflow.config import Config, HistoryConfig
 from voiceflow.daemon import State, VoiceflowDaemon
+from voiceflow.history import History
 from voiceflow.injector import InjectionResult, ProbeResult
 from voiceflow.transcriber import TranscriptionResult
 
@@ -93,6 +94,7 @@ def test_toggle_state_machine_ignores_toggle_during_transcription(tmp_path: Path
         injector=injector,  # type: ignore[arg-type]
         notifier=_Notifier(),  # type: ignore[arg-type]
         overlay=_Overlay(),  # type: ignore[arg-type]
+        history=History(HistoryConfig(), tmp_path / "history.jsonl"),
     )
 
     started = daemon.handle_command("toggle")
@@ -126,6 +128,7 @@ def test_cancel_discards_recording(tmp_path: Path) -> None:
         injector=_Injector(),  # type: ignore[arg-type]
         notifier=_Notifier(),  # type: ignore[arg-type]
         overlay=_Overlay(),  # type: ignore[arg-type]
+        history=History(HistoryConfig(), tmp_path / "history.jsonl"),
     )
 
     daemon.handle_command("start")

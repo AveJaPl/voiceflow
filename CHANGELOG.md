@@ -2,7 +2,7 @@
 
 Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[Web]**
 
-## Unreleased
+## 0.3.1 — 2026-08-10
 
 - **[Windows]** Fixed: the paste chord defaulted to `ctrl+shift+v`, which most
   native Windows applications ignore — dictation completed and delivered

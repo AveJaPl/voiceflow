@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 
 import pytest
@@ -15,6 +16,15 @@ from voiceflow.injector import (
 )
 
 
+#: These two drive the Linux injector through a real `bash`, so they depend on
+#: POSIX fork/exec semantics and on bash existing. Windows uses
+#: voiceflow.winplat.injector and neither holds there.
+_posix_only = pytest.mark.skipif(
+    os.name == "nt", reason="zależy od semantyki fork/exec POSIX i powłoki bash"
+)
+
+
+@_posix_only
 def test_run_does_not_wait_for_a_forked_grandchild() -> None:
     """Regression: wl-copy forks a child that keeps owning the Wayland selection.
 
@@ -28,6 +38,7 @@ def test_run_does_not_wait_for_a_forked_grandchild() -> None:
     assert time.perf_counter() - started < 2.0
 
 
+@_posix_only
 def test_run_reports_stderr_of_a_failing_command() -> None:
     with pytest.raises(InjectionError, match="nie ma takiego czegos"):
         Injector._run(["bash", "-c", "echo nie ma takiego czegos >&2; exit 3"], timeout=3)

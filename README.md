@@ -196,15 +196,23 @@ Ordered by how much of the codebase carries over — the daemon, transcriber, pr
 logic, vocabulary, and config are already platform-neutral; only `recorder`,
 `injector`, `overlay`, and `micmute` touch the OS:
 
+- [ ] **Native settings app** (GTK4/libadwaita) — status, model & language, vocabulary
+  editor, voice-chat ducking, all without touching YAML *(in progress)*
 - [ ] **Other Wayland compositors** (KDE, Hyprland, Sway) — easiest port: they
   implement `virtual-keyboard`/layer-shell, so injection and overlay get *simpler*
+  ([#1](https://github.com/AveJaPl/voiceflow/issues/1))
 - [ ] **Prebuilt packages** — .deb, AUR, Flatpak/AppImage (the `/dev/uinput` access
-  needs design work in sandboxed formats)
+  needs design work in sandboxed formats) ([#4](https://github.com/AveJaPl/voiceflow/issues/4))
 - [ ] **Windows** — CUDA works out of the box; needs a WASAPI recorder, `SendInput`
-  injection, a layered-window overlay, and a global hotkey
-- [ ] **macOS** — needs an AVFoundation/CoreAudio recorder, CGEvent paste, an NSPanel
-  overlay, and Accessibility permissions; Apple Silicon inference via CPU or CTranslate2
+  injection, a layered-window overlay, and a global hotkey ([#2](https://github.com/AveJaPl/voiceflow/issues/2))
+- [ ] **macOS** — AVFoundation recorder, CGEvent paste, NSPanel overlay, Accessibility
+  permissions; Apple Silicon inference via CPU or an mlx/whisper.cpp backend ([#3](https://github.com/AveJaPl/voiceflow/issues/3))
+- [ ] **Android / iOS** — as custom keyboards (IME / keyboard extension) with on-device
+  whisper.cpp, so dictation works in every app; effectively sibling projects
+  ([#6](https://github.com/AveJaPl/voiceflow/issues/6),
+  [#7](https://github.com/AveJaPl/voiceflow/issues/7))
 - [ ] **i18n** of user-facing strings (currently Polish — the author dictates in Polish)
+  ([#5](https://github.com/AveJaPl/voiceflow/issues/5))
 
 Each item has a tracking issue with implementation notes — grab one, comment, and go.
 

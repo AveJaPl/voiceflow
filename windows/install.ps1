@@ -27,14 +27,31 @@ Push-Location $Dest
 uv sync
 Pop-Location
 
-Write-Host "==> Creating launcher and autostart" -ForegroundColor Cyan
-$Launcher = Join-Path $env:LOCALAPPDATA "voiceflow\voiceflow.bat"
-"@echo off`ncd /d `"$Dest`"`nstart `"voiceflow`" /min cmd /c `"uv run voiceflow daemon`"" |
-    Set-Content -Path $Launcher -Encoding ascii
-$Startup = [Environment]::GetFolderPath("Startup")
-Copy-Item $Launcher (Join-Path $Startup "voiceflow.bat") -Force
+Write-Host "==> Creating launcher, Start Menu entry and autostart" -ForegroundColor Cyan
+# Hidden launcher (no console window): wscript runs the daemon invisibly.
+$Vbs = Join-Path $env:LOCALAPPDATA "voiceflow\voiceflow-hidden.vbs"
+@"
+Set shell = CreateObject("WScript.Shell")
+shell.CurrentDirectory = "$Dest"
+shell.Run "cmd /c uv run voiceflow daemon", 0, False
+"@ | Set-Content -Path $Vbs -Encoding ascii
+
+# Start Menu shortcut with the application icon.
+$Ico = Join-Path $Dest "windows\voiceflow.ico"
+$StartMenu = Join-Path ([Environment]::GetFolderPath("Programs")) "voiceflow.lnk"
+$Startup = Join-Path ([Environment]::GetFolderPath("Startup")) "voiceflow.lnk"
+$Shell = New-Object -ComObject WScript.Shell
+foreach ($LinkPath in @($StartMenu, $Startup)) {
+    $Link = $Shell.CreateShortcut($LinkPath)
+    $Link.TargetPath = "wscript.exe"
+    $Link.Arguments = "`"$Vbs`""
+    $Link.WorkingDirectory = $Dest
+    if (Test-Path $Ico) { $Link.IconLocation = $Ico }
+    $Link.Description = "voiceflow - dyktowanie glosowe (Ctrl+Shift+Space)"
+    $Link.Save()
+}
 
 Write-Host ""
-Write-Host "Done. Start now with: $Launcher" -ForegroundColor Green
+Write-Host "Done. Find *voiceflow* in the Start Menu (it also autostarts on login)." -ForegroundColor Green
 Write-Host "First start downloads the speech model (~1.6 GB)."
 Write-Host "Hotkey: Ctrl+Shift+Space (change in %APPDATA%\voiceflow\config.yaml)."

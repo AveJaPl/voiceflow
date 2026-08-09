@@ -27,9 +27,11 @@ Or from PowerShell:
 irm https://raw.githubusercontent.com/AveJaPl/voiceflow/main/windows/install.ps1 | iex
 ```
 
-Then run `%LOCALAPPDATA%\voiceflow\voiceflow.bat` (or just log in again — it
-autostarts). First start downloads the model (~1.6 GB). Press
-**Ctrl+Shift+Space**, speak, press it again.
+After installing, **voiceflow appears in the Start Menu** (with its icon) and
+autostarts on login. It runs silently in the background — no console window;
+the on-screen overlay appearing when you press the hotkey is the sign of life.
+First start downloads the model (~1.6 GB), so give the very first dictation a
+few minutes. Press **Ctrl+Shift+Space**, speak, press it again.
 
 ## Known limitations (honest list)
 

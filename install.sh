@@ -24,6 +24,19 @@ fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
 command -v curl >/dev/null || fail "curl is required"
 command -v tar  >/dev/null || fail "tar is required"
 
+# WSL is Windows wearing a Linux costume: no real microphone routing and no way
+# to paste into Windows applications from here. Point the user at the right build.
+if grep -qiE "microsoft|wsl" /proc/version 2>/dev/null; then
+    echo ""
+    echo "  Wykryto WSL — jesteś na Windowsie."
+    echo "  Ta wersja (Linux) nie zadziała w WSL: brak dostępu do mikrofonu"
+    echo "  i brak możliwości wklejania do okien Windows."
+    echo ""
+    echo "  Użyj instalatora Windows: pobierz voiceflow-install.bat z"
+    echo "  https://github.com/AveJaPl/voiceflow/releases/latest i kliknij dwukrotnie."
+    exit 1
+fi
+
 say "Downloading voiceflow"
 TARBALL_URL=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
     | grep -o '"tarball_url": *"[^"]*"' | cut -d'"' -f4 || true)
@@ -54,6 +67,8 @@ esac
 
 if ! command -v ydotool >/dev/null || [ ! -e /dev/uinput ]; then
     say "System dependencies missing — this one step needs sudo"
+    echo "  (hasło wpisuje się niewidocznie — to normalne; potem apt może"
+    echo "   pracować ~minutę bez żadnego wyjścia)"
     sudo bash "$DEST/scripts/install-system-deps.sh"
 fi
 

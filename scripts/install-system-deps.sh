@@ -20,7 +20,7 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-echo "==> Installing packages"
+echo "==> Installing packages (apt update may take a minute, quietly)..."
 apt-get update -qq
 apt-get install -y ydotool wl-clipboard python3-gi-cairo
 

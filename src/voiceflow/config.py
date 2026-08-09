@@ -52,6 +52,12 @@ mute_apps:
   duck_enabled: true
   duck_volume: 0.4          # apps without a rule duck to 40%
   duck_rules: {}            # e.g. {Spotify: 0.2, WEBRTC VoiceEngine: 0.3}
+presence:
+  # Discord Rich Presence: friends see "dyktuje glosem" with a timer while you
+  # dictate (local IPC only, never chat messages). Register a free application
+  # at discord.com/developers, name it voiceflow, paste its Application ID here.
+  enabled: false
+  client_id: ""
 history:
   # Every dictation is logged locally (~/.local/share/voiceflow/history.jsonl)
   # so text is recoverable when a paste lands in the wrong window, and so the
@@ -133,6 +139,15 @@ class MuteAppsConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class PresenceConfig:
+    """Discord Rich Presence while dictating."""
+
+    enabled: bool = False
+    #: Application id from discord.com/developers — it determines the shown name.
+    client_id: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class HistoryConfig:
     """Persistent dictation history (retrieval + statistics)."""
 
@@ -167,6 +182,7 @@ class Config:
     preview: PreviewConfig = field(default_factory=PreviewConfig)
     mute_apps: MuteAppsConfig = field(default_factory=MuteAppsConfig)
     history: HistoryConfig = field(default_factory=HistoryConfig)
+    presence: PresenceConfig = field(default_factory=PresenceConfig)
     overlay: OverlayConfig = field(default_factory=OverlayConfig)
     notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
     log_level: str = "INFO"
@@ -179,6 +195,7 @@ _SCHEMA: dict[str, set[str] | None] = {
     "preview": {"enabled", "interval_seconds", "window_seconds", "max_chars"},
     "mute_apps": {"enabled", "apps", "duck_enabled", "duck_volume", "duck_rules"},
     "history": {"enabled", "store_text", "max_entries"},
+    "presence": {"enabled", "client_id"},
     "overlay": {"enabled"},
     "notifications": {"enabled"},
     "log_level": None,
@@ -283,6 +300,7 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
     preview = _section(root, "preview")
     mute_apps = _section(root, "mute_apps")
     history = _section(root, "history")
+    presence = _section(root, "presence")
     overlay = _section(root, "overlay")
     notifications = _section(root, "notifications")
 
@@ -336,6 +354,10 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
             enabled=_boolean(history.get("enabled", True), True, "history.enabled"),
             store_text=_boolean(history.get("store_text", True), True, "history.store_text"),
             max_entries=_positive_int(history.get("max_entries", 20000), 20000, "history.max_entries"),
+        ),
+        presence=PresenceConfig(
+            enabled=_boolean(presence.get("enabled", False), False, "presence.enabled"),
+            client_id=str(presence.get("client_id", "") or ""),
         ),
         overlay=OverlayConfig(
             enabled=_boolean(overlay.get("enabled", True), True, "overlay.enabled"),

@@ -21,6 +21,7 @@ from voiceflow.micmute import MicMuter
 from voiceflow.notifier import Notifier
 from voiceflow.overlay import Overlay
 from voiceflow.paths import daemon_socket_path, runtime_dir
+from voiceflow.presence import DiscordPresence
 from voiceflow.preview import PreviewLoop
 from voiceflow.recorder import Recorder
 from voiceflow.transcriber import Transcriber, TranscriptionResult
@@ -103,6 +104,7 @@ class VoiceflowDaemon:
         self.overlay = overlay or Overlay(config.overlay)
         self.micmuter = MicMuter(config.mute_apps)
         self.history = history or History(config.history)
+        self.presence = DiscordPresence(config.presence)
         self.injector = injector or Injector(config.inject)
         if transcriber is None:
             # Refuse a second instance before downloading/loading a large model.
@@ -158,6 +160,7 @@ class VoiceflowDaemon:
         # The overlay is the status surface: a dot that is visibly on while
         # listening answers "is it recording?" in a way a banner never could.
         self.overlay.start("listening")
+        self.presence.dictating()
         self._start_preview(audio_path)
         return {"ok": True, "message": "Rozpoczęto nagrywanie", "state": self.state.value}
 
@@ -230,6 +233,7 @@ class VoiceflowDaemon:
             # Restore the call as soon as capture ends; transcription can take a
             # moment and the conversation should not stay silenced for it.
             self.micmuter.unmute()
+            self.presence.clear()
         self._transcribe_and_inject(audio_path)
 
     def _cancel(self) -> dict[str, Any]:
@@ -239,6 +243,7 @@ class VoiceflowDaemon:
             self.state = State.IDLE
         self._stop_preview()
         self.micmuter.unmute()
+        self.presence.clear()
         try:
             self.recorder.cancel()
         except Exception as exc:
@@ -348,6 +353,7 @@ class VoiceflowDaemon:
         self.overlay.stop()
         # If the daemon dies mid-recording, the call must not stay muted forever.
         self.micmuter.unmute()
+        self.presence.clear()
         if was_recording:
             try:
                 self.recorder.cleanup()

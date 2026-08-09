@@ -202,6 +202,17 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
 /* feature + platform icons */
 .platform>svg{stroke:var(--faint);flex-shrink:0}
 
+
+/* screenshots */
+.shots{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:18px;margin-top:70px;align-items:start}
+.shot{background:var(--surface);backdrop-filter:blur(8px);border:1px solid var(--border);padding:18px}
+.shot img{width:100%;border:1px solid var(--border)}
+.shot .cap{margin-top:14px;font-size:.78rem;color:var(--muted)}
+.shot .cap b{display:block;font-family:var(--display);font-weight:600;font-size:.82rem;letter-spacing:.06em;text-transform:uppercase;color:var(--text);margin-bottom:3px}
+.shots-note{margin-top:18px;font-size:.8rem;color:var(--faint)}
+@media (max-width:1000px){.shots{grid-template-columns:1fr 1fr}}
+@media (max-width:760px){.shots{grid-template-columns:1fr}}
+
 /* reveal */
 .reveal{opacity:0;transform:translateY(14px);transition:opacity .6s ease-out,transform .6s ease-out}
 .reveal.in{opacity:1;transform:none}
@@ -345,6 +356,28 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
   </div>
 </section>
 
+
+<section id="shots">
+  <div class="wrap">
+    <div class="chapter reveal"><span class="num">/03</span><h2>Zobacz, jak działa.</h2></div>
+    <div class="shots reveal stagger">
+      <div class="shot">
+        <img src="/assets/shot-linux.webp" alt="Karta podglądu na Linuksie" loading="lazy">
+        <p class="cap"><b>Linux — podgląd na żywo</b>Prawdziwy overlay: pulsująca kropka i transkrypcja rosnąca, gdy mówisz.</p>
+      </div>
+      <div class="shot">
+        <img src="/assets/shot-android-kbd.webp" alt="Klawiatura głosowa na Androidzie" loading="lazy">
+        <p class="cap"><b>Android — klawiatura głosowa</b>Jeden klawisz mikrofonu zamiast klawiatury; tekst ląduje w każdej aplikacji.</p>
+      </div>
+      <div class="shot">
+        <img src="/assets/shot-android-setup.webp" alt="Ekran konfiguracji Androida" loading="lazy">
+        <p class="cap"><b>Android — konfiguracja w 3 krokach</b>Włącz, zezwól na mikrofon, wybierz model — dyktowanie gotowe.</p>
+      </div>
+    </div>
+    <p class="shots-note reveal">Windows działa w tym samym schemacie z natywnym overlayem — zrzuty dojdą wraz z szlifem bety.</p>
+  </div>
+</section>
+
 <section id="private">
   <div class="wrap split">
     <div>
@@ -363,7 +396,7 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
 
 <section id="features">
   <div class="wrap">
-    <div class="chapter reveal"><span class="num">/03</span><h2>Rzemiosło pod spodem.</h2></div>
+    <div class="chapter reveal"><span class="num">/04</span><h2>Rzemiosło pod spodem.</h2></div>
     <div class="features reveal stagger">
       <div class="feature"><span class="fnum">/i</span><h3>Ciepły w VRAM</h3><p>Model zawsze załadowany — tekst ląduje w chwili, gdy kończysz mówić. Brak GPU? Fallback na CPU.</p></div>
       <div class="feature"><span class="fnum">/ii</span><h3>Podgląd na żywo</h3><p>Karta podglądu nie może przejąć focusu — tekst zawsze trafia tam, gdzie pracujesz.</p></div>
@@ -377,7 +410,7 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
 
 <section id="compare">
   <div class="wrap">
-    <div class="chapter reveal"><span class="num">/04</span><h2>Płatne aplikacje są świetne.<br>Tylko nie są Twoje.</h2></div>
+    <div class="chapter reveal"><span class="num">/05</span><h2>Płatne aplikacje są świetne.<br>Tylko nie są Twoje.</h2></div>
     <table class="reveal">
       <thead><tr><th></th><th>voiceflow</th><th>typowa płatna aplikacja</th></tr></thead>
       <tbody>
@@ -394,7 +427,7 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
 
 <section id="install">
   <div class="wrap">
-    <div class="chapter reveal"><span class="num">/05</span><h2>Jedna komenda. Wszystko w zestawie.</h2></div>
+    <div class="chapter reveal"><span class="num">/06</span><h2>Jedna komenda. Wszystko w zestawie.</h2></div>
     <p class="lead reveal">Środowisko, skrót, usługa, model — gdy instalator kończy, dyktowanie działa.
     Aktualizacja: ta sama komenda jeszcze raz.</p>
     <div class="install-grid">
@@ -426,7 +459,7 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
 
 <section id="platforms">
   <div class="wrap">
-    <div class="chapter reveal"><span class="num">/06</span><h2>Każda platforma. Taki jest plan.</h2></div>
+    <div class="chapter reveal"><span class="num">/07</span><h2>Każda platforma. Taki jest plan.</h2></div>
     <div class="plat-split">
       <div class="platforms reveal stagger">
         <div class="platform"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4" stroke-linecap="round"/></svg><span class="p-name">Linux — GNOME/Wayland</span><span class="p-desc">Miejsce narodzin. Pipeline GPU, podgląd, przyciszanie, aplikacja ustawień GTK.</span><span class="p-status live">działa</span></div>

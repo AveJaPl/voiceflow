@@ -202,6 +202,17 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
 /* feature + platform icons */
 .platform>svg{stroke:var(--faint);flex-shrink:0}
 
+
+/* screenshots */
+.shots{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:18px;margin-top:70px;align-items:start}
+.shot{background:var(--surface);backdrop-filter:blur(8px);border:1px solid var(--border);padding:18px}
+.shot img{width:100%;border:1px solid var(--border)}
+.shot .cap{margin-top:14px;font-size:.78rem;color:var(--muted)}
+.shot .cap b{display:block;font-family:var(--display);font-weight:600;font-size:.82rem;letter-spacing:.06em;text-transform:uppercase;color:var(--text);margin-bottom:3px}
+.shots-note{margin-top:18px;font-size:.8rem;color:var(--faint)}
+@media (max-width:1000px){.shots{grid-template-columns:1fr 1fr}}
+@media (max-width:760px){.shots{grid-template-columns:1fr}}
+
 /* reveal */
 .reveal{opacity:0;transform:translateY(14px);transition:opacity .6s ease-out,transform .6s ease-out}
 .reveal.in{opacity:1;transform:none}
@@ -345,6 +356,28 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
   </div>
 </section>
 
+
+<section id="shots">
+  <div class="wrap">
+    <div class="chapter reveal"><span class="num">/03</span><h2>See it working.</h2></div>
+    <div class="shots reveal stagger">
+      <div class="shot">
+        <img src="/assets/shot-linux.webp" alt="The Linux on-screen preview card" loading="lazy">
+        <p class="cap"><b>Linux — the live preview</b>The real overlay: a pulsing dot and the transcription growing as you speak.</p>
+      </div>
+      <div class="shot">
+        <img src="/assets/shot-android-kbd.webp" alt="The Android voice keyboard" loading="lazy">
+        <p class="cap"><b>Android — the voice keyboard</b>One microphone key in place of a keyboard; the text lands in any app.</p>
+      </div>
+      <div class="shot">
+        <img src="/assets/shot-android-setup.webp" alt="Android setup screen" loading="lazy">
+        <p class="cap"><b>Android — three-step setup</b>Enable, allow the mic, pick a model — dictation is ready.</p>
+      </div>
+    </div>
+    <p class="shots-note reveal">Windows runs the same flow with a native overlay — screenshots coming with the beta hardening.</p>
+  </div>
+</section>
+
 <section id="private">
   <div class="wrap split">
     <div>
@@ -363,7 +396,7 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
 
 <section id="features">
   <div class="wrap">
-    <div class="chapter reveal"><span class="num">/03</span><h2>The craft under it.</h2></div>
+    <div class="chapter reveal"><span class="num">/04</span><h2>The craft under it.</h2></div>
     <div class="features reveal stagger">
       <div class="feature"><span class="fnum">/i</span><h3>Warm in VRAM</h3><p>The model stays loaded — text lands the moment you stop speaking. No GPU? CPU fallback.</p></div>
       <div class="feature"><span class="fnum">/ii</span><h3>Live preview</h3><p>The preview card can never steal focus — the text always goes where you work.</p></div>
@@ -377,7 +410,7 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
 
 <section id="compare">
   <div class="wrap">
-    <div class="chapter reveal"><span class="num">/04</span><h2>The paid apps are great.<br>They just aren't yours.</h2></div>
+    <div class="chapter reveal"><span class="num">/05</span><h2>The paid apps are great.<br>They just aren't yours.</h2></div>
     <table class="reveal">
       <thead><tr><th></th><th>voiceflow</th><th>typical paid dictation app</th></tr></thead>
       <tbody>
@@ -394,7 +427,7 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
 
 <section id="install">
   <div class="wrap">
-    <div class="chapter reveal"><span class="num">/05</span><h2>One command. Everything included.</h2></div>
+    <div class="chapter reveal"><span class="num">/06</span><h2>One command. Everything included.</h2></div>
     <p class="lead reveal">Environment, hotkey, service, model — when the installer says done, dictation works.
     Updates: the same command again.</p>
     <div class="install-grid">
@@ -426,7 +459,7 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
 
 <section id="platforms">
   <div class="wrap">
-    <div class="chapter reveal"><span class="num">/06</span><h2>Every platform. That is the plan.</h2></div>
+    <div class="chapter reveal"><span class="num">/07</span><h2>Every platform. That is the plan.</h2></div>
     <div class="plat-split">
       <div class="platforms reveal stagger">
         <div class="platform"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4" stroke-linecap="round"/></svg><span class="p-name">Linux — GNOME/Wayland</span><span class="p-desc">The birthplace. GPU pipeline, overlay, ducking, GTK settings app.</span><span class="p-status live">live</span></div>

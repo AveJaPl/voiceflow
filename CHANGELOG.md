@@ -2,6 +2,19 @@
 
 Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[Web]**
 
+## 0.3.2 — 2026-08-10
+
+- **[Windows]** Fixed: clicking the Start Menu entry while voiceflow was already
+  running did nothing at all — the second instance correctly refused to start,
+  but under `pythonw.exe` it had no console to say so, which reads as "the app
+  won't open". It now reports that voiceflow is running and repeats the hotkey.
+  There is no window to open on Windows by design; this is the feedback that
+  replaces one.
+- **[Windows]** Fixed: notifications sent immediately before the process exited
+  were never drawn. The toast is delivered on a daemon thread, so exiting killed
+  it — losing exactly the message that explained the failure. Callers that are
+  about to exit now flush.
+
 ## 0.3.1 — 2026-08-10
 
 - **[Windows]** Fixed: the paste chord defaulted to `ctrl+shift+v`, which most

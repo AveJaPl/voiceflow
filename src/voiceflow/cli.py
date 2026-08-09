@@ -11,7 +11,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from voiceflow.config import Config, load_config
-from voiceflow.daemon import VoiceflowDaemon, send_request
+from voiceflow.daemon import DaemonAlreadyRunning, VoiceflowDaemon, send_request
 from voiceflow.notifier import build_notifier
 
 LOGGER = logging.getLogger(__name__)
@@ -102,7 +102,9 @@ def _client_command(command: str, config: Config) -> int:
     except RuntimeError as exc:
         message = f"Błąd: {exc}"
         print(message, file=sys.stderr)
-        build_notifier(config.notifications).send(f"❌ {exc}", urgency="critical")
+        notifier = build_notifier(config.notifications)
+        notifier.send(f"❌ {exc}", urgency="critical")
+        notifier.flush()
         return 1
     stream = sys.stdout if response.get("ok") else sys.stderr
     print(response.get("message", json.dumps(response, ensure_ascii=False)), file=stream)
@@ -282,13 +284,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "download-model":
         return _download_model(config)
     if arguments.command == "daemon":
+        notifier = build_notifier(config.notifications)
         try:
             VoiceflowDaemon(config).run()
+        except DaemonAlreadyRunning:
+            # The Start Menu icon and the autostart shortcut run this same
+            # command, so this is a user clicking the icon on a healthy system.
+            # Silence here reads as "the app won't open"; say it is running and
+            # remind them how to use it, because there is no window to show.
+            message = f"voiceflow już działa — wciśnij {config.hotkey.binding} i mów"
+            LOGGER.info("%s", message)
+            print(message)
+            notifier.send(message)
+            notifier.flush()
+            return 0
         except (RuntimeError, OSError) as exc:
             LOGGER.error("Nie można uruchomić demona: %s", exc)
-            build_notifier(config.notifications).send(
-                f"❌ Nie można uruchomić demona: {exc}", urgency="critical"
-            )
+            notifier.send(f"❌ Nie można uruchomić demona: {exc}", urgency="critical")
+            # Without this the process exits and takes the toast thread with it.
+            notifier.flush()
             return 1
         return 0
     if arguments.command == "status":

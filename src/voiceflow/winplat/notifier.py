@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import threading
+import time
 
 from voiceflow.config import NotificationsConfig
 
@@ -68,6 +69,7 @@ class WinNotifier:
 
     def __init__(self, config: NotificationsConfig) -> None:
         self.enabled = config.enabled
+        self._pending: list[threading.Thread] = []
 
     def send(self, message: str, *, urgency: str = "normal", expire_ms: int | None = None) -> None:
         """Show a notification without blocking or raising.
@@ -78,9 +80,28 @@ class WinNotifier:
         if not self.enabled:
             return
         xml = build_toast_xml(message, urgency=urgency)
-        threading.Thread(
+        thread = threading.Thread(
             target=self._show, args=(xml,), name="voiceflow-toast", daemon=True
-        ).start()
+        )
+        self._pending = [pending for pending in self._pending if pending.is_alive()]
+        self._pending.append(thread)
+        thread.start()
+
+    def flush(self, timeout: float = 5.0) -> None:
+        """Wait for queued toasts to actually reach the screen.
+
+        The delivery thread is a daemon thread, so a process that exits right
+        after ``send`` — precisely what a failed startup does — would kill it
+        before PowerShell ever draws the toast. Callers that are about to exit
+        must flush, or the one notification that mattered is the one lost.
+        """
+        deadline = time.monotonic() + timeout
+        for thread in self._pending:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            thread.join(timeout=remaining)
+        self._pending = []
 
     def _show(self, xml: str) -> None:  # pragma: no cover - needs a Windows session
         import os

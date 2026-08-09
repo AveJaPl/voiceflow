@@ -17,7 +17,9 @@ import pytest
 
 from voiceflow import daemon as daemon_module
 from voiceflow.daemon import (
+    DaemonAlreadyRunning,
     _read_endpoint,
+    _remove_stale_endpoint,
     _RequestHandler,
     _TcpServer,
     _write_endpoint,
@@ -124,6 +126,35 @@ def test_request_with_a_wrong_token_is_refused(
 
     assert response["ok"] is False
     assert stub.commands == []
+
+
+def test_a_live_daemon_blocks_a_second_one(
+    guarded: tuple[_TcpServer, _StubDaemon], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two daemons means two copies of the model and a hotkey owned by chance."""
+    server, _ = guarded
+    endpoint = tmp_path / "daemon.json"
+    _write_endpoint(endpoint, server.server_address[1], TOKEN)
+    monkeypatch.setattr(daemon_module, "_WINDOWS", True)
+
+    with pytest.raises(DaemonAlreadyRunning):
+        _remove_stale_endpoint(endpoint)
+
+    assert endpoint.exists(), "the live daemon's endpoint must survive the check"
+
+
+def test_an_endpoint_left_by_a_dead_daemon_is_cleared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A crash leaves the file behind; refusing to start then would be a deadlock."""
+    endpoint = tmp_path / "daemon.json"
+    # Port 1 on loopback answers nothing, standing in for a daemon that died.
+    _write_endpoint(endpoint, 1, TOKEN)
+    monkeypatch.setattr(daemon_module, "_WINDOWS", True)
+
+    _remove_stale_endpoint(endpoint)
+
+    assert not endpoint.exists()
 
 
 def test_server_without_a_token_accepts_plain_requests() -> None:

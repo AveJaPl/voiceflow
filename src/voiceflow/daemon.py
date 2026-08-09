@@ -39,6 +39,15 @@ _WINDOWS = os.name == "nt"
 LOGGER = logging.getLogger(__name__)
 
 
+class DaemonAlreadyRunning(RuntimeError):
+    """A live daemon answered the endpoint, so this process must not start one.
+
+    Its own exception type because it is not a failure: on Windows the Start
+    Menu entry and the autostart shortcut launch the same command, so clicking
+    the icon while voiceflow is already running is the *expected* path and
+    deserves a reassuring answer rather than an error."""
+
+
 class State(StrEnum):
     """Daemon recording pipeline states."""
 
@@ -522,7 +531,9 @@ def _remove_stale_endpoint(path: Path) -> None:
         return
     # Any parseable reply means something is listening. Deleting the endpoint
     # then would cut off a live daemon, so refuse to start regardless of `ok`.
-    raise RuntimeError(f"Demon voiceflow już działa ({path}, odpowiedź: {response})")
+    raise DaemonAlreadyRunning(
+        f"Demon voiceflow już działa ({path}, odpowiedź: {response})"
+    )
 
 
 #: Kept as the historical name; Linux callers and tests reach for this one.

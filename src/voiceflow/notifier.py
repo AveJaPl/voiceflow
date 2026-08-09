@@ -15,9 +15,11 @@ NOTIFICATION_ID = "87341"
 
 
 class NotifierLike(Protocol):
-    """The one method the daemon and CLI need from any platform's notifier."""
+    """What the daemon and CLI need from any platform's notifier."""
 
     def send(self, message: str, *, urgency: str = ..., expire_ms: int | None = ...) -> None: ...
+
+    def flush(self, timeout: float = ...) -> None: ...
 
 
 def build_notifier(config: NotificationsConfig) -> NotifierLike:
@@ -68,4 +70,7 @@ class Notifier:
                 LOGGER.warning("notify-send zakończył się kodem %d", result.returncode)
         except (OSError, subprocess.TimeoutExpired) as exc:
             LOGGER.warning("Nie udało się wysłać powiadomienia: %s", exc)
+
+    def flush(self, timeout: float = 5.0) -> None:
+        """No-op: notify-send is already delivered synchronously by ``send``."""
 

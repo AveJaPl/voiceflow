@@ -287,10 +287,17 @@ class VoiceflowDaemon:
         return {"ok": True, "message": "Nagranie anulowane", "state": self.state.value}
 
     def _transcribe_and_inject(self, audio_path: Path) -> None:
+        # Set when the overlay has been handed a self-closing message, so the
+        # cleanup below does not tear it down before it has been read.
+        showed_notice = False
         try:
             result = self.transcriber.transcribe(audio_path)
             if not result.text:
-                self.notifier.send("Nie rozpoznano mowy")
+                # Reported on the card rather than as a desktop notification:
+                # a silent recording is a non-event, and it should vanish on
+                # its own instead of parking a banner in the tray.
+                self.overlay.notice("Nie wykryto mowy")
+                showed_notice = True
                 LOGGER.info("Transkrypcja jest pusta; pomijam wstrzykiwanie")
                 return
             if self._shutdown_requested.is_set():
@@ -322,7 +329,8 @@ class VoiceflowDaemon:
             LOGGER.exception("Błąd transkrypcji lub wstrzykiwania")
             self._fail(str(exc))
         finally:
-            self.overlay.stop()
+            if not showed_notice:
+                self.overlay.stop()
             try:
                 audio_path.unlink(missing_ok=True)
             except OSError as exc:

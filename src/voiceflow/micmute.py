@@ -8,10 +8,15 @@ chat's stream can be muted on its own — the physical microphone stays live for
 
 ALL application playback (``Stream/Output/Audio`` — music, calls, videos) is
 ducked while recording, because audio in the headphones derails the sentence
-being dictated. Each app ducks to its own remembered target (``duck_rules``),
-apps without a rule use the default (``duck_volume``), and a rule of 1.0 means
-"never duck this one". Original volumes are captured per stream and restored
-exactly.
+being dictated. The configured numbers are **multipliers of each app's current
+volume** (``duck_rules`` per app, ``duck_to`` for the rest), so ducking is the
+same reduction whether the user listens loud or quiet; 1.0 means "never duck
+this one". Original volumes are captured per stream and restored exactly.
+
+One scale trap worth knowing: ``wpctl`` speaks the same cubic curve as the
+desktop's volume slider, not raw amplitude. A slider at 0.29 is 0.29³ ≈ 2.4% of
+full amplitude, which is why an absolute duck target of "29%" landed on
+inaudible rather than quiet.
 
 Node ids change between sessions and even between calls, so targets are resolved
 by ``application.name`` at mute time, never cached across recordings.
@@ -146,26 +151,38 @@ class MicMuter:
                 del self._pending_restores[key]
 
     def _duck(self) -> None:
-        """Duck every playing app to its own target volume."""
-        # Clamp: values above 1.0 would make audio LOUDER while dictating.
-        default = min(self.config.duck_volume, 1.0)
+        """Turn every playing app down to a fraction of where its own slider is.
+
+        Relative, not absolute. An absolute target sounds like a different
+        effect depending on how loud the user was already listening: the same
+        value is a light dip at full volume and complete silence for someone
+        playing music quietly in the background. A multiplier is the same
+        reduction either way, which is what "duck" is supposed to mean.
+        """
+        # Clamp: a multiplier above 1.0 would make audio LOUDER while dictating.
+        default = min(self.config.duck_to, 1.0)
         rules = {name.casefold(): volume for name, volume in self.config.duck_rules}
         for target in self._find_playback_streams():
-            duck_to = min(rules.get(target.app.casefold(), default), 1.0)
-            if duck_to >= 1.0:
+            factor = min(rules.get(target.app.casefold(), default), 1.0)
+            if factor >= 1.0:
                 # An explicit "never duck this app" rule.
                 continue
             original = self._get_volume(target.node_id)
-            if original is None or original <= duck_to:
-                # Already quieter than the duck target; leave it alone.
+            if original is None or original <= 0.0:
+                # Unreadable, or already silent and nothing to take away.
+                continue
+            duck_to = round(original * factor, 2)
+            if duck_to >= original:
+                # Rounding swallowed the whole reduction; nothing to do.
                 continue
             if self._set_volume(target.node_id, duck_to):
                 self._ducked.append((target, original))
                 LOGGER.info(
-                    "Ściszono %s z %.0f%% do %.0f%% (node %d)",
+                    "Ściszono %s z %.0f%% do %.0f%% (mnożnik %.2f, node %d)",
                     target.app,
                     original * 100,
                     duck_to * 100,
+                    factor,
                     target.node_id,
                 )
 

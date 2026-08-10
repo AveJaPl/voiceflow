@@ -122,6 +122,24 @@ class Overlay:
             payload["text"] = text
         self._write(json.dumps(payload, ensure_ascii=False) + "\n")
 
+    def notice(self, text: str, *, timeout_ms: int | None = None) -> None:
+        """Show a short self-closing message on the card.
+
+        Used for outcomes worth reporting but not worth interrupting over —
+        "nothing was said" being the one that matters. It belongs here rather
+        than in a desktop notification because this is where the user was
+        already looking, and it disappears on its own instead of queueing up in
+        the tray. Starts the indicator if it is not running: by the time a
+        dictation ends the card may already have been taken down.
+        """
+        payload: dict[str, object] = {"state": "notice", "text": text}
+        if timeout_ms is not None:
+            payload["timeout_ms"] = timeout_ms
+        if not self.is_running:
+            self.start("notice", text)
+            return
+        self._write(json.dumps(payload, ensure_ascii=False) + "\n")
+
     def stop(self) -> None:
         """Ask the indicator to close, then make sure it is gone."""
         with self._lock:

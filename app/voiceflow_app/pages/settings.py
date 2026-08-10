@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, GLib, Gtk  # noqa: E402
 
-from voiceflow_app import services, style
+from voiceflow_app import services, shortcuts, style
 from voiceflow_app.pages.common import label, page_content, page_header
 from voiceflow_app.services import (
     DEVICES,
@@ -26,6 +27,12 @@ from voiceflow_app.services import (
     string_value,
 )
 
+
+#: Fallback when GNOME has no voiceflow binding yet; matches install-hotkey.sh.
+DEFAULT_HOTKEY = "<Super>g"
+#: What the shortcut runs. The wrapper in ~/.local/bin is what the installer
+#: creates, and it is on PATH for the session that fires the key.
+HOTKEY_COMMAND = str(Path.home() / ".local" / "bin" / "voiceflow") + " toggle"
 
 DISPLAY_NAMES = {
     "WEBRTC VoiceEngine": "Discord (rozmowa)",
@@ -152,9 +159,13 @@ class SettingsPage(Gtk.ScrolledWindow):
     def _build_ducking_group(self) -> None:
         _wrapper, self.ducking_rows = self._group(
             "Dźwięk podczas dyktowania",
-            "Ustaw osobną głośność dla każdej aplikacji odtwarzającej dźwięk.",
+            "Na czas dyktowania każda aplikacja zostaje ściszona do podanej "
+            "części swojej obecnej głośności. 100% = nie ściszaj.",
         )
-        default_row = Adw.ActionRow(title="Pozostałe aplikacje (domyślnie)")
+        default_row = Adw.ActionRow(
+            title="Pozostałe aplikacje (domyślnie)",
+            subtitle="Ile głośności zostaje, np. 60% = ścisz do 60% obecnego poziomu",
+        )
         self.default_duck_scale = self._volume_scale()
         self.default_duck_value = self._volume_label()
         self.default_duck_scale.connect("value-changed", self._on_default_duck_changed)
@@ -233,12 +244,126 @@ class SettingsPage(Gtk.ScrolledWindow):
         paste_row.add_suffix(self.paste_entry)
         rows.append(paste_row)
 
-        hotkey_row = Adw.ActionRow(
+        self.hotkey_row = Adw.ActionRow(
             title="Skrót dyktowania",
-            subtitle="Zmień go skryptem scripts/install-hotkey.sh",
+            subtitle="Naciśnij, zacznij mówić, naciśnij ponownie",
         )
-        hotkey_row.add_suffix(Gtk.ShortcutLabel(accelerator="<Super>g"))
-        rows.append(hotkey_row)
+        self.hotkey_label = Gtk.ShortcutLabel(accelerator=self._current_hotkey())
+        self.hotkey_label.set_valign(Gtk.Align.CENTER)
+        change_button = Gtk.Button(label="Zmień")
+        change_button.set_valign(Gtk.Align.CENTER)
+        change_button.connect("clicked", self._on_change_hotkey)
+        self.hotkey_row.add_suffix(self.hotkey_label)
+        self.hotkey_row.add_suffix(change_button)
+        rows.append(self.hotkey_row)
+
+    # -- dictation shortcut ------------------------------------------------
+
+    def _current_hotkey(self) -> str:
+        try:
+            return shortcuts.current_binding() or DEFAULT_HOTKEY
+        except Exception:  # pragma: no cover - depends on a live gsettings
+            return DEFAULT_HOTKEY
+
+    def _on_change_hotkey(self, _button: Gtk.Button) -> None:
+        dialog = Adw.AlertDialog(
+            heading="Naciśnij nowy skrót",
+            body=(
+                "Przytrzymaj modyfikatory i naciśnij klawisz.\n"
+                "Esc anuluje, Backspace przywraca domyślny."
+            ),
+        )
+        dialog.add_response("cancel", "Anuluj")
+        dialog.set_default_response("cancel")
+        controller = Gtk.EventControllerKey()
+        controller.connect("key-pressed", self._on_hotkey_captured, dialog)
+        dialog.add_controller(controller)
+        # While this is open the desktop must stop swallowing its own shortcuts,
+        # or the combinations most worth rebinding — the ones already taken —
+        # would fire their existing action instead of reaching this handler.
+        # Pressing <Super>g would start a dictation rather than be captured.
+        toplevel = self._toplevel_surface()
+        if toplevel is not None:
+            toplevel.inhibit_system_shortcuts(None)
+        dialog.connect("closed", self._on_capture_closed)
+        dialog.present(self)
+
+    def _toplevel_surface(self) -> Any:
+        root = self.get_root()
+        surface = root.get_surface() if root is not None else None
+        return surface if surface is not None and hasattr(surface, "inhibit_system_shortcuts") else None
+
+    def _on_capture_closed(self, _dialog: Adw.AlertDialog) -> None:
+        toplevel = self._toplevel_surface()
+        if toplevel is not None:
+            toplevel.restore_system_shortcuts()
+
+    def _on_hotkey_captured(
+        self,
+        _controller: Gtk.EventControllerKey,
+        keyval: int,
+        _keycode: int,
+        state: Gdk.ModifierType,
+        dialog: Adw.AlertDialog,
+    ) -> bool:
+        modifiers = state & Gtk.accelerator_get_default_mod_mask()
+        if keyval == Gdk.KEY_Escape and not modifiers:
+            dialog.close()
+            return True
+        if keyval == Gdk.KEY_BackSpace and not modifiers:
+            dialog.close()
+            self._confirm_hotkey(DEFAULT_HOTKEY)
+            return True
+        if not Gtk.accelerator_valid(keyval, modifiers):
+            # A bare modifier, or a key the desktop will not accept as a
+            # shortcut. Keep waiting rather than closing on a half-press.
+            return True
+        accelerator = Gtk.accelerator_name(keyval, modifiers)
+        dialog.close()
+        if accelerator:
+            self._confirm_hotkey(accelerator)
+        return True
+
+    def _confirm_hotkey(self, accelerator: str) -> None:
+        """Apply the new key, asking first when something else already owns it."""
+        try:
+            taken = shortcuts.conflicts(accelerator, shortcuts.scan())
+        except Exception as error:  # pragma: no cover - depends on live gsettings
+            self._on_toast(f"Nie udało się sprawdzić kolizji skrótów: {error}")
+            taken = []
+        if not taken:
+            self._write_hotkey(accelerator)
+            return
+        dialog = Adw.AlertDialog(
+            heading="Ten skrót jest już zajęty",
+            body=(
+                f"„{shortcuts.describe(taken)}” już reaguje na tę kombinację.\n\n"
+                "Jeśli ustawisz ją mimo to, oba działania będą nasłuchiwać tego "
+                "samego klawisza — zwykle wygrywa pulpit, więc dyktowanie może "
+                "się w ogóle nie uruchamiać."
+            ),
+        )
+        dialog.add_response("cancel", "Wybierz inny")
+        dialog.add_response("replace", "Ustaw mimo to")
+        dialog.set_response_appearance("replace", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.connect("response", self._on_conflict_response, accelerator)
+        dialog.present(self)
+
+    def _on_conflict_response(
+        self, _dialog: Adw.AlertDialog, response: str, accelerator: str
+    ) -> None:
+        if response == "replace":
+            self._write_hotkey(accelerator)
+
+    def _write_hotkey(self, accelerator: str) -> None:
+        try:
+            shortcuts.apply_binding(accelerator, HOTKEY_COMMAND)
+        except Exception as error:  # pragma: no cover - depends on live gsettings
+            self._on_toast(f"Nie udało się zapisać skrótu: {error}")
+            return
+        self.hotkey_label.set_accelerator(accelerator)
+        self._on_toast("Skrót dyktowania zmieniony")
 
     @staticmethod
     def _volume_scale() -> Gtk.Scale:
@@ -257,8 +382,11 @@ class SettingsPage(Gtk.ScrolledWindow):
 
     @staticmethod
     def _volume_text(percent: float) -> str:
+        """Label the slider as what it is: a share of the app's own volume."""
         rounded = int(round(percent))
-        return f"{rounded}% · nie ściszaj" if rounded == 100 else f"{rounded}%"
+        if rounded == 100:
+            return "100% · nie ściszaj"
+        return f"{rounded}% obecnej"
 
     def load_config(self, config: Mapping[str, Any]) -> None:
         """Populate widgets from a raw configuration mapping without dirtying it."""
@@ -282,7 +410,7 @@ class SettingsPage(Gtk.ScrolledWindow):
         self.mute_row.set_active(bool_value(mute_apps, "enabled", True))
         self.duck_row.set_active(bool_value(mute_apps, "duck_enabled", True))
         duck_percent = max(
-            0.0, min(100.0, float_value(mute_apps, "duck_volume", 0.4) * 100.0)
+            0.0, min(100.0, float_value(mute_apps, "duck_to", 0.6) * 100.0)
         )
         self.default_duck_scale.set_value(duck_percent)
         self.default_duck_value.set_label(self._volume_text(duck_percent))
@@ -320,7 +448,7 @@ class SettingsPage(Gtk.ScrolledWindow):
         mute_apps["enabled"] = self.mute_row.get_active()
         mute_apps["apps"] = list(self._muted_apps)
         mute_apps["duck_enabled"] = self.duck_row.get_active()
-        mute_apps["duck_volume"] = round(
+        mute_apps["duck_to"] = round(
             self.default_duck_scale.get_value() / 100.0, 2
         )
         mute_apps["duck_rules"] = {

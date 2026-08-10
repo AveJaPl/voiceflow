@@ -2,6 +2,29 @@
 
 Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[Web]**
 
+## Unreleased
+
+- **[All]** Changed, and it needs a config edit: ducking is now a **multiplier**
+  of each app's own volume instead of an absolute target, and `mute_apps.duck_volume`
+  is renamed to `mute_apps.duck_to`. `0.6` means "leave 60% of wherever the slider
+  already is". The old setting silenced quiet listeners and barely touched loud
+  ones, because it ignored the level the app was already playing at — and because
+  the value lands on the volume slider's cubic curve, an innocent-looking `0.29`
+  was 2.4% of full amplitude, i.e. inaudible. The old key is ignored with a
+  warning rather than reinterpreted; the numbers look the same but no longer mean
+  the same thing.
+- **[Linux]** The on-screen card can be dragged anywhere with the mouse and stays
+  where it was put, across dictations and restarts. Double-click returns it to the
+  bottom centre. A position on a monitor that no longer exists is discarded rather
+  than leaving the card invisible.
+- **[Linux]** "No speech detected" is shown on the card itself — a shorter,
+  self-closing version of it — instead of a desktop notification that outlived
+  its usefulness in the tray.
+- **[Linux]** The dictation shortcut can be changed in the desktop app. It is
+  written straight into GNOME's own shortcut store, and a candidate key is checked
+  against every shortcut the desktop already has: taking one over now asks first
+  and names what it would collide with.
+
 ## 0.3.0 — 2026-08-09
 
 - **[Linux]** Fixed: a voice chat could stay quiet forever after dictation if its

@@ -24,7 +24,18 @@ _GWL_EXSTYLE = -20
 _BG = "#141416"
 _FG = "#f5f5f7"
 _MUTED = "#8b8b96"
-_DOT = {"listening": "#ff453a", "transcribing": "#3a3a3f", "error": "#ff9f0a"}
+#: A notice is a finished outcome, so it borrows the inert "transcribing" dot
+#: rather than introducing a colour that would read as a new live state.
+_DOT = {
+    "listening": "#ff453a",
+    "transcribing": "#3a3a3f",
+    "notice": "#3a3a3f",
+    "error": "#ff9f0a",
+}
+
+#: How long a self-closing notice stays up, in milliseconds. Matches the Linux
+#: overlay so the two platforms feel the same.
+NOTICE_TIMEOUT_MS = 2400
 
 
 class WinOverlay:
@@ -53,6 +64,23 @@ class WinOverlay:
     def update(self, state: str, text: str | None = None) -> None:
         if self.is_running:
             self._queue.put((state, text))
+
+    def notice(self, text: str, *, timeout_ms: int | None = None) -> None:
+        """Show a short message, then take the card down on a timer.
+
+        Interface parity with the Linux overlay, which the daemon calls when a
+        recording turned out to contain no speech. The self-close lives here
+        rather than in the tkinter thread: that thread only knows how to render
+        whatever state it was last handed.
+        """
+        if not self.config.enabled:
+            return
+        if not self.is_running:
+            self.start("notice", text)
+        else:
+            self.update("notice", text)
+        delay = (timeout_ms if timeout_ms is not None else NOTICE_TIMEOUT_MS) / 1000
+        threading.Timer(delay, self.stop).start()
 
     def stop(self) -> None:
         if self.is_running:

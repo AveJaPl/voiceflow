@@ -61,7 +61,10 @@ class WinMicMuter:
     def _duck(self) -> None:  # pragma: no cover - requires Windows Core Audio
         from pycaw.pycaw import AudioUtilities
 
-        default = min(self.config.duck_volume, 1.0)
+        # Multipliers of each session's own level, matching the Linux side: an
+        # absolute target is a different effect depending on how loud the user
+        # already had the app.
+        default = min(self.config.duck_to, 1.0)
         rules = {name.casefold(): value for name, value in self.config.duck_rules}
         for session in AudioUtilities.GetAllSessions():
             process = session.Process
@@ -69,13 +72,22 @@ class WinMicMuter:
                 continue
             name = process.name()  # e.g. "Spotify.exe"
             bare = name.removesuffix(".exe")
-            target = min(rules.get(name.casefold(), rules.get(bare.casefold(), default)), 1.0)
-            if target >= 1.0:
+            factor = min(rules.get(name.casefold(), rules.get(bare.casefold(), default)), 1.0)
+            if factor >= 1.0:
                 continue
             volume = session.SimpleAudioVolume
             original = float(volume.GetMasterVolume())
-            if original <= target:
+            if original <= 0.0:
+                continue
+            target = round(original * factor, 2)
+            if target >= original:
                 continue
             volume.SetMasterVolume(target, None)
             self._ducked.append((volume, original))
-            LOGGER.info("Ściszono %s z %.0f%% do %.0f%%", bare, original * 100, target * 100)
+            LOGGER.info(
+                "Ściszono %s z %.0f%% do %.0f%% (mnożnik %.2f)",
+                bare,
+                original * 100,
+                target * 100,
+                factor,
+            )

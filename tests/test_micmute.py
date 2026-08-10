@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
+
+import pytest
 
 from voiceflow.config import MuteAppsConfig, parse_config
 from voiceflow.micmute import MicMuter, _Target
@@ -189,19 +192,23 @@ def test_leftover_state_is_restored_before_a_new_mute() -> None:
     assert muter.mute_calls == [(84, True), (84, False), (84, True)]
 
 
-def test_ducks_every_playing_app_to_the_default() -> None:
-    """Discord (90) AND Spotify (95) both play: both duck to the default, both restored."""
-    muter = _FakeMuter(MuteAppsConfig(), volumes={90: 0.85, 95: 1.0})
+def test_ducks_every_playing_app_by_the_default_multiplier() -> None:
+    """Both apps drop to the same SHARE of their own level, not to one level.
+
+    The two streams start at different volumes on purpose: an absolute target
+    would flatten them together, which is exactly the bug this replaced.
+    """
+    muter = _FakeMuter(MuteAppsConfig(duck_to=0.6), volumes={90: 0.85, 95: 1.0})
 
     muter.mute()
-    assert sorted(muter.volume_calls) == [(90, 0.4), (95, 0.4)]
+    assert sorted(muter.volume_calls) == [(90, 0.51), (95, 0.6)]
 
     muter.unmute()
     assert sorted(muter.volume_calls[2:]) == [(90, 0.85), (95, 1.0)]
 
 
 def test_per_app_rules_override_the_default() -> None:
-    """Remembered per-app targets: Discord to 30%, Spotify to 20%."""
+    """Per-app multipliers: Discord keeps 30%, Spotify keeps 20%."""
     config = MuteAppsConfig(duck_rules=(("WEBRTC VoiceEngine", 0.3), ("spotify", 0.2)))
     muter = _FakeMuter(config, volumes={90: 1.0, 95: 1.0})
 
@@ -210,18 +217,32 @@ def test_per_app_rules_override_the_default() -> None:
     assert sorted(muter.volume_calls) == [(90, 0.3), (95, 0.2)]
 
 
+def test_the_same_rule_ducks_quiet_and_loud_apps_alike() -> None:
+    """The point of a multiplier: identical reduction at any listening level.
+
+    Under the old absolute target, 0.5 barely touched an app at full volume and
+    silenced one already playing at 0.4.
+    """
+    config = MuteAppsConfig(duck_rules=(("WEBRTC VoiceEngine", 0.5), ("spotify", 0.5)))
+    muter = _FakeMuter(config, volumes={90: 1.0, 95: 0.4})
+
+    muter.mute()
+
+    assert sorted(muter.volume_calls) == [(90, 0.5), (95, 0.2)]
+
+
 def test_rule_of_one_means_never_duck() -> None:
     config = MuteAppsConfig(duck_rules=(("Spotify", 1.0),))
     muter = _FakeMuter(config, volumes={90: 1.0, 95: 1.0})
 
     muter.mute()
 
-    assert muter.volume_calls == [(90, 0.4)]
+    assert muter.volume_calls == [(90, 0.6)]
 
 
-def test_quieter_stream_is_not_ducked_up() -> None:
-    """If an app already plays below its target, ducking would make it LOUDER."""
-    muter = _FakeMuter(MuteAppsConfig(duck_volume=0.4), volumes={90: 0.3, 95: 0.2})
+def test_already_silent_stream_is_left_alone() -> None:
+    """Nothing to take away from silence, and no state worth remembering."""
+    muter = _FakeMuter(MuteAppsConfig(duck_to=0.6), volumes={90: 0.0, 95: 0.0})
 
     muter.mute()
     muter.unmute()
@@ -238,9 +259,9 @@ def test_duck_disabled_leaves_volume_alone() -> None:
     assert muter.mute_calls == [(84, True)]
 
 
-def test_duck_volume_above_one_is_clamped() -> None:
-    """A config typo like duck_volume: 40 must not blast the call at 4000%."""
-    muter = _FakeMuter(MuteAppsConfig(duck_volume=40.0), volumes={90: 0.85, 95: 0.9})
+def test_duck_multiplier_above_one_is_clamped() -> None:
+    """A config typo like duck_to: 40 must not blast the call at 4000%."""
+    muter = _FakeMuter(MuteAppsConfig(duck_to=40.0), volumes={90: 0.85, 95: 0.9})
 
     muter.mute()
 
@@ -282,10 +303,21 @@ def test_vanished_stream_is_restored_at_the_next_recording() -> None:
 
 
 def test_config_parses_duck_settings() -> None:
-    config = parse_config({"mute_apps": {"duck_enabled": False, "duck_volume": 0.25}})
+    config = parse_config({"mute_apps": {"duck_enabled": False, "duck_to": 0.25}})
 
     assert config.mute_apps.duck_enabled is False
-    assert config.mute_apps.duck_volume == 0.25
+    assert config.mute_apps.duck_to == 0.25
+
+
+def test_renamed_duck_volume_is_ignored_and_announced(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Silently reinterpreting the old key would change ducking with no warning."""
+    with caplog.at_level(logging.WARNING):
+        config = parse_config({"mute_apps": {"duck_volume": 0.29}})
+
+    assert config.mute_apps.duck_to == 0.6
+    assert "duck_to" in caplog.text
 
 
 def test_config_parses_custom_app_list() -> None:

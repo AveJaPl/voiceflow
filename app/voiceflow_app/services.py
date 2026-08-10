@@ -64,7 +64,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "enabled": True,
         "apps": ["WEBRTC VoiceEngine"],
         "duck_enabled": True,
-        "duck_volume": 0.4,
+        "duck_to": 0.6,
         "duck_rules": {},
     },
     "presence": {"enabled": False, "client_id": ""},

@@ -83,6 +83,9 @@ class _Overlay:
     def stop(self) -> None:
         self.calls.append(("stop", "", None))
 
+    def notice(self, text: str, *, timeout_ms: int | None = None) -> None:
+        self.calls.append(("notice", "notice", text))
+
 
 def test_toggle_state_machine_ignores_toggle_during_transcription(tmp_path: Path) -> None:
     transcriber = _BlockingTranscriber()
@@ -116,6 +119,49 @@ def test_toggle_state_machine_ignores_toggle_during_transcription(tmp_path: Path
 
     assert daemon.state is State.IDLE
     assert injector.texts == ["Zażółć gęślą jaźń"]
+
+
+class _SilentTranscriber:
+    """A recording that turned out to contain no speech."""
+
+    device = "cuda"
+    compute_type = "float16"
+
+    def transcribe(self, _audio_path: Path) -> TranscriptionResult:
+        return TranscriptionResult("", "pl", 1.0, 0.1)
+
+    def transcribe_preview(self, _audio: object) -> str | None:
+        return None
+
+
+def test_silence_reports_on_the_card_not_in_a_notification(tmp_path: Path) -> None:
+    """No speech is an outcome, not an alert: it belongs where the user looked."""
+    notifier = _Notifier()
+    overlay = _Overlay()
+    injector = _Injector()
+    daemon = VoiceflowDaemon(
+        Config(),
+        recorder=_Recorder(tmp_path / "recording.wav"),
+        transcriber=_SilentTranscriber(),
+        injector=injector,  # type: ignore[arg-type]
+        notifier=notifier,  # type: ignore[arg-type]
+        overlay=overlay,  # type: ignore[arg-type]
+        history=History(HistoryConfig(), tmp_path / "history.jsonl"),
+    )
+
+    daemon.handle_command("start")
+    daemon.handle_command("stop")
+    daemon._executor.shutdown(wait=True)  # noqa: SLF001
+
+    notices = [call for call in overlay.calls if call[0] == "notice"]
+    assert len(notices) == 1
+    assert "mowy" in (notices[0][2] or "")
+    # No desktop notification: that was the whole point of the change.
+    assert notifier.messages == []
+    # And the card must not be torn down in the same breath, or the message
+    # would be gone before it could be read.
+    assert overlay.calls[-1][0] == "notice"
+    assert injector.texts == []
 
 
 def test_cancel_discards_recording(tmp_path: Path) -> None:

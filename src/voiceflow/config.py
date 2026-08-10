@@ -47,11 +47,16 @@ mute_apps:
   enabled: true
   apps: [WEBRTC VoiceEngine]
   # Additionally duck ALL application playback (music, calls, videos) while
-  # you dictate. duck_volume is the default target; duck_rules overrides it
-  # per app (PipeWire application.name; 1.0 = never duck that app).
+  # you dictate. These values are MULTIPLIERS of each app's current volume, not
+  # target levels: 0.6 means "as loud as 60% of wherever the slider already is".
+  # An absolute target cannot work here — the same number is a gentle dip when
+  # you listen loud and dead silence when you listen quietly.
+  # Note the scale is the one your volume slider uses, so halving the number
+  # cuts far more than half the sound power: 0.5 is roughly 18 dB down.
   duck_enabled: true
-  duck_volume: 0.4          # apps without a rule duck to 40%
-  duck_rules: {}            # e.g. {Spotify: 0.2, WEBRTC VoiceEngine: 0.3}
+  duck_to: 0.6              # apps without a rule keep 60% of their volume
+  duck_rules: {}            # e.g. {Spotify: 0.5, WEBRTC VoiceEngine: 0.8}
+                            # 1.0 = never duck that app
 presence:
   # Discord Rich Presence: friends see "dyktuje glosem" with a timer while you
   # dictate (local IPC only, never chat messages). Register a free application
@@ -69,10 +74,27 @@ history:
   enabled: true
   store_text: true
   max_entries: 20000
+hotkey:
+  toggle:
+    # Press to start, press again to stop. On Linux the key itself lives in the
+    # desktop's own shortcut store, which is what scripts/install-hotkey.sh
+    # writes; this is the value that installer uses.
+    enabled: true
+    binding: <Super>g
+  # push_to_talk — record only while the key is held — is NOT active yet, so it
+  # is deliberately absent here: a setting that quietly does nothing is worse
+  # than a missing one. The mechanism is settled and scripts/voiceflow-hotkeys.py
+  # already speaks it (the GlobalShortcuts portal, the only way to see a key
+  # RELEASE without giving voiceflow read access to every input device), but
+  # nothing calls that script. The hold-up is not technical: binding a portal
+  # shortcut makes the desktop ask for confirmation once, and that prompt was
+  # judged not worth it while the toggle does the job.
 overlay:
   # On-screen indicator: a pulsing dot while listening, live text, gone when done.
   # An X11 override-redirect window, because on GNOME/Wayland a normal window
   # cannot refuse focus and would swallow the paste.
+  # Drag it with the mouse to move it; double-click returns it to the default
+  # spot. The position is remembered in overlay-position.json, not here.
   enabled: true
 notifications:
   # Only used for errors now; the overlay carries the normal status.
@@ -134,10 +156,17 @@ class MuteAppsConfig:
     apps: tuple[str, ...] = ("WEBRTC VoiceEngine",)
     #: Also turn DOWN application playback (music, calls, videos) while dictating.
     duck_enabled: bool = True
-    #: Default duck target for apps WITHOUT a specific rule, as a fraction of
-    #: full volume. 0.4 means "duck to 40%", i.e. 60% quieter.
-    duck_volume: float = 0.4
-    #: Per-application overrides: PipeWire application.name -> target volume.
+    #: How much of an app's CURRENT volume is left while dictating, for apps
+    #: without a rule of their own. 0.6 means "drop the slider to 60% of wherever
+    #: the user had it".
+    #:
+    #: Relative, not absolute, and that distinction is the whole point. An
+    #: absolute target behaves completely differently depending on how loud the
+    #: user happens to be listening: the same "0.29" is a gentle dip for someone
+    #: at full volume and total silence for someone already listening quietly.
+    #: A multiplier ducks by the same amount either way.
+    duck_to: float = 0.6
+    #: Per-application overrides: PipeWire application.name -> multiplier.
     #: 1.0 means "never duck this app". Matched case-insensitively.
     duck_rules: tuple[tuple[str, float], ...] = ()
 
@@ -150,13 +179,44 @@ class UpdatesConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class HotkeyModeConfig:
+    """One way of starting a dictation, with its own key."""
+
+    enabled: bool
+    binding: str
+
+
+@dataclass(frozen=True, slots=True)
 class HotkeyConfig:
-    """Global hotkey registered by the daemon itself (Windows only).
+    """How a dictation gets triggered.
 
-    On GNOME the binding lives in gsettings and runs the thin client, so this
-    section is ignored there."""
+    The two Linux modes are independent and can run at once on different keys,
+    because they ride on different mechanisms:
 
+    * ``toggle`` is a gsettings custom keybinding that runs ``voiceflow toggle``.
+      GNOME reports only the key *press* there, which is all a toggle needs.
+    * ``push_to_talk`` goes through the GlobalShortcuts portal, the only route
+      that reports the key *release* as well — and the only one that does not
+      require handing voiceflow read access to every input device.
+
+    Giving both modes the same key is rejected rather than guessed at: telling
+    a tap from a hold would mean a timing threshold, and a dictation tool that
+    behaves differently depending on how fast you let go is worse than one that
+    refuses the ambiguous configuration.
+    """
+
+    #: Windows only: the daemon registers this one itself via RegisterHotKey.
     binding: str = "ctrl+shift+space"
+    toggle: HotkeyModeConfig = field(
+        default_factory=lambda: HotkeyModeConfig(True, "<Super>g")
+    )
+    #: Not <Super>space, which GNOME ships bound to switch-input-source — the
+    #: keyboard layout switch. A default that silently steals a system shortcut
+    #: is a bug report waiting to happen. <Control><Alt>space is unclaimed on a
+    #: stock GNOME and comfortable to hold down with one hand.
+    push_to_talk: HotkeyModeConfig = field(
+        default_factory=lambda: HotkeyModeConfig(False, "<Control><Alt>space")
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,10 +276,10 @@ _SCHEMA: dict[str, set[str] | None] = {
     "audio": {"source", "max_seconds"},
     "inject": {"method", "key_delay_ms", "paste_key", "restore_clipboard"},
     "preview": {"enabled", "interval_seconds", "window_seconds", "max_chars"},
-    "mute_apps": {"enabled", "apps", "duck_enabled", "duck_volume", "duck_rules"},
+    "mute_apps": {"enabled", "apps", "duck_enabled", "duck_to", "duck_rules"},
     "history": {"enabled", "store_text", "max_entries"},
     "presence": {"enabled", "client_id"},
-    "hotkey": {"binding"},
+    "hotkey": {"binding", "toggle", "push_to_talk"},
     "updates": {"check"},
     "overlay": {"enabled"},
     "notifications": {"enabled"},
@@ -304,6 +364,79 @@ def _string_tuple(value: Any, path: str) -> tuple[str, ...]:
     return tuple(terms)
 
 
+def _duck_to(mute_apps: Mapping[str, Any]) -> float:
+    """Read the ducking multiplier, shouting about the renamed old setting.
+
+    ``duck_volume`` used to be an absolute target: "set the app to 0.4". It is
+    now ``duck_to``, a multiplier of the app's own level. Reusing the old name
+    would have been worse than renaming it — the numbers look identical and the
+    behaviour is not, so an untouched config would have quietly started ducking
+    by a different amount with nothing to explain why.
+    """
+    if "duck_volume" in mute_apps:
+        LOGGER.warning(
+            "mute_apps.duck_volume już nie istnieje — zastąpiło je mute_apps.duck_to, "
+            "które jest MNOŻNIKIEM obecnej głośności aplikacji, a nie poziomem "
+            "docelowym. Twoja stara wartość (%r) jest ignorowana; ustaw duck_to "
+            "(np. 0.6 = ścisz do 60%% obecnej głośności).",
+            mute_apps.get("duck_volume"),
+        )
+    return _fraction(mute_apps.get("duck_to", 0.6), 0.6, "mute_apps.duck_to")
+
+
+def _hotkey_mode(
+    data: Mapping[str, Any], name: str, default: HotkeyModeConfig, path: str
+) -> HotkeyModeConfig:
+    """Parse one trigger mode, falling back to its defaults field by field."""
+    section = data.get(name)
+    if section is None:
+        return default
+    if not isinstance(section, Mapping):
+        LOGGER.warning("Sekcja %s nie jest mapą; używam wartości domyślnych", path)
+        return default
+    for key in section:
+        if key not in ("enabled", "binding"):
+            LOGGER.warning("Nieznany klucz konfiguracji: %s.%s", path, key)
+    binding = section.get("binding", default.binding)
+    if not isinstance(binding, str) or not binding.strip():
+        LOGGER.warning(
+            "Nieprawidłowa wartość %s.binding=%r; używam %s", path, binding, default.binding
+        )
+        binding = default.binding
+    return HotkeyModeConfig(
+        enabled=_boolean(section.get("enabled", default.enabled), default.enabled, f"{path}.enabled"),
+        binding=binding.strip(),
+    )
+
+
+def _hotkey_config(data: Mapping[str, Any]) -> HotkeyConfig:
+    """Parse the hotkey section, refusing a binding claimed by both modes."""
+    defaults = HotkeyConfig()
+    binding = data.get("binding", defaults.binding)
+    toggle = _hotkey_mode(data, "toggle", defaults.toggle, "hotkey.toggle")
+    push_to_talk = _hotkey_mode(data, "push_to_talk", defaults.push_to_talk, "hotkey.push_to_talk")
+    if (
+        toggle.enabled
+        and push_to_talk.enabled
+        and toggle.binding.casefold() == push_to_talk.binding.casefold()
+    ):
+        # Both modes on one key would need a hold-versus-tap timer, and a
+        # dictation tool whose behaviour depends on how fast you release is
+        # worse than one that says no. Push-to-talk yields: the toggle is what
+        # every existing installation already relies on.
+        LOGGER.warning(
+            "hotkey.toggle i hotkey.push_to_talk mają ten sam skrót (%s); "
+            "wyłączam push_to_talk — przypisz mu inny klawisz",
+            toggle.binding,
+        )
+        push_to_talk = HotkeyModeConfig(False, push_to_talk.binding)
+    return HotkeyConfig(
+        binding=str(binding or defaults.binding),
+        toggle=toggle,
+        push_to_talk=push_to_talk,
+    )
+
+
 def _duck_rules(value: Any, path: str) -> tuple[tuple[str, float], ...]:
     """Accept a YAML mapping of app name -> volume fraction (clamped to 0..1)."""
     if value is None:
@@ -382,7 +515,7 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
             enabled=_boolean(mute_apps.get("enabled", True), True, "mute_apps.enabled"),
             apps=_string_tuple(mute_apps.get("apps", ("WEBRTC VoiceEngine",)), "mute_apps.apps"),
             duck_enabled=_boolean(mute_apps.get("duck_enabled", True), True, "mute_apps.duck_enabled"),
-            duck_volume=_fraction(mute_apps.get("duck_volume", 0.4), 0.4, "mute_apps.duck_volume"),
+            duck_to=_duck_to(mute_apps),
             duck_rules=_duck_rules(mute_apps.get("duck_rules"), "mute_apps.duck_rules"),
         ),
         history=HistoryConfig(
@@ -394,9 +527,7 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
             enabled=_boolean(presence.get("enabled", False), False, "presence.enabled"),
             client_id=str(presence.get("client_id", "") or ""),
         ),
-        hotkey=HotkeyConfig(
-            binding=str(hotkey.get("binding", "ctrl+shift+space") or "ctrl+shift+space"),
-        ),
+        hotkey=_hotkey_config(hotkey),
         updates=UpdatesConfig(
             check=_boolean(updates.get("check", True), True, "updates.check"),
         ),

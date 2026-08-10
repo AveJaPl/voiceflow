@@ -49,6 +49,83 @@ def test_unknown_keys_warn_instead_of_raising(caplog: pytest.LogCaptureFixture) 
     assert "model.unknown_option" in caplog.text
 
 
+def test_hotkey_defaults_are_toggle_only() -> None:
+    config = parse_config({})
+
+    assert config.hotkey.toggle.enabled is True
+    assert config.hotkey.toggle.binding == "<Super>g"
+    # Push-to-talk is opt-in: binding it prompts the desktop for confirmation,
+    # which nobody should get without asking for the feature.
+    assert config.hotkey.push_to_talk.enabled is False
+
+
+def test_hotkey_modes_are_independent() -> None:
+    config = parse_config(
+        {
+            "hotkey": {
+                "toggle": {"enabled": False, "binding": "<Control><Alt>d"},
+                "push_to_talk": {"enabled": True, "binding": "<Super>space"},
+            }
+        }
+    )
+
+    assert config.hotkey.toggle.enabled is False
+    assert config.hotkey.toggle.binding == "<Control><Alt>d"
+    assert config.hotkey.push_to_talk.enabled is True
+    assert config.hotkey.push_to_talk.binding == "<Super>space"
+
+
+def test_both_modes_on_one_key_disable_push_to_talk(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The ambiguous configuration is refused, not resolved by a stopwatch."""
+    with caplog.at_level(logging.WARNING):
+        config = parse_config(
+            {
+                "hotkey": {
+                    "toggle": {"enabled": True, "binding": "<Super>g"},
+                    "push_to_talk": {"enabled": True, "binding": "<super>G"},
+                }
+            }
+        )
+
+    assert config.hotkey.toggle.enabled is True
+    assert config.hotkey.push_to_talk.enabled is False
+    assert "push_to_talk" in caplog.text
+
+
+def test_same_binding_is_allowed_while_only_one_mode_is_on() -> None:
+    config = parse_config(
+        {
+            "hotkey": {
+                "toggle": {"enabled": False, "binding": "<Super>g"},
+                "push_to_talk": {"enabled": True, "binding": "<Super>g"},
+            }
+        }
+    )
+
+    assert config.hotkey.push_to_talk.enabled is True
+
+
+def test_hotkey_junk_falls_back_per_field(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING):
+        config = parse_config(
+            {"hotkey": {"toggle": {"enabled": "tak", "binding": "   "}, "push_to_talk": 7}}
+        )
+
+    assert config.hotkey.toggle.enabled is True
+    assert config.hotkey.toggle.binding == "<Super>g"
+    assert config.hotkey.push_to_talk.binding == "<Control><Alt>space"
+
+
+def test_windows_binding_survives_the_new_sections() -> None:
+    """The Windows daemon reads hotkey.binding; adding modes must not move it."""
+    config = parse_config({"hotkey": {"binding": "ctrl+shift+f9"}})
+
+    assert config.hotkey.binding == "ctrl+shift+f9"
+    assert config.hotkey.toggle.binding == "<Super>g"
+
+
 def test_first_load_creates_commented_file(tmp_path: Path) -> None:
     path = tmp_path / "voiceflow" / "config.yaml"
 

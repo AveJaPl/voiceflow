@@ -24,6 +24,9 @@ Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[
   written straight into GNOME's own shortcut store, and a candidate key is checked
   against every shortcut the desktop already has: taking one over now asks first
   and names what it would collide with.
+- **[Linux]** The tray label dropped "słów" for a 💬 emoji, and its dropdown now
+  shows two bar charts — today by hour, and the last 14 days — alongside the
+  existing week/month/year summary.
 
 ## 0.3.0 — 2026-08-09
 

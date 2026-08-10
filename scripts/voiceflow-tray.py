@@ -56,6 +56,32 @@ def _rounded_top_bar(
     cr.close_path()
 
 
+def _widget_to_pixbuf(width, height, draw):
+    """Render a DrawingArea off-screen and return its pixel buffer.
+
+    AppIndicator menus are transported over D-Bus (com.canonical.dbusmenu)
+    and never render arbitrary child widgets directly — only a handful of
+    serializable properties (label, icon-data, type). A DrawingArea placed
+    straight into a Gtk.MenuItem never draws under the real shell. Rendering
+    to an image and exposing it as a labeled Gtk.ImageMenuItem's icon is the
+    one approach that actually transports (verified against the real
+    com.canonical.dbusmenu.GetLayout wire data).
+    """
+    area = Gtk.DrawingArea()
+    area.set_size_request(width, height)
+    area.connect("draw", draw)
+    offscreen = Gtk.OffscreenWindow()
+    offscreen.add(area)
+    offscreen.show_all()
+    for _ in range(50):
+        if not Gtk.events_pending():
+            break
+        Gtk.main_iteration()
+    pixbuf = offscreen.get_pixbuf()
+    offscreen.destroy()
+    return pixbuf
+
+
 class TrayApp:
     """Owns the AppIndicator and applies updates on the GLib main loop."""
 
@@ -101,21 +127,21 @@ class TrayApp:
             entry.show()
             menu.append(entry)
 
-        hourly_item = Gtk.MenuItem()
+        hourly_pixbuf = _widget_to_pixbuf(HOURLY_WIDTH, HOURLY_HEIGHT, self._draw_hourly)
+        hourly_item = Gtk.ImageMenuItem.new_with_label("Dziś godzinowo")
+        if hourly_pixbuf is not None:
+            hourly_item.set_image(Gtk.Image.new_from_pixbuf(hourly_pixbuf))
+            hourly_item.set_always_show_image(True)
         hourly_item.set_sensitive(False)
-        hourly_area = Gtk.DrawingArea()
-        hourly_area.set_size_request(HOURLY_WIDTH, HOURLY_HEIGHT)
-        hourly_area.connect("draw", self._draw_hourly)
-        hourly_item.add(hourly_area)
         hourly_item.show_all()
         menu.append(hourly_item)
 
-        daily_item = Gtk.MenuItem()
+        daily_pixbuf = _widget_to_pixbuf(DAILY_WIDTH, DAILY_HEIGHT, self._draw_daily)
+        daily_item = Gtk.ImageMenuItem.new_with_label("Słowa dziennie · 14 dni")
+        if daily_pixbuf is not None:
+            daily_item.set_image(Gtk.Image.new_from_pixbuf(daily_pixbuf))
+            daily_item.set_always_show_image(True)
         daily_item.set_sensitive(False)
-        daily_area = Gtk.DrawingArea()
-        daily_area.set_size_request(DAILY_WIDTH, DAILY_HEIGHT)
-        daily_area.connect("draw", self._draw_daily)
-        daily_item.add(daily_area)
         daily_item.show_all()
         menu.append(daily_item)
 
@@ -134,6 +160,7 @@ class TrayApp:
         bar_width = max(2.0, slot * 0.6)
         maximum = max(self._hourly, default=0)
         current_hour = datetime.now().hour
+        color = widget.get_style_context().get_color(widget.get_state_flags())
 
         cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
         cr.set_font_size(9)
@@ -146,12 +173,12 @@ class TrayApp:
                 bar_height = 2.0
                 alpha = 0.35 if hour == current_hour else 0.07
             y = baseline - bar_height
-            cr.set_source_rgba(1, 1, 1, alpha)
+            cr.set_source_rgba(color.red, color.green, color.blue, alpha)
             _rounded_top_bar(cr, x, y, bar_width, bar_height, 1.5)
             cr.fill()
 
             if hour % 4 == 0:
-                cr.set_source_rgba(1, 1, 1, 0.35)
+                cr.set_source_rgba(color.red, color.green, color.blue, 0.35)
                 hour_label = f"{hour:02d}"
                 extents = cr.text_extents(hour_label)
                 cr.move_to(x + (bar_width - extents.width) / 2 - extents.x_bearing, height - 6)
@@ -174,6 +201,7 @@ class TrayApp:
             if self._daily
             else 0
         )
+        color = widget.get_style_context().get_color(widget.get_state_flags())
 
         cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
         for index, (day, value) in enumerate(self._daily):
@@ -185,12 +213,12 @@ class TrayApp:
                 bar_height = 2.0
                 alpha = 0.07
             y = baseline - bar_height
-            cr.set_source_rgba(1, 1, 1, alpha)
+            cr.set_source_rgba(color.red, color.green, color.blue, alpha)
             _rounded_top_bar(cr, x, y, bar_width, bar_height, 2.0)
             cr.fill()
 
             cr.set_font_size(8)
-            cr.set_source_rgba(1, 1, 1, 1.0 if day == today else 0.35)
+            cr.set_source_rgba(color.red, color.green, color.blue, 1.0 if day == today else 0.35)
             day_label = DAY_NAMES[day.weekday()]
             extents = cr.text_extents(day_label)
             cr.move_to(x + (bar_width - extents.width) / 2 - extents.x_bearing, height - 6)
@@ -199,7 +227,7 @@ class TrayApp:
             if index == peak_index and value > 0:
                 peak_label = str(value)
                 cr.set_font_size(8)
-                cr.set_source_rgba(1, 1, 1, 0.55)
+                cr.set_source_rgba(color.red, color.green, color.blue, 0.55)
                 peak_extents = cr.text_extents(peak_label)
                 cr.move_to(
                     x + (bar_width - peak_extents.width) / 2 - peak_extents.x_bearing,

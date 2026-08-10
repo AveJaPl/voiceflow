@@ -42,9 +42,9 @@ def test_build_stats_carries_raw_chart_series() -> None:
 
     assert len(stats["hourly"]) == 24
     assert stats["hourly"][9] == 3
-    assert len(stats["daily"]) == 14
+    assert len(stats["daily"]) == 31
     assert stats["daily"][-1] == {"date": "2026-08-10", "words": 3}
-    assert stats["daily"][0]["date"] == "2026-07-28"
+    assert stats["daily"][0]["date"] == "2026-07-11"
 
 
 def test_build_stats_of_no_history_is_all_zero() -> None:

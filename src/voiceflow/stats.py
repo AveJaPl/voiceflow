@@ -26,8 +26,9 @@ from voiceflow.statlib import daily_series, hourly_word_totals, period_bounds, r
 
 LOGGER = logging.getLogger(__name__)
 
-#: Days shown in the extension's "words per day" chart.
-DAILY_DAYS = 14
+#: Days shown in the extension's "words per day" chart — a full month so the
+#: widget can offer both a 7-day and a month view from the same series.
+DAILY_DAYS = 31
 
 _PERIODS: tuple[str, ...] = ("day", "week", "month", "year")
 

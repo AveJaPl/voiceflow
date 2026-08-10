@@ -325,7 +325,9 @@ class VoiceflowDaemon:
                         store_text=self.config.history.store_text,
                     )
                 )
-            self._refresh_tray()
+                # Inside this finally so it still runs when inject() raised and
+                # the exception is about to propagate past the line below.
+                self._refresh_tray()
             if injection.fallback_reason:
                 LOGGER.info("Wstrzyknięto przez %s: %s", injection.method, injection.fallback_reason)
             # No success notification: the text landing in the focused window is
@@ -360,10 +362,9 @@ class VoiceflowDaemon:
         try:
             records = read_records(self.history.path)
             payload = build_payload(records)
+            self.tray.update(str(payload["label"]), list(payload["menu"]))  # type: ignore[arg-type]
         except Exception:
             LOGGER.exception("Nie można przeliczyć statystyk wskaźnika")
-            return
-        self.tray.update(str(payload["label"]), list(payload["menu"]))  # type: ignore[arg-type]
 
     def _tray_refresh_loop(self) -> None:
         # Recomputes on a timer (not only after a dictation) so the "today"

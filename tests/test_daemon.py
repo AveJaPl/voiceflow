@@ -60,6 +60,16 @@ class _Injector:
         return ProbeResult(True, "/run/user/1000/.ydotool_socket", True, True, True, True, "Gotowe")
 
 
+class _FailingInjector:
+    """Raises on every inject() call, like a broken ydotool/wtype setup."""
+
+    def inject(self, text: str) -> InjectionResult:
+        raise RuntimeError("wstrzykiwanie nie powiodło się")
+
+    def probe(self) -> ProbeResult:
+        return ProbeResult(False, None, False, False, False, False, "Błąd")
+
+
 class _Notifier:
     def __init__(self) -> None:
         self.messages: list[str] = []
@@ -202,6 +212,32 @@ def test_dictation_pushes_fresh_stats_to_the_tray(tmp_path: Path) -> None:
     daemon.handle_command("stop")
     daemon._executor.shutdown(wait=True)  # noqa: SLF001
 
+    assert tray.calls[-1] == (
+        "update",
+        "1 min · 3 słów",
+        ["Ten tydzień: 1 min · 3 słów", "Ten miesiąc: 1 min · 3 słów", "Ten rok: 1 min · 3 słów"],
+    )
+
+
+def test_failed_injection_still_refreshes_the_tray(tmp_path: Path) -> None:
+    tray = _Tray()
+    daemon = VoiceflowDaemon(
+        Config(),
+        recorder=_Recorder(tmp_path / "recording.wav"),
+        transcriber=_ThreeWordTranscriber(),
+        injector=_FailingInjector(),  # type: ignore[arg-type]
+        notifier=_Notifier(),  # type: ignore[arg-type]
+        overlay=_Overlay(),  # type: ignore[arg-type]
+        history=History(HistoryConfig(), tmp_path / "history.jsonl"),
+        tray=tray,  # type: ignore[arg-type]
+    )
+
+    daemon.handle_command("start")
+    daemon.handle_command("stop")
+    daemon._executor.shutdown(wait=True)  # noqa: SLF001
+
+    # The history record for the failed injection is still written, so the
+    # tray must reflect it too — not just successful dictations.
     assert tray.calls[-1] == (
         "update",
         "1 min · 3 słów",

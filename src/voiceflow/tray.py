@@ -23,7 +23,9 @@ from voiceflow.config import TrayConfig
 from voiceflow.history import Record
 from voiceflow.statlib import (
     compact_number,
+    daily_series,
     format_duration,
+    hourly_word_totals,
     period_bounds,
     record_date,
     totals,
@@ -47,21 +49,31 @@ def tray_script_path() -> Path:
 
 
 def build_payload(records: Iterable[Record], *, today: date | None = None) -> dict[str, object]:
-    """Aggregate history into the tray label and dropdown menu text."""
+    """Aggregate history into the tray label, summary text, and chart series."""
     items = list(records)
     day = today or date.today()
 
-    def summarize(period: str) -> str:
+    def duration_and_words(period: str) -> tuple[str, str]:
         start = period_bounds(period, today=day)
         subset = [record for record in items if record_date(record) >= start]
         stats = totals(subset)
         duration = format_duration(float(stats["audio_seconds"]))
         words = compact_number(int(stats["words"]))
-        return f"{duration} · {words} słów"
+        return duration, words
+
+    today_duration, today_words = duration_and_words("day")
+    label = f"{today_duration} · 💬 {today_words}"
+
+    summary = []
+    for period, title in _PERIODS:
+        duration, words = duration_and_words(period)
+        summary.append(f"{title}: {duration} · {words} słów")
 
     return {
-        "label": summarize("day"),
-        "menu": [f"{title}: {summarize(period)}" for period, title in _PERIODS],
+        "label": label,
+        "summary": summary,
+        "hourly": hourly_word_totals(items, today=day),
+        "daily": daily_series(items, 14, today=day),
     }
 
 
@@ -71,7 +83,7 @@ class NullTray:
     def start(self) -> None:
         return
 
-    def update(self, label: str, menu: list[str]) -> None:
+    def update(self, label: str, summary: list[str], hourly: list[int], daily: list[tuple[date, int]]) -> None:
         return
 
     def stop(self) -> None:
@@ -127,9 +139,14 @@ class Tray:
         with self._lock:
             self._process = process
 
-    def update(self, label: str, menu: list[str]) -> None:
-        """Send one label/menu update to the indicator."""
-        payload = {"label": label, "menu": menu}
+    def update(self, label: str, summary: list[str], hourly: list[int], daily: list[tuple[date, int]]) -> None:
+        """Send one label/summary/chart update to the indicator."""
+        payload = {
+            "label": label,
+            "summary": summary,
+            "hourly": hourly,
+            "daily": [{"date": day.isoformat(), "words": words} for day, words in daily],
+        }
         self._write(json.dumps(payload, ensure_ascii=False) + "\n")
 
     def stop(self) -> None:

@@ -31,25 +31,48 @@ def test_build_payload_label_is_todays_stats_only() -> None:
 
     payload = build_payload(records, today=date(2026, 8, 10))
 
-    assert payload["label"] == "1 min · 3 słów"
+    assert payload["label"] == "1 min · 💬 3"
 
 
-def test_build_payload_menu_has_week_month_year_in_order() -> None:
+def test_build_payload_summary_has_week_month_year_in_order() -> None:
     records = [_record("2026-08-10T09:00:00+02:00", 3, 60.0)]
 
     payload = build_payload(records, today=date(2026, 8, 10))
 
-    assert len(payload["menu"]) == 3
-    assert payload["menu"][0].startswith("Ten tydzień: ")
-    assert payload["menu"][1].startswith("Ten miesiąc: ")
-    assert payload["menu"][2].startswith("Ten rok: ")
+    assert len(payload["summary"]) == 3
+    assert payload["summary"][0].startswith("Ten tydzień: ")
+    assert payload["summary"][1].startswith("Ten miesiąc: ")
+    assert payload["summary"][2].startswith("Ten rok: ")
 
 
 def test_build_payload_of_no_history_is_all_zero() -> None:
     payload = build_payload([], today=date(2026, 8, 10))
 
-    assert payload["label"] == "0 min · 0 słów"
-    assert payload["menu"][0] == "Ten tydzień: 0 min · 0 słów"
+    assert payload["label"] == "0 min · 💬 0"
+    assert payload["summary"][0] == "Ten tydzień: 0 min · 0 słów"
+
+
+def test_build_payload_hourly_is_24_values_for_today_only() -> None:
+    records = [
+        _record("2026-08-10T09:15:00+02:00", 3, 10.0),
+        _record("2026-08-09T09:15:00+02:00", 999, 10.0),  # yesterday, excluded
+    ]
+
+    payload = build_payload(records, today=date(2026, 8, 10))
+
+    assert len(payload["hourly"]) == 24
+    assert payload["hourly"][9] == 3
+    assert sum(payload["hourly"]) == 3
+
+
+def test_build_payload_daily_is_14_days_oldest_first() -> None:
+    records = [_record("2026-08-10T09:15:00+02:00", 3, 10.0)]
+
+    payload = build_payload(records, today=date(2026, 8, 10))
+
+    assert len(payload["daily"]) == 14
+    assert payload["daily"][-1] == (date(2026, 8, 10), 3)
+    assert payload["daily"][0][0] == date(2026, 7, 28)
 
 
 STUB = """\
@@ -102,18 +125,25 @@ def test_start_leaves_the_process_running(tmp_path: Path) -> None:
         tray.stop()
 
 
-def test_update_sends_label_and_menu_preserving_polish_characters(tmp_path: Path) -> None:
+def test_update_sends_label_summary_hourly_daily_preserving_polish_characters(tmp_path: Path) -> None:
     tray = _tray(tmp_path)
     tray.start()
     try:
-        tray.update("12 min · 340 słów", ["Ten tydzień: 3 godz. 10 min · 1,2 k słów"])
+        tray.update(
+            "12 min · 💬 340",
+            ["Ten tydzień: 3 godz. 10 min · 1,2 k słów"],
+            [0] * 23 + [3],
+            [(date(2026, 8, 10), 3)],
+        )
         messages = _wait_for(tray.log, 1)
     finally:
         tray.stop()
 
     assert messages[0] == {
-        "label": "12 min · 340 słów",
-        "menu": ["Ten tydzień: 3 godz. 10 min · 1,2 k słów"],
+        "label": "12 min · 💬 340",
+        "summary": ["Ten tydzień: 3 godz. 10 min · 1,2 k słów"],
+        "hourly": [0] * 23 + [3],
+        "daily": [{"date": "2026-08-10", "words": 3}],
     }
 
 
@@ -150,7 +180,7 @@ def test_update_after_stop_does_not_raise(tmp_path: Path) -> None:
     tray.start()
     tray.stop()
 
-    tray.update("12 min · 340 słów", [])
+    tray.update("12 min · 💬 340", [], [0] * 24, [])
 
     assert tray.is_running is False
 
@@ -172,5 +202,5 @@ def test_null_tray_methods_are_all_no_ops() -> None:
     tray = NullTray()
 
     tray.start()
-    tray.update("x", ["y"])
+    tray.update("x", ["y"], [0] * 24, [])
     tray.stop()

@@ -54,11 +54,27 @@ def format_duration(seconds: float) -> str:
     return f"{minutes} min"
 
 
+def _local_datetime(record: Record) -> datetime:
+    """Parse a record's timestamp and convert it to local time."""
+    parsed = datetime.fromisoformat(record.timestamp.replace("Z", "+00:00"))
+    return parsed.astimezone() if parsed.tzinfo is not None else parsed
+
+
 def record_date(record: Record) -> date:
     """Return the local calendar date a record was dictated on."""
-    parsed = datetime.fromisoformat(record.timestamp.replace("Z", "+00:00"))
-    local = parsed.astimezone() if parsed.tzinfo is not None else parsed
-    return local.date()
+    return _local_datetime(record).date()
+
+
+def hourly_word_totals(records: Iterable[Record], *, today: date | None = None) -> list[int]:
+    """Sum words per local hour (0-23) for records dictated today."""
+    day = today or date.today()
+    totals_by_hour = [0] * 24
+    for record in records:
+        local = _local_datetime(record)
+        if local.date() != day:
+            continue
+        totals_by_hour[local.hour] += max(0, record.words)
+    return totals_by_hour
 
 
 def totals(records: Iterable[Record]) -> dict[str, float | int]:
@@ -85,3 +101,22 @@ def period_bounds(period: str, *, today: date | None = None) -> date:
     if period == "year":
         return day.replace(month=1, day=1)
     raise ValueError(f"nieznany okres: {period!r}")
+
+
+def daily_series(
+    records: Iterable[Record], days: int, *, today: date | None = None
+) -> list[tuple[date, int]]:
+    """Return a dense oldest-first daily word-count series ending today."""
+    if days <= 0:
+        return []
+    end = today or date.today()
+    start = end - timedelta(days=days - 1)
+    totals_by_day: dict[date, int] = {}
+    for record in records:
+        day = record_date(record)
+        if start <= day <= end:
+            totals_by_day[day] = totals_by_day.get(day, 0) + max(0, record.words)
+    return [
+        (start + timedelta(days=offset), totals_by_day.get(start + timedelta(days=offset), 0))
+        for offset in range(days)
+    ]

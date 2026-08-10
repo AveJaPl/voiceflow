@@ -53,6 +53,13 @@ def test_record_date_reads_the_local_calendar_day() -> None:
     assert record_date(record) == date(2026, 8, 10)
 
 
+def test_record_date_still_works_after_the_hourly_refactor() -> None:
+    from voiceflow.statlib import record_date
+
+    record = _record("2026-08-10T23:30:00+02:00", 3, 12.0)
+    assert record_date(record) == date(2026, 8, 10)
+
+
 def test_totals_sums_words_and_audio_seconds() -> None:
     from voiceflow.statlib import totals
 
@@ -111,3 +118,67 @@ def test_period_bounds_rejects_unknown_period() -> None:
 
     with pytest.raises(ValueError):
         period_bounds("decade", today=date(2026, 8, 13))
+
+
+def test_hourly_word_totals_buckets_by_local_hour() -> None:
+    from voiceflow.statlib import hourly_word_totals
+
+    records = [
+        _record("2026-08-10T09:15:00+02:00", 3, 10.0),
+        _record("2026-08-10T09:45:00+02:00", 5, 10.0),   # same hour, same day
+        _record("2026-08-10T14:00:00+02:00", 7, 10.0),   # different hour
+        _record("2026-08-09T09:00:00+02:00", 100, 10.0),  # yesterday, excluded
+    ]
+
+    result = hourly_word_totals(records, today=date(2026, 8, 10))
+
+    assert len(result) == 24
+    assert result[9] == 8
+    assert result[14] == 7
+    assert result[0] == 0
+    assert sum(result) == 15
+
+
+def test_hourly_word_totals_of_no_history_is_24_zeros() -> None:
+    from voiceflow.statlib import hourly_word_totals
+
+    result = hourly_word_totals([], today=date(2026, 8, 10))
+
+    assert result == [0] * 24
+
+
+def test_daily_series_is_dense_oldest_first_with_zero_fill() -> None:
+    from voiceflow.statlib import daily_series
+
+    records = [
+        _record("2026-08-10T09:00:00+02:00", 3, 10.0),
+        _record("2026-08-08T09:00:00+02:00", 5, 10.0),
+        _record("2026-08-01T09:00:00+02:00", 999, 10.0),  # outside the 3-day window
+    ]
+
+    result = daily_series(records, 3, today=date(2026, 8, 10))
+
+    assert result == [
+        (date(2026, 8, 8), 5),
+        (date(2026, 8, 9), 0),
+        (date(2026, 8, 10), 3),
+    ]
+
+
+def test_daily_series_sums_multiple_records_on_the_same_day() -> None:
+    from voiceflow.statlib import daily_series
+
+    records = [
+        _record("2026-08-10T09:00:00+02:00", 3, 10.0),
+        _record("2026-08-10T18:00:00+02:00", 4, 10.0),
+    ]
+
+    result = daily_series(records, 1, today=date(2026, 8, 10))
+
+    assert result == [(date(2026, 8, 10), 7)]
+
+
+def test_daily_series_of_zero_days_is_empty() -> None:
+    from voiceflow.statlib import daily_series
+
+    assert daily_series([_record("2026-08-10T09:00:00+02:00", 3, 10.0)], 0, today=date(2026, 8, 10)) == []

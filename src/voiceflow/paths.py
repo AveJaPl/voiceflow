@@ -68,3 +68,15 @@ def history_file() -> Path:
     directory = data_dir()
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     return directory / "history.jsonl"
+
+
+def stats_file() -> Path:
+    """Return the aggregated statistics file read by the GNOME Shell extension.
+
+    The daemon rewrites it after every dictation and on its refresh timer, so
+    the extension never has to parse the full history itself — the shell
+    process must not spend milliseconds on JSONL parsing while drawing.
+    """
+    directory = data_dir()
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return directory / "stats.json"

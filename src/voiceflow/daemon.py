@@ -25,6 +25,7 @@ from voiceflow.presence import DiscordPresence
 from voiceflow.preview import PreviewLoop
 from voiceflow.recorder import Recorder
 from voiceflow.transcriber import Transcriber, TranscriptionResult
+from voiceflow.stats import build_stats, write_stats
 from voiceflow.tray import NullTray, Tray, build_payload
 from voiceflow.updates import check as check_updates
 
@@ -371,12 +372,14 @@ class VoiceflowDaemon:
         try:
             records = read_records(self.history.path)
             payload = build_payload(records)
-            self.tray.update(
-                str(payload["label"]),
-                list(payload["summary"]),  # type: ignore[arg-type]
-                list(payload["hourly"]),  # type: ignore[arg-type]
-                list(payload["daily"]),  # type: ignore[arg-type]
-            )
+            self.tray.update(str(payload["label"]), list(payload["summary"]))  # type: ignore[arg-type]
+            # Same numbers, second consumer: the GNOME Shell extension draws
+            # its charts from this file rather than parsing the history in the
+            # shell process. Written from the same pass so the panel and the
+            # tray label can never disagree, and placed beside the history it
+            # summarizes so a relocated history (tests, XDG overrides) takes
+            # its statistics along with it.
+            write_stats(build_stats(records), self.history.path.parent / "stats.json")
         except Exception:
             LOGGER.exception("Nie można przeliczyć statystyk wskaźnika")
 

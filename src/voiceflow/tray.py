@@ -23,9 +23,7 @@ from voiceflow.config import TrayConfig
 from voiceflow.history import Record
 from voiceflow.statlib import (
     compact_number,
-    daily_series,
     format_duration,
-    hourly_word_totals,
     period_bounds,
     record_date,
     totals,
@@ -49,7 +47,13 @@ def tray_script_path() -> Path:
 
 
 def build_payload(records: Iterable[Record], *, today: date | None = None) -> dict[str, object]:
-    """Aggregate history into the tray label, summary text, and chart series."""
+    """Aggregate history into the tray label and dropdown summary text.
+
+    Text only: the charts belong to the GNOME Shell extension, which reads
+    them from the statistics document instead (voiceflow/stats.py). See
+    scripts/voiceflow-tray.py for why a menu served over D-Bus cannot draw
+    them.
+    """
     items = list(records)
     day = today or date.today()
 
@@ -69,12 +73,7 @@ def build_payload(records: Iterable[Record], *, today: date | None = None) -> di
         duration, words = duration_and_words(period)
         summary.append(f"{title}: {duration} · {words} słów")
 
-    return {
-        "label": label,
-        "summary": summary,
-        "hourly": hourly_word_totals(items, today=day),
-        "daily": daily_series(items, 14, today=day),
-    }
+    return {"label": label, "summary": summary}
 
 
 class NullTray:
@@ -83,7 +82,7 @@ class NullTray:
     def start(self) -> None:
         return
 
-    def update(self, label: str, summary: list[str], hourly: list[int], daily: list[tuple[date, int]]) -> None:
+    def update(self, label: str, summary: list[str]) -> None:
         return
 
     def stop(self) -> None:
@@ -139,14 +138,9 @@ class Tray:
         with self._lock:
             self._process = process
 
-    def update(self, label: str, summary: list[str], hourly: list[int], daily: list[tuple[date, int]]) -> None:
-        """Send one label/summary/chart update to the indicator."""
-        payload = {
-            "label": label,
-            "summary": summary,
-            "hourly": hourly,
-            "daily": [{"date": day.isoformat(), "words": words} for day, words in daily],
-        }
+    def update(self, label: str, summary: list[str]) -> None:
+        """Send one label/summary update to the indicator."""
+        payload = {"label": label, "summary": summary}
         self._write(json.dumps(payload, ensure_ascii=False) + "\n")
 
     def stop(self) -> None:

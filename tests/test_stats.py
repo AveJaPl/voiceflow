@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from voiceflow.history import Record
@@ -55,11 +55,14 @@ def test_build_stats_of_no_history_is_all_zero() -> None:
     assert all(entry["words"] == 0 for entry in stats["daily"])
 
 
-def test_build_stats_has_a_local_timestamp() -> None:
+def test_build_stats_timestamps_in_unix_seconds() -> None:
+    """The extension subtracts this from its own clock to show "N min temu"."""
+    before = int(datetime.now().timestamp())
+
     stats = build_stats([], today=date(2026, 8, 10))
 
-    # Offset-aware: the extension shows "updated N minutes ago" from this.
-    assert "T" in str(stats["updated_at"])
+    assert isinstance(stats["updated_at"], int)
+    assert before <= int(stats["updated_at"]) <= before + 5
 
 
 def test_write_stats_round_trips_through_the_file(tmp_path: Path) -> None:

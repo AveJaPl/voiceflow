@@ -49,7 +49,9 @@ def build_stats(records: Iterable[Record], *, today: date | None = None) -> dict
         }
 
     return {
-        "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        # Unix seconds, not ISO: the consumer renders "N min temu" from it,
+        # and a plain number keeps that arithmetic free of timezone parsing.
+        "updated_at": int(datetime.now().timestamp()),
         "periods": periods,
         "hourly": hourly_word_totals(items, today=day),
         "daily": [

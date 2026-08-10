@@ -219,7 +219,10 @@ def _read_stdin(app: TrayApp) -> None:
         except ValueError:
             continue
         if isinstance(payload, dict):
-            app.apply(payload)
+            try:
+                app.apply(payload)
+            except Exception:  # noqa: BLE001 - never let a bad payload kill the thread
+                continue
     GLib.idle_add(Gtk.main_quit)
 
 

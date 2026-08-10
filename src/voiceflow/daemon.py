@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from voiceflow.config import Config
-from voiceflow.history import History, Record
+from voiceflow.history import History, Record, read_records
 from voiceflow.injector import InjectionResult, Injector
 from voiceflow.micmute import MicMuter
 from voiceflow.notifier import Notifier
@@ -25,6 +25,7 @@ from voiceflow.presence import DiscordPresence
 from voiceflow.preview import PreviewLoop
 from voiceflow.recorder import Recorder
 from voiceflow.transcriber import Transcriber, TranscriptionResult
+from voiceflow.tray import NullTray, Tray, build_payload
 from voiceflow.updates import check as check_updates
 
 _WINDOWS = os.name == "nt"
@@ -102,6 +103,7 @@ class VoiceflowDaemon:
         notifier: Notifier | None = None,
         overlay: Overlay | None = None,
         history: History | None = None,
+        tray: Tray | None = None,
     ) -> None:
         self.config = config
         self.state = State.IDLE
@@ -122,6 +124,16 @@ class VoiceflowDaemon:
         else:
             self.micmuter = MicMuter(config.mute_apps)
         self.history = history or History(config.history)
+        if _WINDOWS and tray is None:
+            self.tray = NullTray()
+        else:
+            self.tray = tray or Tray(config.tray)
+        if not _WINDOWS and self.config.tray.enabled:
+            self.tray.start()
+            self._refresh_tray()
+            threading.Thread(
+                target=self._tray_refresh_loop, name="voiceflow-tray-refresh", daemon=True
+            ).start()
         self.presence = DiscordPresence(config.presence)
         if _WINDOWS and injector is None:
             from voiceflow.winplat.injector import WinInjector
@@ -321,6 +333,9 @@ class VoiceflowDaemon:
                         store_text=self.config.history.store_text,
                     )
                 )
+                # Inside this finally so it still runs when inject() raised and
+                # the exception is about to propagate past the line below.
+                self._refresh_tray()
             if injection.fallback_reason:
                 LOGGER.info("Wstrzyknięto przez %s: %s", injection.method, injection.fallback_reason)
             # No success notification: the text landing in the focused window is
@@ -351,6 +366,21 @@ class VoiceflowDaemon:
                 f"Dostępna nowa wersja voiceflow ({info.latest}) — "
                 "zaktualizuj tą samą komendą, którą instalowałeś"
             )
+
+    def _refresh_tray(self) -> None:
+        try:
+            records = read_records(self.history.path)
+            payload = build_payload(records)
+            self.tray.update(str(payload["label"]), list(payload["menu"]))  # type: ignore[arg-type]
+        except Exception:
+            LOGGER.exception("Nie można przeliczyć statystyk wskaźnika")
+
+    def _tray_refresh_loop(self) -> None:
+        # Recomputes on a timer (not only after a dictation) so the "today"
+        # label actually rolls over to zero at local midnight even if
+        # nothing gets dictated right around then.
+        while not self._shutdown_requested.wait(300):
+            self._refresh_tray()
 
     def _max_duration_reached(self) -> None:
         LOGGER.warning("Automatycznie kończę nagranie po limicie czasu")
@@ -432,6 +462,7 @@ class VoiceflowDaemon:
                 self.state = State.IDLE
         self._stop_preview()
         self.overlay.stop()
+        self.tray.stop()
         # If the daemon dies mid-recording, the call must not stay muted forever.
         self.micmuter.unmute()
         self.presence.clear()

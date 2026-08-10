@@ -31,6 +31,10 @@ Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[
   stream vanished mid-recording (WirePlumber persisted the ducked volume per app
   name). Restores now fall back to the application name and retry when the
   stream returns.
+- **[Linux]** GNOME top-bar indicator for dictation statistics: shows today's
+  spoken time and word count in the bar label; click to reveal this week, month,
+  and year totals in a dropdown menu. Requires `gir1.2-ayatanaappindicator3-0.1`
+  (installed automatically by install.sh).
 - **[Web]** The landing page grew: bilingual (/en, /pl), animated demos of the
   Linux flow and the Android keyboard, a speech-vs-typing chart, privacy pages.
 - **[Web]** Landing page at [voiceflow.pbdevs.com](https://voiceflow.pbdevs.com):

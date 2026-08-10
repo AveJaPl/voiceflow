@@ -58,3 +58,15 @@ def test_first_load_creates_commented_file(tmp_path: Path) -> None:
     content = path.read_text(encoding="utf-8")
     assert "# voiceflow configuration" in content
     assert "large-v3-turbo" in content
+
+
+def test_tray_defaults_to_enabled() -> None:
+    config = parse_config({})
+
+    assert config.tray.enabled is True
+
+
+def test_tray_can_be_disabled() -> None:
+    config = parse_config({"tray": {"enabled": False}})
+
+    assert config.tray.enabled is False

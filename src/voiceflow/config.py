@@ -74,6 +74,11 @@ overlay:
   # An X11 override-redirect window, because on GNOME/Wayland a normal window
   # cannot refuse focus and would swallow the paste.
   enabled: true
+tray:
+  # Top-bar icon showing today's speaking time and word count; click for
+  # this week/month/year. Needs gir1.2-ayatanaappindicator3-0.1 (installed
+  # automatically by install.sh); silently absent if that package is missing.
+  enabled: true
 notifications:
   # Only used for errors now; the overlay carries the normal status.
   enabled: true
@@ -187,6 +192,13 @@ class OverlayConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class TrayConfig:
+    """GNOME top-bar dictation-stats indicator settings."""
+
+    enabled: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class NotificationsConfig:
     """Desktop notification settings."""
 
@@ -207,6 +219,7 @@ class Config:
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
     updates: UpdatesConfig = field(default_factory=UpdatesConfig)
     overlay: OverlayConfig = field(default_factory=OverlayConfig)
+    tray: TrayConfig = field(default_factory=TrayConfig)
     notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
     log_level: str = "INFO"
 
@@ -222,6 +235,7 @@ _SCHEMA: dict[str, set[str] | None] = {
     "hotkey": {"binding"},
     "updates": {"check"},
     "overlay": {"enabled"},
+    "tray": {"enabled"},
     "notifications": {"enabled"},
     "log_level": None,
 }
@@ -337,6 +351,7 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
     hotkey = _section(root, "hotkey")
     updates = _section(root, "updates")
     overlay = _section(root, "overlay")
+    tray = _section(root, "tray")
     notifications = _section(root, "notifications")
 
     language = model.get("language", "pl")
@@ -402,6 +417,9 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
         ),
         overlay=OverlayConfig(
             enabled=_boolean(overlay.get("enabled", True), True, "overlay.enabled"),
+        ),
+        tray=TrayConfig(
+            enabled=_boolean(tray.get("enabled", True), True, "tray.enabled"),
         ),
         notifications=NotificationsConfig(
             enabled=notifications.get("enabled", True) if isinstance(notifications.get("enabled", True), bool) else True,

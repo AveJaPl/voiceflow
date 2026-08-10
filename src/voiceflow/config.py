@@ -76,8 +76,10 @@ overlay:
   enabled: true
 tray:
   # Top-bar icon showing today's speaking time and word count; click for
-  # this week/month/year. Needs gir1.2-ayatanaappindicator3-0.1 (installed
-  # automatically by install.sh); silently absent if that package is missing.
+  # this week/month/year. Reads from history, so history.enabled: false
+  # means the icon always shows zero. Needs
+  # gir1.2-ayatanaappindicator3-0.1 (installed automatically by
+  # install.sh); silently absent if that package is missing.
   enabled: true
 notifications:
   # Only used for errors now; the overlay carries the normal status.

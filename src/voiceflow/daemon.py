@@ -128,11 +128,12 @@ class VoiceflowDaemon:
             self.tray = NullTray()
         else:
             self.tray = tray or Tray(config.tray)
-        self.tray.start()
-        self._refresh_tray()
-        threading.Thread(
-            target=self._tray_refresh_loop, name="voiceflow-tray-refresh", daemon=True
-        ).start()
+        if not _WINDOWS and self.config.tray.enabled:
+            self.tray.start()
+            self._refresh_tray()
+            threading.Thread(
+                target=self._tray_refresh_loop, name="voiceflow-tray-refresh", daemon=True
+            ).start()
         self.presence = DiscordPresence(config.presence)
         if _WINDOWS and injector is None:
             from voiceflow.winplat.injector import WinInjector

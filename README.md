@@ -183,6 +183,7 @@ mute_apps:
 | `presence.enabled` | `false` | show Discord Rich Presence while dictating |
 | `presence.client_id` | `""` | Discord developer application ID used for Rich Presence |
 | `overlay.enabled` | `true` | the on-screen indicator card |
+| `tray.enabled` | `true` | the top-bar dictation-stats indicator |
 
 The config file is generated once and not migrated — delete it to regenerate with
 current defaults.
@@ -196,6 +197,7 @@ hotkey ─▶ voiceflow toggle ──unix socket──▶ voiceflow daemon (syst
                                              ├─ transcriber  faster-whisper, warm in VRAM
                                              ├─ preview      re-transcribes the tail every 1 s
                                              ├─ overlay      separate GTK3 process (X11 popup)
+                                             ├─ tray         top-bar indicator (AppIndicator3)
                                              ├─ micmute      mutes/ducks voice chats (wpctl)
                                              └─ injector     wl-copy + paste keystroke
 ```

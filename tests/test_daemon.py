@@ -6,7 +6,7 @@ import threading
 import time
 from pathlib import Path
 
-from voiceflow.config import Config, HistoryConfig
+from voiceflow.config import Config, HistoryConfig, TrayConfig
 from voiceflow.daemon import State, VoiceflowDaemon
 from voiceflow.history import History
 from voiceflow.injector import InjectionResult, ProbeResult
@@ -182,6 +182,22 @@ def test_daemon_starts_the_tray_and_shows_zero_stats(tmp_path: Path) -> None:
 
     assert tray.calls[0] == ("start", None, None)
     assert tray.calls[1] == ("update", "0 min · 0 słów", ["Ten tydzień: 0 min · 0 słów", "Ten miesiąc: 0 min · 0 słów", "Ten rok: 0 min · 0 słów"])
+
+
+def test_disabled_tray_does_no_background_work(tmp_path: Path) -> None:
+    tray = _Tray()
+    VoiceflowDaemon(
+        Config(tray=TrayConfig(enabled=False)),
+        recorder=_Recorder(tmp_path / "recording.wav"),
+        transcriber=_BlockingTranscriber(),
+        injector=_Injector(),  # type: ignore[arg-type]
+        notifier=_Notifier(),  # type: ignore[arg-type]
+        overlay=_Overlay(),  # type: ignore[arg-type]
+        history=History(HistoryConfig(), tmp_path / "history.jsonl"),
+        tray=tray,  # type: ignore[arg-type]
+    )
+
+    assert tray.calls == []
 
 
 class _ThreeWordTranscriber:

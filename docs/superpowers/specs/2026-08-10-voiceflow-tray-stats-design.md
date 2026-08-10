@@ -45,28 +45,39 @@ sposobu integracji z GTK do kodu.
 
 ## Liczenie statystyk
 
-Zero nowej logiki agregującej — `app/voiceflow_app/statlib.py` już ma
-wszystko potrzebne:
+`app/voiceflow_app/statlib.py` już ma dokładnie taką agregację (`totals`,
+`compact_number`, `format_duration`, `record_date`), ale operuje na luźnych
+`Mapping`/`HistoryRecord` (TypedDict) — bo apka ustawień czyta
+`history.jsonl` samodzielnie, bez importu z `src/voiceflow`. To rozdzielenie
+jest celowe w istniejącym kodzie: `app/voiceflow_app` startuje systemowym
+Pythonem (`scripts/voiceflow-app.py`, `sys.path.insert(0, .../app)`) i **nie
+ma na ścieżce** `src/voiceflow`, więc import `voiceflow.statlib` z apki by
+się nie powiódł. Z tego samego powodu `services.py` w apce ma własną,
+niezależną implementację odczytu JSONL zamiast importować
+`voiceflow.history`.
 
-- `record_date(record)` — lokalny dzień rekordu.
-- `totals(records)` — sumy `words` / `audio_seconds` / `dictations` dla listy
-  rekordów.
-- `compact_number(value)` — zaokrąglone tysiące/miliony (`1,6 k`, `999 k`,
-  `1,2 mln`).
-- `format_duration(seconds)` — czas jako `„2 godz. 15 min”` / `„12 min”`.
+Zamiast przenosić `statlib.py` (co złamałoby apkę ustawień), demon dostaje
+**własny, lekki moduł `src/voiceflow/statlib.py`**, z tym samym zestawem
+czterech funkcji, ale dopasowany do typu, którego już używa demon —
+`voiceflow.history.Record` (frozen dataclass) zamiast surowego słownika:
 
-Nowa funkcja pomocnicza w `statlib.py`, `period_bounds(period, *, today=None)`,
-zwraca datę początku okresu (`"day" | "week" | "month" | "year"`; tydzień
-liczony od poniedziałku, ISO). Demon filtruje pełną listę rekordów po tej
-granicy i wywołuje `totals()` — cztery razy (dzień, tydzień, miesiąc, rok),
-przy każdej aktualizacji.
+- `record_date(record: Record) -> date` — lokalny dzień rekordu
+  (`record.timestamp`, atrybut zamiast `.get()`).
+- `totals(records: Iterable[Record]) -> dict[str, float | int]` — sumy
+  `words` / `audio_seconds` / `dictations`.
+- `compact_number(value: int) -> str` — zaokrąglone tysiące/miliony
+  (`1,6 k`, `999 k`, `1,2 mln`) — identyczna implementacja jak w apce.
+- `format_duration(seconds: float) -> str` — `„2 godz. 15 min”` / `„12 min”`
+  — identyczna implementacja jak w apce.
+- `period_bounds(period: str, *, today: date | None = None) -> date` — nowa
+  funkcja, zwraca datę początku okresu (`"day" | "week" | "month" | "year"`;
+  tydzień liczony od poniedziałku, ISO).
 
-`statlib.py` żyje dziś pod `app/voiceflow_app/`, czyli w pakiecie apki GTK, a
-importować go musi też `src/voiceflow/daemon.py`. Ponieważ moduł jest bez
-zależności od GTK (same `datetime`/`collections`), przenosimy go do
-`src/voiceflow/statlib.py` i w `app/voiceflow_app/statlib.py` zostawiamy
-`from voiceflow.statlib import *`-reeksport dla wstecznej zgodności importów
-w apce ustawień.
+Demon filtruje pełną listę rekordów po granicy zwróconej z `period_bounds()`
+i wywołuje `totals()` — cztery razy (dzień, tydzień, miesiąc, rok), przy
+każdej aktualizacji. Świadoma, mała duplikacja (te same cztery funkcje
+istnieją już w `app/voiceflow_app/statlib.py`) zamiast łamania separacji
+środowisk uruchomieniowych, którą kod już ustanowił.
 
 ## Co widać w pasku
 

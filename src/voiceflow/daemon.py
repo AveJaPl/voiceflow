@@ -371,7 +371,12 @@ class VoiceflowDaemon:
         try:
             records = read_records(self.history.path)
             payload = build_payload(records)
-            self.tray.update(str(payload["label"]), list(payload["menu"]))  # type: ignore[arg-type]
+            self.tray.update(
+                str(payload["label"]),
+                list(payload["summary"]),  # type: ignore[arg-type]
+                list(payload["hourly"]),  # type: ignore[arg-type]
+                list(payload["daily"]),  # type: ignore[arg-type]
+            )
         except Exception:
             LOGGER.exception("Nie można przeliczyć statystyk wskaźnika")
 

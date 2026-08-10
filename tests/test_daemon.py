@@ -101,13 +101,13 @@ class _Tray:
     """Records tray calls instead of spawning a real indicator process."""
 
     def __init__(self) -> None:
-        self.calls: list[tuple[str, str | None, list[str] | None]] = []
+        self.calls: list[tuple] = []
 
     def start(self) -> None:
         self.calls.append(("start", None, None))
 
-    def update(self, label: str, menu: list[str]) -> None:
-        self.calls.append(("update", label, list(menu)))
+    def update(self, label: str, summary: list[str], hourly: list[int], daily: list[tuple]) -> None:
+        self.calls.append(("update", label, list(summary), list(hourly), list(daily)))
 
     def stop(self) -> None:
         self.calls.append(("stop", None, None))
@@ -227,7 +227,13 @@ def test_daemon_starts_the_tray_and_shows_zero_stats(tmp_path: Path) -> None:
     )
 
     assert tray.calls[0] == ("start", None, None)
-    assert tray.calls[1] == ("update", "0 min · 0 słów", ["Ten tydzień: 0 min · 0 słów", "Ten miesiąc: 0 min · 0 słów", "Ten rok: 0 min · 0 słów"])
+    call = tray.calls[1]
+    assert call[0] == "update"
+    assert call[1] == "0 min · 💬 0"
+    assert call[2] == ["Ten tydzień: 0 min · 0 słów", "Ten miesiąc: 0 min · 0 słów", "Ten rok: 0 min · 0 słów"]
+    assert call[3] == [0] * 24
+    assert len(call[4]) == 14
+    assert all(words == 0 for _day, words in call[4])
 
 
 def test_disabled_tray_does_no_background_work(tmp_path: Path) -> None:
@@ -274,11 +280,14 @@ def test_dictation_pushes_fresh_stats_to_the_tray(tmp_path: Path) -> None:
     daemon.handle_command("stop")
     daemon._executor.shutdown(wait=True)  # noqa: SLF001
 
-    assert tray.calls[-1] == (
-        "update",
-        "1 min · 3 słów",
-        ["Ten tydzień: 1 min · 3 słów", "Ten miesiąc: 1 min · 3 słów", "Ten rok: 1 min · 3 słów"],
-    )
+    call = tray.calls[-1]
+    assert call[0] == "update"
+    assert call[1] == "1 min · 💬 3"
+    assert call[2] == ["Ten tydzień: 1 min · 3 słów", "Ten miesiąc: 1 min · 3 słów", "Ten rok: 1 min · 3 słów"]
+    assert len(call[3]) == 24
+    assert sum(call[3]) == 3
+    assert len(call[4]) == 14
+    assert call[4][-1][1] == 3
 
 
 def test_failed_injection_still_refreshes_the_tray(tmp_path: Path) -> None:
@@ -300,11 +309,14 @@ def test_failed_injection_still_refreshes_the_tray(tmp_path: Path) -> None:
 
     # The history record for the failed injection is still written, so the
     # tray must reflect it too — not just successful dictations.
-    assert tray.calls[-1] == (
-        "update",
-        "1 min · 3 słów",
-        ["Ten tydzień: 1 min · 3 słów", "Ten miesiąc: 1 min · 3 słów", "Ten rok: 1 min · 3 słów"],
-    )
+    call = tray.calls[-1]
+    assert call[0] == "update"
+    assert call[1] == "1 min · 💬 3"
+    assert call[2] == ["Ten tydzień: 1 min · 3 słów", "Ten miesiąc: 1 min · 3 słów", "Ten rok: 1 min · 3 słów"]
+    assert len(call[3]) == 24
+    assert sum(call[3]) == 3
+    assert len(call[4]) == 14
+    assert call[4][-1][1] == 3
 
 
 def test_cleanup_stops_the_tray(tmp_path: Path) -> None:

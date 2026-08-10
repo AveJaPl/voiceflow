@@ -65,7 +65,7 @@ case ":$PATH:" in
     *) echo "note: add $BIN to your PATH" ;;
 esac
 
-if ! command -v ydotool >/dev/null || [ ! -e /dev/uinput ]; then
+if ! command -v ydotool >/dev/null || [ ! -e /dev/uinput ] || ! dpkg -s gir1.2-ayatanaappindicator3-0.1 >/dev/null 2>&1; then
     say "System dependencies missing — this one step needs sudo"
     echo "  (hasło wpisuje się niewidocznie — to normalne; potem apt może"
     echo "   pracować ~minutę bez żadnego wyjścia)"

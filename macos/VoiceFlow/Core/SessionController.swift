@@ -61,6 +61,8 @@ final class SessionController {
     private static var userForcedClipboardMode: Bool {
         UserDefaults.standard.string(forKey: SettingsKeys.insertionMode) == InsertionMode.showThenInsert.rawValue
     }
+    /// Czy ostatnie `applyFinal` dowiozło tekst do aplikacji docelowej.
+    private var lastInjectionSucceeded = true
     /// `id` bieżącej notatki dla ciągu kontynuowanych wypowiedzi — ta sama myśl
     /// nadpisuje jedną notatkę zamiast tworzyć nową przy każdym puszczeniu skrótu.
     private var currentNoteID: UUID?
@@ -233,7 +235,8 @@ final class SessionController {
                 finalText: formatted,
                 rawText: rawTextAccumulator.isEmpty ? finalRaw : rawTextAccumulator,
                 targetBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
-                duration: duration
+                duration: duration,
+                injected: lastInjectionSucceeded
             )
             notesStore.upsert(note)
         } else {
@@ -393,6 +396,10 @@ final class SessionController {
 
     private func applyFinal(_ text: String) {
         currentText = text
+        // Zakładamy sukces i zdejmujemy flagę dopiero na złapanym błędzie —
+        // historia ma odnotować, że tekst NIE trafił do aplikacji, bo wtedy
+        // jest jedynym miejscem, z którego da się go odzyskać.
+        lastInjectionSucceeded = true
         DebugLog.write("Inject", "applyFinal mode=\(currentInjectionMode) text=\"\(text)\"")
         switch currentInjectionMode {
         case .liveTyping:
@@ -415,6 +422,7 @@ final class SessionController {
                 let frontmostAfter = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "nil"
                 DebugLog.write("Inject", "final: cleared \(charsToClear) chars, pasted via clipboard OK, frontmost \(frontmostBefore) -> \(frontmostAfter)")
             } catch {
+                lastInjectionSucceeded = false
                 log.error("Final injection failed: \(error.localizedDescription, privacy: .public)")
                 DebugLog.write("Inject", "final backspace+paste FAILED: \(error)")
             }
@@ -423,6 +431,7 @@ final class SessionController {
                 try injector.insertViaClipboard(text)
                 DebugLog.write("Inject", "final clipboard OK")
             } catch {
+                lastInjectionSucceeded = false
                 DebugLog.write("Inject", "final clipboard FAILED: \(error)")
             }
         }

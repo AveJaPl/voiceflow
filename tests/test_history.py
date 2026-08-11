@@ -96,3 +96,56 @@ def test_config_parses_history_section() -> None:
     assert config.history.enabled is False
     assert config.history.store_text is False
     assert config.history.max_entries == 50
+
+
+def test_macos_written_line_is_readable_here(tmp_path: Path) -> None:
+    """The macOS app writes this exact shape; the shared reader must accept it.
+
+    macOS is a separate Swift implementation (`macos/VoiceFlow/Model/NotesStore.swift`)
+    that persists history in this format so one dictation log works the same on
+    every platform. It adds keys of its own — `id`, `raw_text`, `target_bundle_id`
+    — which this reader has to ignore rather than choke on. If that stops being
+    true, statistics and history silently break on the Mac and nowhere else.
+    """
+    path = tmp_path / "history.jsonl"
+    path.write_text(
+        '{"audio_seconds":2.35,"chars":19,"id":"7B1E1A3E-0000-4000-8000-000000000001",'
+        '"injected":true,"raw_text":"dzień dobry panstwu","target_bundle_id":"com.apple.Safari",'
+        '"text":"Dzień dobry państwu.","timestamp":"2026-08-11T14:03:21+02:00",'
+        '"transcription_seconds":0,"words":3}\n',
+        encoding="utf-8",
+    )
+
+    records = read_records(path)
+
+    assert len(records) == 1
+    record = records[0]
+    assert record.text == "Dzień dobry państwu."
+    assert record.words == 3
+    assert record.chars == 19
+    assert record.audio_seconds == 2.35
+    assert record.injected is True
+
+
+def test_macos_line_feeds_the_shared_statistics(tmp_path: Path) -> None:
+    """The point of sharing the format: the same stats code works on the Mac."""
+    from datetime import date
+
+    from voiceflow.statlib import daily_series, totals
+
+    path = tmp_path / "history.jsonl"
+    path.write_text(
+        '{"audio_seconds":4.0,"chars":10,"injected":true,"text":"raz dwa trzy",'
+        '"timestamp":"2026-08-11T09:00:00+02:00","transcription_seconds":0,"words":3}\n'
+        '{"audio_seconds":6.0,"chars":8,"injected":false,"text":"cztery piec",'
+        '"timestamp":"2026-08-11T10:00:00+02:00","transcription_seconds":0,"words":2}\n',
+        encoding="utf-8",
+    )
+
+    records = read_records(path)
+    summary = totals(records)
+
+    assert summary["words"] == 5
+    assert summary["dictations"] == 2
+    assert summary["audio_seconds"] == 10.0
+    assert daily_series(records, 1, today=date(2026, 8, 11)) == [(date(2026, 8, 11), 5)]

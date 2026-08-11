@@ -4,6 +4,17 @@ Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[
 
 ## Unreleased
 
+- **[macOS]** Dictation history now uses the same format as Linux and Windows:
+  one JSON object per line, same keys, in `history.jsonl`. The Mac kept its own
+  `notes.json` with a different schema that carried no word or character counts,
+  so statistics could not be computed there at all; it also had no size limit and
+  rewrote the entire file after every dictation. Existing notes are converted on
+  first launch and the old file is left in place as a backup. macOS adds
+  `id`, `raw_text` and `target_bundle_id` on top of the shared keys, which the
+  shared reader ignores. Whether the text actually reached the target
+  application is recorded too, as it already was elsewhere — that flag is what
+  makes history a recovery path rather than a log.
+
 - **[macOS]** Fixed: a second dictation carried the first one with it — the text
   was pasted again and both landed in one history note. The speech engines kept
   accumulating their transcript for the lifetime of the process, and the session

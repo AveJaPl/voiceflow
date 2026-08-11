@@ -25,11 +25,51 @@ final class WhisperContext {
         self.ctx = ctx
     }
 
+    /// Ładuje backendy obliczeniowe ggml — **w tym Metal, czyli GPU**.
+    ///
+    /// To jest różnica między „liczy się kilka sekund" a „liczy się ułamek sekundy",
+    /// i przez długi czas w ogóle jej tu nie było.
+    ///
+    /// W ggml 0.15 backendy nie siedzą w `libggml`, tylko są osobnymi bibliotekami
+    /// ładowanymi w czasie działania (`libggml-metal.so`, `libggml-blas.so`,
+    /// `libggml-cpu-apple_m2_m3.so`). Gołe `ggml_backend_load_all()` szuka ich
+    /// **obok własnego pliku wykonywalnego**: `whisper-cli` leży w
+    /// `/opt/homebrew/bin`, więc znajduje wszystko i startuje na Metalu, ale nasz
+    /// plik wykonywalny leży w `VoiceFlow.app/Contents/MacOS` i nie znajduje NIC.
+    /// Aplikacja liczyła więc nie tylko bez GPU, ale nawet bez zoptymalizowanego
+    /// backendu CPU dla Apple Silicon — na ścieżce ogólnej.
+    ///
+    /// Objaw był całkowicie niemy: żadnego błędu, żadnego ostrzeżenia, po prostu
+    /// wielokrotnie dłuższe liczenie.
+    private static func loadBackends() {
+        for directory in backendSearchPaths() where FileManager.default.fileExists(atPath: directory) {
+            directory.withCString { ggml_backend_load_all_from_path($0) }
+            DebugLog.write("Whisper", "backendy ggml załadowane z \(directory)")
+            return
+        }
+        // Ostatnia deska ratunku — zachowanie sprzed tej zmiany (samo CPU).
+        DebugLog.write("Whisper", "nie znaleziono katalogu backendów ggml — liczenie pójdzie po CPU")
+        ggml_backend_load_all()
+    }
+
+    /// Najpierw kopia w pakiecie aplikacji (jeśli kiedyś dołączymy backendy do
+    /// dystrybucji), potem Homebrew. Kolejność ma znaczenie: pakiet jest naszą
+    /// wersją, Homebrew może się zaktualizować pod nami.
+    private static func backendSearchPaths() -> [String] {
+        var paths: [String] = []
+        if let bundled = Bundle.main.resourceURL?.appendingPathComponent("ggml-backends").path {
+            paths.append(bundled)
+        }
+        paths.append("/opt/homebrew/opt/ggml/libexec")
+        paths.append("/usr/local/opt/ggml/libexec")
+        return paths
+    }
+
     /// Wołane RAZ, w `WhisperSpeechEngine.prewarm()`, poza głównym wątkiem —
     /// ładowanie modelu `base` (~148 MB) trwa setki ms (patrz `etap0e-wyniki.md`
     /// §3, kolumna "model load").
     static func load(modelPath: String) throws -> WhisperContext {
-        ggml_backend_load_all()
+        loadBackends()
         let params = whisper_context_default_params()
         let created = modelPath.withCString { pathPtr in
             whisper_init_from_file_with_params(pathPtr, params)

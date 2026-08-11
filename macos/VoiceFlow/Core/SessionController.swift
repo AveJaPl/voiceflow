@@ -35,6 +35,8 @@ final class SessionController {
     private let remoteDucker: AudioDucking
     private(set) var room: RoomClient!
     private var roomLink: RoomLink?
+    private var currentRoomConfiguration = RoomConfiguration()
+    private var roomDefaultsObserver: NSObjectProtocol?
 
     private(set) var state: State = .idle {
         didSet { onStateChange?(state) }
@@ -101,18 +103,63 @@ final class SessionController {
         if let room {
             self.room = room
         } else {
-            let configuration = RoomConfiguration.fromDefaults()
-            let link = RoomLink(config: configuration) { [weak self] in
-                Task { @MainActor in self?.room?.onDisconnected() }
+            rebuildRoom(with: RoomConfiguration.fromDefaults())
+            observeRoomConfigurationChanges()
+        }
+    }
+
+    /// Odtwarza klienta pokoju dla PODANEJ konfiguracji.
+    ///
+    /// Musi dać się zrobić po starcie aplikacji, bo do pokoju dołącza się w
+    /// trakcie działania, a nie przed uruchomieniem. Wcześniej konfiguracja była
+    /// czytana dokładnie raz, w konstruktorze: po dołączeniu do pokoju klient
+    /// wciąż trzymał starą, pustą konfigurację, więc `RoomClient.send` odrzucało
+    /// każde „zaczynam mówić" na `guard config.enabled`, a `RoomLink` łączyło się
+    /// z pustym kodem i tokenem. Objaw: jesteś w pokoju, mówisz na Macu, a tablica
+    /// w przeglądarce nigdy Cię nie pokazuje.
+    private func rebuildRoom(with configuration: RoomConfiguration) {
+        roomLink?.stop()
+        roomLink = nil
+
+        let link = RoomLink(config: configuration) { [weak self] in
+            Task { @MainActor in self?.room?.onDisconnected() }
+        }
+        room = RoomClient(
+            config: configuration,
+            onRemoteSpeaking: { [weak self] _ in self?.remoteDucker.start() },
+            onRemoteSilence: { [weak self] in self?.remoteDucker.stop() },
+            transport: link
+        )
+        roomLink = link
+        currentRoomConfiguration = configuration
+        // Bez sensownej konfiguracji nie ma po co otwierać gniazda: adres byłby
+        // `…/ws?room=&token=`, serwer by go odrzucił, a klient wpadłby w pętlę
+        // ponawiania w nieskończoność.
+        guard configuration.isUsable else {
+            DebugLog.write("Room", "brak konfiguracji pokoju — nie łączę")
+            return
+        }
+        DebugLog.write("Room", "łączę z pokojem \(configuration.code) na \(configuration.server)")
+        link.start()
+    }
+
+    /// Dołączenie i wyjście z pokoju dzieje się w UI (zakładka Pokój albo
+    /// Ustawienia) i zapisuje się do `UserDefaults`. Obserwujemy je tutaj, żeby
+    /// nie trzeba było przekazywać `SessionController` przez pół drzewa widoków —
+    /// i żeby zadziałało niezależnie od tego, KTÓRE miejsce zmieniło ustawienie.
+    private func observeRoomConfigurationChanges() {
+        roomDefaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                let fresh = RoomConfiguration.fromDefaults()
+                guard fresh != self.currentRoomConfiguration else { return }
+                DebugLog.write("Room", "konfiguracja pokoju zmieniona — przełączam klienta")
+                self.rebuildRoom(with: fresh)
             }
-            self.room = RoomClient(
-                config: configuration,
-                onRemoteSpeaking: { [weak self] _ in self?.remoteDucker.start() },
-                onRemoteSilence: { [weak self] in self?.remoteDucker.stop() },
-                transport: link
-            )
-            self.roomLink = link
-            link.start()
         }
     }
 

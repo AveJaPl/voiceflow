@@ -113,3 +113,56 @@ test('uszkodzony JSON nie wywraca serwera', async () => {
 
   assert.equal(res.statusCode, 400);
 });
+
+test('nazwana sesja ma własną trasę, odrębną od jej zakończenia', () => {
+  assert.deepEqual(routeFor('POST', '/api/rooms/AB23CD/session'), {
+    name: 'startSession',
+    code: 'AB23CD',
+  });
+  assert.deepEqual(routeFor('POST', '/api/rooms/AB23CD/session/end'), {
+    name: 'endSession',
+    code: 'AB23CD',
+  });
+});
+
+test('rozpoczęcie nazwanej sesji zamyka poprzednią', async () => {
+  // Dwie otwarte sesje w jednym pokoju rozjechałyby ranking, bo liczy się
+  // zawsze jedna aktywna.
+  const ended = [];
+  const started = [];
+  const store = fakeStore({
+    async endSession(id) { ended.push(id); },
+    async startSession(roomId, name) { started.push(name); return { id: 8, name, started_at: 'x' }; },
+  });
+  const handle = createHttpApi({ store });
+  const { req, res } = fakeExchange('POST', '/api/rooms/AB23CD/session', { name: 'coding session' });
+
+  await handle(req, res);
+
+  assert.equal(res.statusCode, 201);
+  assert.deepEqual(ended, [7]);
+  assert.deepEqual(started, ['coding session']);
+  assert.equal(res.body.session.name, 'coding session');
+});
+
+test('sesja bez nazwy zapisuje null, a nie pusty napis', async () => {
+  const started = [];
+  const store = fakeStore({
+    async startSession(roomId, name) { started.push(name); return { id: 8, name, started_at: 'x' }; },
+  });
+  const handle = createHttpApi({ store });
+  const { req, res } = fakeExchange('POST', '/api/rooms/AB23CD/session', { name: '' });
+
+  await handle(req, res);
+
+  assert.deepEqual(started, [null], 'pusta nazwa to brak nazwy, nie nazwa ""');
+});
+
+test('nazwana sesja w nieistniejącym pokoju to 404', async () => {
+  const handle = createHttpApi({ store: fakeStore() });
+  const { req, res } = fakeExchange('POST', '/api/rooms/ZZZZZZ/session', { name: 'x' });
+
+  await handle(req, res);
+
+  assert.equal(res.statusCode, 404);
+});

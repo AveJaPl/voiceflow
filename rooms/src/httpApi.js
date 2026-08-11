@@ -6,7 +6,9 @@
  * tylko tym, co która trasa robi.
  */
 
-const ROOM_PATH = /^\/api\/rooms\/([^/]+)(\/join|\/ranking|\/session\/end)?$/;
+// `/session/end` stoi przed `/session`, bo alternatywa jest uporządkowana —
+// odwrotna kolejność zjadałaby dłuższą trasę krótszym wariantem.
+const ROOM_PATH = /^\/api\/rooms\/([^/]+)(\/join|\/ranking|\/session\/end|\/session)?$/;
 
 export function routeFor(method, url) {
   if (method === 'GET' && url === '/health') return { name: 'health', code: null };
@@ -20,6 +22,7 @@ export function routeFor(method, url) {
   if (method === 'POST' && tail === '/join') return { name: 'join', code };
   if (method === 'GET' && tail === '/ranking') return { name: 'ranking', code };
   if (method === 'POST' && tail === '/session/end') return { name: 'endSession', code };
+  if (method === 'POST' && tail === '/session') return { name: 'startSession', code };
   return null;
 }
 
@@ -85,6 +88,18 @@ export function createHttpApi({ store }) {
       // Pokój żyje dalej — kolejną sesję zaczyna się bez ponownego zapraszania.
       const next = await store.startSession(room.id, null);
       return sendJson(res, 200, { ended: active?.id ?? null, session: next });
+    }
+
+    if (route.name === 'startSession') {
+      const body = await readJson(req);
+      if (body === null) return sendJson(res, 400, { error: 'invalid_json' });
+      // Zamknięcie poprzedniej jest CZĘŚCIĄ tej operacji, nie osobnym krokiem:
+      // dwie otwarte sesje w jednym pokoju rozjechałyby ranking, bo `ranking`
+      // liczy zawsze jedną aktywną.
+      const active = await store.activeSession(room.id);
+      if (active) await store.endSession(active.id);
+      const session = await store.startSession(room.id, body.name || null);
+      return sendJson(res, 201, { ended: active?.id ?? null, session });
     }
 
     if (route.name === 'ranking') {

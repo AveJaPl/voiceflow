@@ -16,6 +16,14 @@ final class RoomClientTests: XCTestCase {
         func deliver(_ payload: [String: Any]) { callback?(payload) }
     }
 
+    /// `RoomClient.handle` jest wołane przez `Task { @MainActor in … }`, bo prawdziwy
+    /// transport (`RoomLink`) dostarcza ramki ze swojej własnej kolejki. Test musi
+    /// więc oddać sterowanie, zanim cokolwiek sprawdzi — asercja tuż po `deliver()`
+    /// biegnie ZANIM klient zobaczy ramkę.
+    private func settle() async {
+        for _ in 0..<5 { await Task.yield() }
+    }
+
     private func makeClient(
         duckForOthers: Bool = true,
         enabled: Bool = true
@@ -41,49 +49,63 @@ final class RoomClientTests: XCTestCase {
         XCTAssertTrue(client.mayStart().allowed)
     }
 
-    func testCudzeDyktowanieBlokujeIPodajeImie() {
+    func testCudzeDyktowanieBlokujeIPodajeImie() async {
         let (client, transport, _) = makeClient()
 
         transport.deliver(["type": "speaker_changed", "speaking": ["name": "Filip"]])
+
+        await settle()
 
         let result = client.mayStart()
         XCTAssertFalse(result.allowed)
         XCTAssertEqual(result.blockedBy, "Filip")
     }
 
-    func testZdalnyMowiacySciszaDzwiekACiszaGoPrzywraca() {
-        let (_, transport, ducked) = makeClient()
+    func testZdalnyMowiacySciszaDzwiekACiszaGoPrzywraca() async {
+        // `client` MUSI zostać przypisany: pod `_` zwalnia się natychmiast, a wtedy
+        // `[weak self]` w callbacku transportu jest nil i ramka nie ma do kogo dotrzeć.
+        let (client, transport, ducked) = makeClient()
 
         transport.deliver(["type": "speaker_changed", "speaking": ["name": "Filip"]])
+
+        await settle()
         transport.deliver(["type": "speaker_changed", "speaking": NSNull()])
+        await settle()
 
         XCTAssertEqual(ducked(), ["Filip", "<cisza>"])
+        withExtendedLifetime(client) {}
     }
 
-    func testPowtorzonyStanNieSciszaDwaRazy() {
+    func testPowtorzonyStanNieSciszaDwaRazy() async {
         // Drugie ściszenie zapamiętałoby już ściszony poziom jako oryginalny
         // i zostawiło tę maszynę cicho na stałe.
-        let (_, transport, ducked) = makeClient()
+        let (client, transport, ducked) = makeClient()
 
         transport.deliver(["type": "speaker_changed", "speaking": ["name": "Filip"]])
+
+        await settle()
         transport.deliver(["type": "room_state", "speaking": ["name": "Filip"]])
 
         XCTAssertEqual(ducked(), ["Filip"])
+        withExtendedLifetime(client) {}
     }
 
-    func testSciszanieMoznaWylaczycLokalnieAleBlokadaZostaje() {
+    func testSciszanieMoznaWylaczycLokalnieAleBlokadaZostaje() async {
         let (client, transport, ducked) = makeClient(duckForOthers: false)
 
         transport.deliver(["type": "speaker_changed", "speaking": ["name": "Filip"]])
+
+        await settle()
 
         XCTAssertEqual(ducked(), [])
         XCTAssertFalse(client.mayStart().allowed, "blokada działa niezależnie od ściszania")
     }
 
-    func testUtrataPolaczeniaOdblokowuje() {
+    func testUtrataPolaczeniaOdblokowuje() async {
         // Pokój, którego nie widzimy, nie może nas blokować.
         let (client, transport, _) = makeClient()
         transport.deliver(["type": "speaker_changed", "speaking": ["name": "Filip"]])
+        await settle()
 
         client.onDisconnected()
 

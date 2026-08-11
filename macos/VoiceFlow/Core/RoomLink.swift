@@ -86,7 +86,10 @@ final class RoomLink: NSObject, RoomTransport, @unchecked Sendable {
     }
 
     private func connect() {
-        guard !stopped, let url, let session else { return }
+        // `let url` (skrót od `let url = url`) NIE działa: `url` to metoda
+        // `() -> URL?`, więc skrót próbuje rozpakować samą funkcję, nie jej wynik.
+        // Wywołanie musi być jawne.
+        guard !stopped, let url = url(), let session else { return }
         let newTask = session.webSocketTask(with: url)
         task = newTask
         newTask.resume()

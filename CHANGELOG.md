@@ -4,6 +4,12 @@ Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[
 
 ## Unreleased
 
+- **[Web]** The landing page deploys itself again. It was wired to Coolify as a
+  "Public GitHub" source, which clones the repository but registers no webhook —
+  so *Auto Deploy* was ticked and had nothing to listen to, and every change
+  needed someone to press Redeploy. It now goes through the same GitHub App every
+  other application on that server uses, so a push to `main` publishes the site.
+
 - **[macOS]** Added the main window, built to match the Linux application:
   sidebar navigation and the same five pages — Przegląd, Historia, Statystyki,
   Słownik, Ustawienia — with the same headings, the same dark monochrome palette

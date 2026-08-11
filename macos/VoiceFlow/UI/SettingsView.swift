@@ -22,6 +22,14 @@ enum SettingsKeys {
     static let discordPresenceClientID = "voiceflow.discordPresenceClientID"
     static let remoteMicEnabled = "voiceflow.remoteMicEnabled"
     static let remoteMicHost = "voiceflow.remoteMicHost"
+    // Wspólny pokój dyktowania — jedyna część aplikacji, która cokolwiek wysyła
+    // poza tę maszynę, i wyłącznie zdarzenia obecności oraz liczby.
+    static let roomEnabled = "voiceflow.roomEnabled"
+    static let roomServer = "voiceflow.roomServer"
+    static let roomCode = "voiceflow.roomCode"
+    static let roomToken = "voiceflow.roomToken"
+    static let roomDuckForOthers = "voiceflow.roomDuckForOthers"
+    static let roomDisplayName = "voiceflow.roomDisplayName"
 }
 
 /// Modyfikator do przytrzymania jako główny skrót dyktowania. TYLKO klawisze
@@ -236,6 +244,8 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
+
+            RoomSettingsSection()
 
             Section("Silnik i język") {
                 Picker("Silnik rozpoznawania (polski)", selection: $model.speechEngine) {

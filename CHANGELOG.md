@@ -4,6 +4,17 @@ Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[
 
 ## Unreleased
 
+- **[All]** Shared dictation rooms. Two people in one room stop talking over each
+  other: whoever is speaking blocks the others, and their speaking quietens audio
+  on every machine in the room, not just their own. Sessions are measured — who
+  dictated how much — and a page shows the standings live, for a tablet next to
+  the desk. Joining is opt-in and off by default: it is the one feature that
+  sends anything off the machine, and even then only presence events and counts.
+  The recording and the transcribed text never leave.
+- **[macOS]** Rooms work here too: join from Settings, the shortcut respects
+  somebody else speaking, and remote speech ducks this Mac's audio through the
+  same ducker the local shortcut uses.
+
 - **[Web]** The landing page now deploys through the same GitHub App every other
   application on that Coolify server uses, instead of being the one resource on a
   "Public GitHub" source with a hand-wired webhook. Push-to-deploy worked before

@@ -23,6 +23,7 @@ implemented on macOS yet.
 | **Audio ducking** | Other applications are turned down while you dictate, restored afterwards. |
 | **Microphone isolation** | Optional: swaps the system default input to a silent device (BlackHole) so a voice chat cannot hear the dictation, and restores it after. Needs BlackHole installed and Discord set to "Default" input. |
 | **Discord Rich Presence** | Optional, shows that you are dictating. Local IPC only. |
+| **Wspólny pokój** | Dołącz kodem w Ustawieniach. Kiedy ktoś inny w pokoju mówi, Twój skrót nie zaczyna nagrywać, a dźwięk na tym Macu ścisza się sam; Twoje dyktowania liczą się do rankingu sesji. Wysyłane są wyłącznie zdarzenia obecności i liczby — nagranie i tekst nigdy. Wyłączone, dopóki nie dołączysz. |
 | **Remote microphone** | Optional: an iPhone can act as a hold-to-talk microphone over a relay. |
 
 Not implemented: per-application volume rules (`duck_rules` on Linux) — macOS

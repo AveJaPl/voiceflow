@@ -28,6 +28,13 @@ final class SessionController {
     private let focusProbe: FocusProbe
     private let notesStore: NotesStore
     private let ducking: DictationDucking
+    /// Zdalne ściszanie używa TEGO SAMEGO duckera co własny skrót — tylko
+    /// wyzwolonego cudzym zdarzeniem. Świadomie nie dotyka izolacji mikrofonu:
+    /// podmiana systemowego wejścia ma sens, gdy to JA mówię, nie gdy mówi ktoś
+    /// obok.
+    private let remoteDucker: AudioDucking
+    private(set) var room: RoomClient!
+    private var roomLink: RoomLink?
 
     private(set) var state: State = .idle {
         didSet { onStateChange?(state) }
@@ -78,7 +85,8 @@ final class SessionController {
         notesStore: NotesStore = NotesStore(),
         audioDucker: AudioDucking = AudioDucker(),
         discordMuteToggle: DiscordMuteToggling = DiscordMuteToggle(),
-        discordPresence: DiscordPresenceReporting = DiscordPresence()
+        discordPresence: DiscordPresenceReporting = DiscordPresence(),
+        room: RoomClient? = nil
     ) {
         self.audioCapture = audioCapture
         self.engine = engine
@@ -89,6 +97,23 @@ final class SessionController {
         self.focusProbe = focusProbe
         self.notesStore = notesStore
         self.ducking = DictationDucking(ducker: audioDucker, discordMute: discordMuteToggle, presence: discordPresence)
+        self.remoteDucker = audioDucker
+        if let room {
+            self.room = room
+        } else {
+            let configuration = RoomConfiguration.fromDefaults()
+            let link = RoomLink(config: configuration) { [weak self] in
+                Task { @MainActor in self?.room?.onDisconnected() }
+            }
+            self.room = RoomClient(
+                config: configuration,
+                onRemoteSpeaking: { [weak self] _ in self?.remoteDucker.start() },
+                onRemoteSilence: { [weak self] in self?.remoteDucker.stop() },
+                transport: link
+            )
+            self.roomLink = link
+            link.start()
+        }
     }
 
     /// Wołane RAZ przy starcie aplikacji — patrz `SpeechEngine.prewarm`.
@@ -141,6 +166,14 @@ final class SessionController {
             DebugLog.write("Session", "beginUtterance POMINIĘTY — stan to \(state), nie .idle/.done")
             return
         }
+        let (allowed, blockedBy) = room.mayStart()
+        if !allowed {
+            // Ktoś inny w pokoju mówi. Mikrofon się nie rusza, a pill mówi KTO —
+            // „nie działa" bez powodu jest gorsze niż brak funkcji.
+            DebugLog.write("Room", "beginUtterance zablokowany: mówi \(blockedBy ?? "ktoś inny")")
+            fail("\(blockedBy ?? "Ktoś inny") teraz dyktuje")
+            return
+        }
         state = .arming
 
         let focus = focusProbe.currentFocus()
@@ -180,6 +213,7 @@ final class SessionController {
             try audioCapture.start()
             engine.beginUtterance()
             state = .listening
+            room.reportStarted()
 
             // DOPIERO TERAZ ducking/izolacja mikrofonu. Kolejność jest
             // krytyczna: `ducking.begin()` podmienia SYSTEMOWE domyślne
@@ -239,8 +273,15 @@ final class SessionController {
                 injected: lastInjectionSucceeded
             )
             notesStore.upsert(note)
+            room.reportFinished(
+                words: formatted.split(whereSeparator: { $0.isWhitespace }).count,
+                seconds: duration
+            )
         } else {
             DebugLog.write("Inject", "applyFinal pominięty — pusty tekst (nic nie rozpoznano)")
+            // Cisza też musi zwolnić pokój, inaczej reszta czeka bez powodu aż
+            // do wygaśnięcia pulsu.
+            room.reportCancelled()
         }
         segmenter.reset()
         state = .done
@@ -268,6 +309,7 @@ final class SessionController {
         engine.endUtterance()
         audioCapture.stop()
         segmenter.reset()
+        room.reportCancelled()
         state = .idle
         ducking.end()
     }

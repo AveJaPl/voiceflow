@@ -32,6 +32,7 @@ from voiceflow.presence import DiscordPresence
 from voiceflow.preview import PreviewLoop
 from voiceflow.recorder import Recorder
 from voiceflow.room import RoomClient
+from voiceflow.roomstate import write_room_state
 from voiceflow.roomlink import WebSocketTransport
 from voiceflow.transcriber import Transcriber, TranscriptionResult
 from voiceflow.stats import build_stats, write_stats
@@ -182,6 +183,7 @@ class VoiceflowDaemon:
                 on_remote_speaking=lambda _name: self.micmuter.mute(),
                 on_remote_silence=self.micmuter.unmute,
                 transport=link,
+                on_state_changed=write_room_state,
             )
             link._on_disconnected = self.room.on_disconnected  # noqa: SLF001
             self._room_link = link

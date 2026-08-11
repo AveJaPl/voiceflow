@@ -15,6 +15,7 @@ from collections.abc import Callable
 from typing import Any, Protocol
 
 from voiceflow.config import RoomConfig
+from voiceflow.roomstate import RoomState
 
 LOGGER = logging.getLogger(__name__)
 
@@ -36,11 +37,21 @@ class RoomClient:
         on_remote_speaking: Callable[[str], None],
         on_remote_silence: Callable[[], None],
         transport: Transport | None = None,
+        on_state_changed: Callable[[RoomState], None] | None = None,
     ) -> None:
         self.config = config
         self._on_remote_speaking = on_remote_speaking
         self._on_remote_silence = on_remote_silence
         self._transport = transport
+        #: Publishes state for the desktop app. Injected rather than called
+        #: directly so the rules below stay testable without touching a disk.
+        self._on_state_changed = on_state_changed
+        #: Whether THIS machine is dictating. The server never echoes a speaker
+        #: to themselves, so `_remote_speaker` can never carry this.
+        self._speaking_here = False
+        #: Set by any message arriving from the service — a link that talks to
+        #: us is a link that works, and there is no separate "connected" event.
+        self._connected = False
         #: Name of whoever is speaking elsewhere, or None when the room is quiet.
         self._remote_speaker: str | None = None
         #: True once we quietened this machine for somebody else, so the restore
@@ -63,9 +74,13 @@ class RoomClient:
         return False, self._remote_speaker
 
     def report_started(self) -> None:
+        self._speaking_here = True
+        self._publish_state()
         self._send({"type": "speaking_started"})
 
     def report_finished(self, *, words: int, seconds: float) -> None:
+        self._speaking_here = False
+        self._publish_state()
         self._send({"type": "speaking_ended", "words": words, "seconds": seconds})
 
     def report_cancelled(self) -> None:
@@ -76,6 +91,8 @@ class RoomClient:
         kept everybody else blocked until the heartbeat expired ten seconds
         later. Zero words is how the server knows not to write a row for it.
         """
+        self._speaking_here = False
+        self._publish_state()
         self._send({"type": "speaking_ended", "words": 0, "seconds": 0})
 
     def heartbeat(self) -> None:
@@ -89,7 +106,9 @@ class RoomClient:
         volume this machine lowered for somebody else is restored on the way
         out, because nobody else is going to tell us to.
         """
+        self._connected = False
         self._set_remote_speaker(None)
+        self._publish_state()
         LOGGER.info("Pokój niedostępny; dyktowanie działa lokalnie")
 
     # -- plumbing ----------------------------------------------------------
@@ -105,7 +124,30 @@ class RoomClient:
             # statystyka doleciała.
             LOGGER.warning("Nie udało się wysłać zdarzenia pokoju", exc_info=True)
 
+    def _publish_state(self) -> None:
+        """Mirror the current state to disk for the desktop application."""
+        if self._on_state_changed is None:
+            return
+        try:
+            self._on_state_changed(
+                RoomState(
+                    code=self.config.code,
+                    connected=self._connected,
+                    speaking=self._remote_speaker,
+                    speaking_here=self._speaking_here,
+                )
+            )
+        except Exception:
+            # Rysowanie cudzego okna nie może przewrócić dyktowania.
+            LOGGER.warning("Nie udało się zapisać stanu pokoju", exc_info=True)
+
     def _handle(self, payload: dict[str, Any]) -> None:
+        # Cokolwiek przyszło kanałem, znaczy że kanał działa. Osobnego zdarzenia
+        # "połączono" protokół nie ma, a aplikacja musi odróżnić ciszę w pokoju
+        # od zerwanego łącza.
+        if not self._connected:
+            self._connected = True
+            self._publish_state()
         kind = payload.get("type")
         if kind == "speaking_denied":
             self._set_remote_speaker(payload.get("blockedBy"))
@@ -120,6 +162,7 @@ class RoomClient:
         if name == self._remote_speaker:
             return
         self._remote_speaker = name
+        self._publish_state()
         if name is None:
             if self._ducked:
                 self._ducked = False

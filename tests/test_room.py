@@ -174,3 +174,101 @@ def test_every_cli_command_is_dispatched() -> None:
     # daemon client on purpose.
     forwarded = {"toggle", "start", "stop", "cancel", "quit"}
     assert undispatched <= forwarded, f"komendy bez obsługi w main(): {undispatched - forwarded}"
+
+
+# --- stan wystawiany aplikacji desktopowej --------------------------------
+#
+# Aplikacja chodzi w innym środowisku Pythona i nie zaimportuje niczego stąd,
+# więc "kto teraz mówi" jedzie do niej plikiem. Te testy pilnują reguł, które
+# ten plik wypełniają — bez dotykania dysku.
+
+
+def _client_with_states(**overrides):
+    transport = _Transport()
+    states: list = []
+    config = RoomConfig(
+        enabled=True, server="wss://example", code="ROOM01", token="tok", **overrides
+    )
+    client = RoomClient(
+        config,
+        on_remote_speaking=lambda _name: None,
+        on_remote_silence=lambda: None,
+        transport=transport,
+        on_state_changed=states.append,
+    )
+    return client, transport, states
+
+
+def test_first_message_marks_the_link_as_connected() -> None:
+    """Protokół nie ma zdarzenia "połączono"; ruch w kanale jest dowodem."""
+    client, transport, states = _client_with_states()
+
+    transport.deliver({"type": "room_state", "speaking": None})
+
+    assert states, "żaden stan nie został opublikowany"
+    assert states[0].connected is True
+    assert states[0].code == "ROOM01"
+
+
+def test_remote_speaker_lands_in_the_state() -> None:
+    client, transport, states = _client_with_states()
+
+    transport.deliver({"type": "speaker_changed", "speaking": {"name": "Wojtek"}})
+
+    assert states[-1].speaking == "Wojtek"
+    assert states[-1].speaking_here is False
+
+
+def test_own_dictation_is_reported_apart_from_the_remote_speaker() -> None:
+    """Serwer nigdy nie odsyła mówiącemu jego samego, więc bez tego pola
+    aplikacja nie odróżniłaby własnego dyktowania od ciszy."""
+    client, _transport, states = _client_with_states()
+
+    client.report_started()
+
+    assert states[-1].speaking_here is True
+    assert states[-1].speaking is None
+
+
+def test_finishing_clears_own_dictation() -> None:
+    client, _transport, states = _client_with_states()
+    client.report_started()
+
+    client.report_finished(words=12, seconds=3.0)
+
+    assert states[-1].speaking_here is False
+
+
+def test_cancelling_clears_own_dictation() -> None:
+    client, _transport, states = _client_with_states()
+    client.report_started()
+
+    client.report_cancelled()
+
+    assert states[-1].speaking_here is False
+
+
+def test_disconnect_publishes_a_disconnected_state() -> None:
+    client, transport, states = _client_with_states()
+    transport.deliver({"type": "speaker_changed", "speaking": {"name": "Wojtek"}})
+
+    client.on_disconnected()
+
+    assert states[-1].connected is False
+    assert states[-1].speaking is None
+
+
+def test_state_writer_that_throws_does_not_break_dictation() -> None:
+    """Rysowanie cudzego okna nie może przewrócić nagrywania."""
+    transport = _Transport()
+    client = RoomClient(
+        RoomConfig(enabled=True, server="wss://example", code="ROOM01", token="tok"),
+        on_remote_speaking=lambda _name: None,
+        on_remote_silence=lambda: None,
+        transport=transport,
+        on_state_changed=lambda _state: (_ for _ in ()).throw(OSError("dysk pełny")),
+    )
+
+    client.report_started()
+
+    assert transport.sent == [{"type": "speaking_started"}]

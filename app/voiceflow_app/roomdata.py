@@ -184,9 +184,17 @@ def fetch_ranking(server: str, code: str) -> dict[str, Any]:
     return document
 
 
-def fetch_history(server: str, code: str) -> dict[str, Any]:
-    """Fetch past sessions and all-time totals. Worker thread only."""
-    url = f"{http_base(server)}/api/rooms/{code.upper()}/history"
+#: Ile sesji dociągamy naraz. Kronika bywa długa, a na ekran i tak wchodzi
+#: kilkanaście wierszy — reszta czeka za przyciskiem.
+HISTORY_PAGE = 20
+
+
+def fetch_history(server: str, code: str, offset: int = 0) -> dict[str, Any]:
+    """Fetch one page of past sessions plus all-time totals. Worker thread only."""
+    url = (
+        f"{http_base(server)}/api/rooms/{code.upper()}/history"
+        f"?limit={HISTORY_PAGE}&offset={max(0, offset)}"
+    )
     try:
         with urllib.request.urlopen(url, timeout=REQUEST_TIMEOUT_SECONDS) as response:
             document = json.loads(response.read().decode("utf-8"))

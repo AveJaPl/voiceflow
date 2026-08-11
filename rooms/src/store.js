@@ -88,10 +88,16 @@ export function summaryRows(rows) {
     .sort((a, b) => b.words - a.words);
 }
 
-/** Sumy całego pokoju — jedna liczba na wiersz tablicy „razem". */
-export function historyTotals(sessions, people) {
+/**
+ * Sumy całego pokoju — jedna liczba na wiersz tablicy „razem".
+ *
+ * `sessionCount` przychodzi osobno, a nie z długości listy: lista jest jedną
+ * stroną wyników, więc liczenie jej wierszy pokazywałoby „20 sesji" w pokoju,
+ * który ma ich sto.
+ */
+export function historyTotals(sessionCount, people) {
   return {
-    sessions: sessions.length,
+    sessions: sessionCount,
     people: people.length,
     words: people.reduce((total, person) => total + person.words, 0),
     seconds: people.reduce((total, person) => total + person.seconds, 0),
@@ -181,7 +187,7 @@ export function createStore(pool) {
      * Historia sesji pokoju, od najnowszej. LEFT JOIN, żeby sesja bez ani
      * jednego dyktowania nie wypadła z listy.
      */
-    async sessionHistory(roomId, limit = 50) {
+    async sessionHistory(roomId, limit = 20, offset = 0) {
       const { rows } = await pool.query(
         `SELECT s.id, s.name, s.started_at, s.ended_at,
                 COALESCE(SUM(d.words), 0)          AS words,
@@ -193,10 +199,21 @@ export function createStore(pool) {
          WHERE s.room_id = $1
          GROUP BY s.id
          ORDER BY s.started_at DESC
-         LIMIT $2`,
-        [roomId, limit],
+         LIMIT $2 OFFSET $3`,
+        // Bierzemy o jeden wiersz za dużo: to najtańszy sposób, żeby wiedzieć,
+        // czy jest co dociągać, bez drugiego zapytania liczącego wszystko.
+        [roomId, limit + 1, offset],
       );
       return historyRows(rows);
+    },
+
+    /** Ile sesji miał ten pokój w całości — niezależnie od strony wyników. */
+    async sessionCount(roomId) {
+      const { rows } = await pool.query(
+        'SELECT COUNT(*) AS total FROM sessions WHERE room_id = $1',
+        [roomId],
+      );
+      return Number(rows[0]?.total ?? 0);
     },
 
     /** Dorobek każdej osoby przez wszystkie sesje tego pokoju. */

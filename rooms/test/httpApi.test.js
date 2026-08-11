@@ -32,6 +32,9 @@ function fakeStore(overrides = {}) {
     async activeSession() { return { id: 7, name: null, started_at: '2026-08-11T12:00:00Z' }; },
     async endSession() {},
     async ranking() { return [{ deviceId: 'dev-1', name: 'Filip', words: 10, seconds: 5, dictations: 1, averageWords: 10 }]; },
+    async sessionHistory() { return []; },
+    async sessionCount() { return 0; },
+    async roomSummary() { return []; },
     ...overrides,
   };
 }
@@ -184,6 +187,7 @@ test('historia zwraca sesje, osoby i zgodne z nimi sumy', async () => {
           words: 60, seconds: 30, dictations: 2, speakers: 1, averageWords: 30 },
       ];
     },
+    async sessionCount() { return 2; },
     async roomSummary() {
       return [
         { deviceId: 'dev-1', name: 'Filip', sessions: 2, words: 100,
@@ -199,7 +203,7 @@ test('historia zwraca sesje, osoby i zgodne z nimi sumy', async () => {
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.sessions.length, 2);
   assert.equal(res.body.sessions[0].name, 'coding session', 'najnowsza sesja pierwsza');
-  assert.equal(res.body.totals.sessions, 2);
+  assert.equal(res.body.totals.sessions, 2, 'liczba sesji pokoju, nie długość strony');
   assert.equal(res.body.totals.words, 100, 'sumy zgadzają się z listą osób');
   assert.equal(res.body.totals.people, 1);
 });
@@ -211,4 +215,56 @@ test('historia nieistniejącego pokoju to 404', async () => {
   await handle(req, res);
 
   assert.equal(res.statusCode, 404);
+});
+
+test('historia oddaje stronę i mówi, czy jest coś dalej', async () => {
+  // Store zwraca o jeden wiersz za dużo — to jego sposób na „jest więcej".
+  const store = fakeStore({
+    async sessionHistory(roomId, limit) {
+      return Array.from({ length: limit + 1 }, (_unused, index) => ({
+        id: index, name: null, startedAt: 'a', endedAt: 'b',
+        words: 1, seconds: 1, dictations: 1, speakers: 1, averageWords: 1,
+      }));
+    },
+    async sessionCount() { return 99; },
+  });
+  const handle = createHttpApi({ store });
+  const { req, res } = fakeExchange('GET', '/api/rooms/AB23CD/history?limit=5');
+
+  await handle(req, res);
+
+  assert.equal(res.body.sessions.length, 5, 'nadmiarowy wiersz nie jedzie do klienta');
+  assert.equal(res.body.hasMore, true);
+  assert.equal(res.body.totals.sessions, 99, 'sumy dotyczą pokoju, nie strony');
+});
+
+test('ostatnia strona nie kłamie, że jest następna', async () => {
+  const store = fakeStore({
+    async sessionHistory() {
+      return [{ id: 1, name: null, startedAt: 'a', endedAt: 'b',
+        words: 1, seconds: 1, dictations: 1, speakers: 1, averageWords: 1 }];
+    },
+    async sessionCount() { return 1; },
+  });
+  const handle = createHttpApi({ store });
+  const { req, res } = fakeExchange('GET', '/api/rooms/AB23CD/history?limit=20');
+
+  await handle(req, res);
+
+  assert.equal(res.body.hasMore, false);
+});
+
+test('bzdurny limit w adresie nie każe bazie liczyć wszystkiego', async () => {
+  const seen = [];
+  const store = fakeStore({
+    async sessionHistory(roomId, limit, offset) { seen.push([limit, offset]); return []; },
+    async sessionCount() { return 0; },
+  });
+  const handle = createHttpApi({ store });
+  for (const query of ['?limit=99999', '?limit=abc', '?limit=-5', '?offset=-3']) {
+    const { req, res } = fakeExchange('GET', `/api/rooms/AB23CD/history${query}`);
+    await handle(req, res);
+  }
+
+  assert.deepEqual(seen, [[100, 0], [20, 0], [20, 0], [20, 0]]);
 });

@@ -29,6 +29,13 @@ export function routeFor(method, url) {
   return null;
 }
 
+/** Cudza wartość w adresie nie może kazać bazie policzyć miliona wierszy. */
+function clampLimit(raw) {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) return 20;
+  return Math.min(100, Math.floor(value));
+}
+
 function sendJson(res, status, body) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(body));
@@ -48,7 +55,9 @@ async function readJson(req) {
 
 export function createHttpApi({ store }) {
   return async function handle(req, res) {
-    const route = routeFor(req.method, req.url.split('?')[0]);
+    const [rawPath, rawQuery] = req.url.split('?');
+    const query = new URLSearchParams(rawQuery ?? '');
+    const route = routeFor(req.method, rawPath);
     if (!route) return sendJson(res, 404, { error: 'not_found' });
 
     if (route.name === 'health') {
@@ -108,15 +117,26 @@ export function createHttpApi({ store }) {
     if (route.name === 'history') {
       // Historia i sumy jadą jednym wejściem, bo strona i tak rysuje je razem,
       // a dwa odpytania dawałyby widok, w którym sumy nie zgadzają się z listą.
-      const [sessions, people] = await Promise.all([
-        store.sessionHistory(room.id),
+      const limit = clampLimit(query.get('limit'));
+      const offset = Math.max(0, Number(query.get('offset')) || 0);
+      const [page, people, sessionCount] = await Promise.all([
+        store.sessionHistory(room.id, limit, offset),
         store.roomSummary(room.id),
+        store.sessionCount(room.id),
       ]);
+      // Zapytanie pobrało jeden wiersz ponad limit — on nie jedzie do klienta,
+      // służy wyłącznie za odpowiedź na „czy jest coś dalej".
+      const hasMore = page.length > limit;
+      const sessions = hasMore ? page.slice(0, limit) : page;
       return sendJson(res, 200, {
         room,
         sessions,
         people,
-        totals: historyTotals(sessions, people),
+        hasMore,
+        offset,
+        // Sumy dotyczą CAŁEGO pokoju, nie tej strony wyników — inaczej
+        // przewijanie historii zmieniałoby dorobek ludzi w locie.
+        totals: historyTotals(sessionCount, people),
       });
     }
 

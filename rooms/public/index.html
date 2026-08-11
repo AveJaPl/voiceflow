@@ -144,26 +144,6 @@ h1{font-family:var(--display); font-weight:700; font-size:clamp(2.1rem,5vw,3.2re
 
 .empty{padding:38px 6px; color:var(--muted)}
 
-/* Historia i sumy: te same wiersze, tylko ciaśniejsze i bez numeru pozycji —
-   to jest kronika pokoju, a nie druga tablica do wygrania. */
-.hrow{display:grid; gap:6px 22px; align-items:center; padding:16px 16px 16px 6px;
-  grid-template-columns:minmax(0,1fr) 6.5rem 7rem 5.5rem;
-  border-bottom:1px solid rgba(255,255,255,.05)}
-.hrow:last-child{border-bottom:none}
-.hrow .hname{font-family:var(--display); font-weight:600; font-size:1.05rem; letter-spacing:-.01em;
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-.hrow .hmeta{color:var(--faint); font-size:.75rem; margin-top:3px}
-.hrow .hstat{text-align:right; font-variant-numeric:tabular-nums}
-.hrow .hstat b{display:block; font-family:var(--display); font-weight:600; font-size:1.02rem}
-.hrow .hstat small{display:block; margin-top:2px; font-size:.6rem; letter-spacing:.16em;
-  text-transform:uppercase; color:var(--faint)}
-.hrow[data-open="1"] .hname::after{content:"trwa"; margin-left:9px; font-family:var(--sans);
-  font-size:.58rem; font-weight:600; letter-spacing:.18em; text-transform:uppercase; color:var(--rec)}
-@media (max-width:760px){
-  .hrow{grid-template-columns:minmax(0,1fr) auto auto}
-  .hrow .hstat:last-child{display:none}
-}
-
 /* --- stopka / stan łącza --- */
 footer{margin-top:34px; display:flex; align-items:center; gap:10px; color:var(--faint); font-size:.78rem}
 .led{width:6px; height:6px; border-radius:50%; background:var(--faint); flex:none}
@@ -266,22 +246,6 @@ systemctl --user restart voiceflow</code></pre>
     </ul>
   </section>
 
-  <section class="board" id="totals-section" hidden>
-    <div class="board-head">
-      <p class="eyebrow">Razem w tym pokoju</p>
-      <p class="eyebrow" id="totals-hint"></p>
-    </div>
-    <ul class="rows" id="totals-rows"></ul>
-  </section>
-
-  <section class="board" id="history-section" hidden>
-    <div class="board-head">
-      <p class="eyebrow">Historia sesji</p>
-      <p class="eyebrow" id="history-hint"></p>
-    </div>
-    <ul class="rows" id="history-rows"></ul>
-  </section>
-
   <footer><span class="led" id="led"></span><span id="status">Łączenie…</span></footer>
 </div>
 
@@ -299,6 +263,18 @@ const rowsByDevice = new Map();
 
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g,
   (character) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[character]));
+
+/* Polska odmiana przez liczbę: bez tego wychodzi „średnio 64 słów". `many`
+   obsługuje też 12–14, które mimo końcówki idą jak 5+. */
+function plural(count, one, few, many) {
+  const number = Math.abs(count);
+  if (number === 1) return one;
+  const rest = number % 10;
+  const teens = number % 100;
+  return rest >= 2 && rest <= 4 && !(teens >= 12 && teens <= 14) ? few : many;
+}
+
+const wordWord = (count) => plural(count, 'słowo', 'słowa', 'słów');
 
 function formatDuration(seconds) {
   const minutes = Math.max(0, Math.round(seconds / 60));
@@ -444,90 +420,6 @@ function renderRanking(data) {
   if (placeholder) placeholder.remove();
 }
 
-/* --- historia i sumy -------------------------------------------------------
-   Osobne odpytanie i rzadsze: kronika pokoju zmienia się raz na sesję, a nie
-   co pięć sekund jak ranking. */
-const dates = new Intl.DateTimeFormat('pl-PL', {
-  day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
-});
-
-function formatMoment(value) {
-  const moment = new Date(value);
-  return Number.isNaN(moment.getTime()) ? '—' : dates.format(moment);
-}
-
-function formatSpan(startedAt, endedAt) {
-  const from = new Date(startedAt).getTime();
-  const to = endedAt ? new Date(endedAt).getTime() : Date.now();
-  if (Number.isNaN(from) || Number.isNaN(to)) return '—';
-  return formatDuration(Math.max(0, (to - from) / 1000));
-}
-
-function renderHistory(data) {
-  const people = data.people ?? [];
-  const sessions = data.sessions ?? [];
-  const totals = data.totals ?? {};
-
-  el('totals-section').hidden = people.length === 0;
-  el('totals-hint').textContent = totals.words
-    ? `${numbers.format(totals.words)} słów w ${numbers.format(totals.sessions ?? 0)} ${plural(totals.sessions ?? 0, 'sesji', 'sesjach', 'sesjach')}`
-    : '';
-  el('totals-rows').innerHTML = people.map((person) => `
-    <li class="hrow">
-      <div>
-        <div class="hname">${escapeHtml(person.name ?? '—')}</div>
-        <div class="hmeta">${numbers.format(person.sessions)} ${sessionWord(person.sessions)}
-          · ${numbers.format(person.dictations)} dyktowań
-          · średnio ${numbers.format(person.averageWords)} ${wordWord(person.averageWords)}</div>
-      </div>
-      <div class="hstat"><b>${numbers.format(person.words)}</b><small>słów</small></div>
-      <div class="hstat"><b>${formatDuration(person.seconds)}</b><small>mówienia</small></div>
-      <div class="hstat"><b>${numbers.format(person.sessions)}</b><small>sesji</small></div>
-    </li>`).join('');
-
-  el('history-section').hidden = sessions.length === 0;
-  el('history-hint').textContent = sessions.length
-    ? `${numbers.format(sessions.length)} ${sessionWord(sessions.length)}`
-    : '';
-  el('history-rows').innerHTML = sessions.map((entry) => `
-    <li class="hrow" data-open="${entry.endedAt ? '0' : '1'}">
-      <div>
-        <div class="hname">${escapeHtml(entry.name || 'Sesja bez nazwy')}</div>
-        <div class="hmeta">${escapeHtml(formatMoment(entry.startedAt))}
-          · ${escapeHtml(formatSpan(entry.startedAt, entry.endedAt))}
-          · ${numbers.format(entry.speakers)} ${personWord(entry.speakers)}</div>
-      </div>
-      <div class="hstat"><b>${numbers.format(entry.words)}</b><small>słów</small></div>
-      <div class="hstat"><b>${formatDuration(entry.seconds)}</b><small>mówienia</small></div>
-      <div class="hstat"><b>${numbers.format(entry.dictations)}</b><small>dyktowań</small></div>
-    </li>`).join('');
-}
-
-/* Polska odmiana przez liczbę. Bez tego wychodziło „0 osoby" i „w 1 sesjach",
-   czyli dokładnie ten rodzaj drobiazgu, po którym widać, że interfejs pisała
-   maszyna. `many` obsługuje też 12–14, które mimo końcówki idą jak 5+. */
-function plural(count, one, few, many) {
-  const number = Math.abs(count);
-  if (number === 1) return one;
-  const rest = number % 10;
-  const teens = number % 100;
-  return rest >= 2 && rest <= 4 && !(teens >= 12 && teens <= 14) ? few : many;
-}
-
-const sessionWord = (count) => plural(count, 'sesja', 'sesje', 'sesji');
-const personWord = (count) => plural(count, 'osoba', 'osoby', 'osób');
-const wordWord = (count) => plural(count, 'słowo', 'słowa', 'słów');
-
-async function refreshHistory() {
-  try {
-    const response = await fetch(`/api/rooms/${code}/history`);
-    if (!response.ok) return;   // historia jest dodatkiem; jej brak nie psuje tablicy
-    renderHistory(await response.json());
-  } catch {
-    // cisza: ranking i tak powie o braku łączności
-  }
-}
-
 function setStatus(text, state) {
   el('status').textContent = text;
   el('status').classList.toggle('offline', state === 'bad');
@@ -585,9 +477,7 @@ if (!code) {
   el('room-view').hidden = false;
   renderSpeaker();
   refresh();
-  refreshHistory();
   setInterval(refresh, 5000);
-  setInterval(refreshHistory, 30000);
   setInterval(tickClock, 1000);
   connect();
 }

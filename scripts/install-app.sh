@@ -69,6 +69,11 @@ while IFS= read -r -d '' source_file; do
     install -m 0644 "${source_file}" "${target_file}"
 done < <(find "${PROJECT_ROOT}/app/voiceflow_app" -type f -name '*.py' -print0)
 
+# Skąd pochodzi ta kopia. Bez tego okno nie ma jak sprawdzić, czy kod
+# źródłowy zdążył się zmienić — a wtedy „czy mam bieżącą wersję?" znów
+# byłoby pytaniem bez odpowiedzi.
+printf '%s\n' "${PROJECT_ROOT}" > "${APP_INSTALL_ROOT}/.source"
+
 # Znacznik czasu instalacji. Po nim wrapper poznaje, czy kod źródłowy zdążył
 # się zmienić — porównanie dat plików jest tańsze i pewniejsze niż numer wersji,
 # który przy pracy nad kodem stoi w miejscu.

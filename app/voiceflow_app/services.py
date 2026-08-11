@@ -111,6 +111,91 @@ def room_state_path() -> Path:
     return base / "voiceflow" / "room.json"
 
 
+def install_root() -> Path:
+    """Where this copy of the application lives."""
+    return Path(__file__).resolve().parent.parent.parent
+
+
+def source_root() -> Path | None:
+    """The project the installed copy came from, when it still exists.
+
+    Written by `scripts/install-app.sh`. Missing file, missing directory or a
+    copy launched straight from a checkout all mean the same thing: there is
+    nothing to compare against, so there is no update to offer.
+    """
+    try:
+        recorded = (install_root() / ".source").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    source = Path(recorded)
+    return source if recorded and (source / "scripts" / "install-app.sh").exists() else None
+
+
+def source_update_available() -> bool:
+    """Whether the project has changed since this copy was installed.
+
+    Compares file times rather than version numbers: while the code is being
+    worked on, the version stands still and the files do not.
+    """
+    source = source_root()
+    if source is None:
+        return False
+    try:
+        installed_at = (install_root() / ".installed").stat().st_mtime
+    except OSError:
+        return False
+    for candidate in (source / "app").rglob("*.py"):
+        try:
+            if candidate.stat().st_mtime > installed_at:
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def apply_source_update() -> None:
+    """Re-install from the project. Raises with a readable message on failure."""
+    source = source_root()
+    if source is None:
+        raise RuntimeError("Nie wiadomo, skąd pochodzi ta kopia aplikacji")
+    try:
+        result = subprocess.run(
+            [str(source / "scripts" / "install-app.sh")],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError(f"Aktualizacja się nie powiodła: {exc}") from exc
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(detail or "Aktualizacja zakończyła się błędem")
+
+
+def relaunch() -> None:
+    """Start a fresh copy and let the caller close this one.
+
+    Detached on purpose: the new window must survive this process exiting,
+    otherwise „zaktualizuj i uruchom ponownie" would just close the app.
+    """
+    wrapper = Path.home() / ".local" / "bin" / "voiceflow-app"
+    command = [str(wrapper)] if wrapper.exists() else [voiceflow_cli_app_fallback()]
+    subprocess.Popen(  # noqa: S603
+        command,
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def voiceflow_cli_app_fallback() -> str:
+    found = shutil.which("voiceflow-app")
+    if not found:
+        raise RuntimeError("Nie znaleziono polecenia voiceflow-app")
+    return found
+
+
 def voiceflow_cli() -> str:
     """Locate the daemon's command-line entry point.
 

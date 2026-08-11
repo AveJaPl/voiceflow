@@ -112,13 +112,23 @@ test('sumy pokoju biorą się z osób, nie z sesji', () => {
     { device_id: 'a', name: 'Filip', sessions: '1', words: '900', seconds: '400', dictations: '12' },
   ]);
 
-  assert.deepEqual(historyTotals(sessions, people), {
+  assert.deepEqual(historyTotals(1, people), {
     sessions: 1, people: 1, words: 900, seconds: 400, dictations: 12,
   });
 });
 
 test('pusty pokój ma zera, a nie NaN', () => {
-  assert.deepEqual(historyTotals([], []), {
+  assert.deepEqual(historyTotals(0, []), {
     sessions: 0, people: 0, words: 0, seconds: 0, dictations: 0,
   });
+});
+
+test('sumy nie mylą strony wyników z całym pokojem', () => {
+  // Lista to jedna strona; gdyby licznik brał jej długość, pokój ze stoma
+  // sesjami raportowałby dwadzieścia.
+  const people = summaryRows([
+    { device_id: 'a', name: 'Filip', sessions: '100', words: '5', seconds: '1', dictations: '1' },
+  ]);
+
+  assert.equal(historyTotals(100, people).sessions, 100);
 });

@@ -35,6 +35,10 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE INDEX IF NOT EXISTS sessions_room_open_idx ON sessions(room_id) WHERE ended_at IS NULL;
 
+-- Historia pokoju czyta sesje po `room_id`, od najnowszej. Powyższy indeks
+-- obejmuje tylko sesje otwarte, więc bez tego lista rosłaby w seq scan.
+CREATE INDEX IF NOT EXISTS sessions_room_recent_idx ON sessions(room_id, started_at DESC);
+
 -- Liczby i tylko liczby.
 --
 -- Kolumny na treść dyktowania tu NIE MA i jej brak jest częścią kontraktu

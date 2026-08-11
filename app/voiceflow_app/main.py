@@ -18,6 +18,7 @@ from voiceflow_app.pages.dashboard import DashboardPage
 from voiceflow_app.pages.history import HistoryPage
 from voiceflow_app.pages.settings import SettingsPage
 from voiceflow_app.pages.room import RoomPage
+from voiceflow_app.pages.sessions import SessionsPage
 from voiceflow_app.pages.stats import StatsPage
 from voiceflow_app.pages.vocabulary import VocabularyPage
 
@@ -84,6 +85,7 @@ class VoiceflowWindow(Adw.ApplicationWindow):
         self.history = HistoryPage(self._copy_text, self._delete_history_record)
         self.stats = StatsPage(cairo_available=self._cairo_available)
         self.room = RoomPage(self._toast)
+        self.sessions = SessionsPage(self._toast)
         self.vocabulary = VocabularyPage(self._set_dirty, self._toast)
         self.settings = SettingsPage(self._set_dirty, self._toast)
         self._pages = {
@@ -91,6 +93,7 @@ class VoiceflowWindow(Adw.ApplicationWindow):
             "history": self.history,
             "stats": self.stats,
             "room": self.room,
+            "sessions": self.sessions,
             "vocabulary": self.vocabulary,
             "settings": self.settings,
         }
@@ -150,6 +153,7 @@ class VoiceflowWindow(Adw.ApplicationWindow):
             ("history", "document-open-recent-symbolic", "Historia"),
             ("stats", "view-grid-symbolic", "Statystyki"),
             ("room", "system-users-symbolic", "Pokój"),
+            ("sessions", "document-open-recent-symbolic", "Sesje"),
             ("vocabulary", "accessories-dictionary-symbolic", "Słownik"),
             ("settings", "emblem-system-symbolic", "Ustawienia"),
         )
@@ -200,9 +204,17 @@ class VoiceflowWindow(Adw.ApplicationWindow):
         self.sidebar_status.add_css_class("daemon-footer-label")
         status_row.append(self.sidebar_status)
         footer.append(status_row)
-        version = Gtk.Label(label=f"v{__version__}", xalign=0)
-        version.add_css_class("version-label")
-        footer.append(version)
+        self.version_label = Gtk.Label(label=f"v{__version__}", xalign=0)
+        self.version_label.add_css_class("version-label")
+        footer.append(self.version_label)
+        # Widoczny tylko wtedy, gdy kod źródłowy wyprzedził tę kopię. Wcześniej
+        # jedynym sposobem na aktualizację było zamknięcie okna, a użytkownik
+        # nie miał nawet jak sprawdzić, czy ma bieżącą wersję.
+        self.source_update_button = Gtk.Button(label="Zaktualizuj i uruchom ponownie")
+        self.source_update_button.add_css_class("primary-button")
+        self.source_update_button.set_visible(False)
+        self.source_update_button.connect("clicked", self._on_source_update)
+        footer.append(self.source_update_button)
         # Hidden until the once-per-launch check finds a newer release.
         self.update_button = Gtk.Button(label="Dostępna aktualizacja")
         self.update_button.add_css_class("secondary-button")
@@ -212,6 +224,57 @@ class VoiceflowWindow(Adw.ApplicationWindow):
         if first_row is not None:
             self.nav_list.select_row(first_row)
         return sidebar
+
+    def _check_source_update(self) -> bool:
+        """Show the update button when the project outran this copy.
+
+        Runs on a timer, not only at launch: the window is often left open for
+        hours, and an update that only appears after a restart is exactly the
+        problem this is meant to solve.
+        """
+        def worker() -> None:
+            available = services.source_update_available()
+            GLib.idle_add(self._show_source_update, available)
+
+        threading.Thread(target=worker, name="source-update-check", daemon=True).start()
+        return True
+
+    def _show_source_update(self, available: bool) -> bool:
+        self.source_update_button.set_visible(available)
+        self.version_label.set_label(
+            f"v{__version__} · dostępna aktualizacja" if available else f"v{__version__} · aktualna"
+        )
+        return False
+
+    def _on_source_update(self, button: Gtk.Button) -> None:
+        button.set_sensitive(False)
+        button.set_label("Aktualizuję…")
+
+        def worker() -> None:
+            try:
+                services.apply_source_update()
+            except RuntimeError as exc:
+                GLib.idle_add(self._finish_source_update, False, str(exc))
+                return
+            GLib.idle_add(self._finish_source_update, True, "")
+
+        threading.Thread(target=worker, name="source-update", daemon=True).start()
+
+    def _finish_source_update(self, ok: bool, error: str) -> bool:
+        if not ok:
+            self.source_update_button.set_sensitive(True)
+            self.source_update_button.set_label("Zaktualizuj i uruchom ponownie")
+            self._toast(error)
+            return False
+        try:
+            services.relaunch()
+        except (RuntimeError, OSError) as exc:
+            # Aktualizacja się udała; nie udało się tylko wstać na nowo.
+            self._toast(f"Zaktualizowano. Uruchom aplikację ponownie ręcznie ({exc})")
+            self.source_update_button.set_visible(False)
+            return False
+        self.get_application().quit()
+        return False
 
     def _check_update(self) -> None:
         """Once per launch; a newer release becomes a button in the footer."""
@@ -331,6 +394,7 @@ class VoiceflowWindow(Adw.ApplicationWindow):
             "history": "Historia",
             "stats": "Statystyki",
             "room": "Pokój",
+            "sessions": "Sesje",
             "vocabulary": "Słownik",
             "settings": "Ustawienia",
         }
@@ -343,6 +407,8 @@ class VoiceflowWindow(Adw.ApplicationWindow):
             self._refresh_history()
         if page_name == "room":
             self.room.refresh()
+        if page_name == "sessions":
+            self.sessions.refresh()
         if page_name == "settings":
             self.settings.refresh_runtime_status()
 
@@ -400,6 +466,8 @@ class VoiceflowWindow(Adw.ApplicationWindow):
         threading.Thread(
             target=self._check_update, name="app-update-check", daemon=True
         ).start()
+        self._check_source_update()
+        GLib.timeout_add_seconds(60, self._check_source_update)
         threading.Thread(target=worker, name="config-apply", daemon=True).start()
 
     def _finish_apply(self, success: bool, detail: str, data: dict[str, Any]) -> bool:

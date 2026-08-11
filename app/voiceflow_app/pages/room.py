@@ -30,12 +30,17 @@ from voiceflow_app.roomdata import (
     RoomState,
     board_rows,
     end_session,
+    fetch_history,
     fetch_ranking,
     format_duration,
+    people_word,
     read_room_state,
     room_url,
     session_elapsed,
+    session_span,
+    sessions_word,
     start_session,
+    words_word,
 )
 
 DEFAULT_SERVER = "wss://rooms.pbdevs.com"
@@ -60,6 +65,7 @@ class RoomPage(Gtk.ScrolledWindow):
         self._enabled = False
         self._state = RoomState()
         self._document: dict[str, Any] = {}
+        self._history: dict[str, Any] = {}
         self._discovered: list[DiscoveredRoom] = []
         self._busy = False
         self._advertise = True
@@ -69,6 +75,7 @@ class RoomPage(Gtk.ScrolledWindow):
         self._monitor: Gio.FileMonitor | None = None
         self._tick_source: int | None = None
         self._poll_source: int | None = None
+        self._history_ticks = 0
 
         content = page_content(self)
         content.append(
@@ -227,6 +234,19 @@ class RoomPage(Gtk.ScrolledWindow):
         board.append(self._board_holder)
         box.append(board)
 
+        totals = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=style.SPACE_12)
+        self._totals_label = label("RAZEM W TYM POKOJU", "section-label")
+        totals.append(self._totals_label)
+        self._totals_holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=style.SPACE_8)
+        totals.append(self._totals_holder)
+        box.append(totals)
+
+        history = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=style.SPACE_12)
+        history.append(label("HISTORIA SESJI", "section-label"))
+        self._history_holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=style.SPACE_8)
+        history.append(self._history_holder)
+        box.append(history)
+
         self._status = label("", "section-hint")
         box.append(self._status)
         return box
@@ -252,6 +272,7 @@ class RoomPage(Gtk.ScrolledWindow):
         self._sync_advertisement()
         self._render()
         self._poll_now()
+        self._poll_history()
 
     def _in_room(self) -> bool:
         return self._enabled and bool(self._code)
@@ -292,6 +313,10 @@ class RoomPage(Gtk.ScrolledWindow):
 
     def _poll(self) -> bool:
         self._poll_now()
+        self._history_ticks += 1
+        # Kronika pokoju zmienia się raz na sesję, nie co pięć sekund.
+        if self._history_ticks % 6 == 0:
+            self._poll_history()
         return True
 
     def _reload_state(self) -> None:
@@ -329,6 +354,25 @@ class RoomPage(Gtk.ScrolledWindow):
         self._render_session()
         self._render_board()
         self._sync_advertisement()
+        return False
+
+    def _poll_history(self) -> None:
+        if not self._in_room():
+            return
+        server, code = self._server, self._code
+
+        def worker() -> None:
+            try:
+                document = fetch_history(server, code)
+            except RoomDataError:
+                return  # historia jest dodatkiem; ranking i tak powie o awarii
+            GLib.idle_add(self._finish_history, document)
+
+        threading.Thread(target=worker, name="room-history", daemon=True).start()
+
+    def _finish_history(self, document: dict[str, Any]) -> bool:
+        self._history = document
+        self._render_history()
         return False
 
     def _on_rooms_found(self, rooms: list[DiscoveredRoom]) -> None:
@@ -435,6 +479,7 @@ class RoomPage(Gtk.ScrolledWindow):
         self._new_session_name.set_text("")
         self._on_toast(message)
         self._poll_now()
+        self._poll_history()
         return False
 
     def _copy_link(self) -> None:
@@ -484,6 +529,7 @@ class RoomPage(Gtk.ScrolledWindow):
             self._render_speaker()
             self._render_session()
             self._render_board()
+            self._render_history()
         else:
             self._render_nearby()
 
@@ -559,7 +605,8 @@ class RoomPage(Gtk.ScrolledWindow):
         share = Gtk.ProgressBar(fraction=row.share / 100)
         share.add_css_class("room-share")
         middle.append(share)
-        detail = f"{row.dictations} dyktowań · średnio {row.average_words} słów · {row.share}% sesji"
+        detail = (f"{row.dictations} dyktowań · średnio {row.average_words} "
+                  f"{words_word(row.average_words)} · {row.share}% sesji")
         if row.behind:
             detail = f"{detail} · brakuje {row.behind}"
         middle.append(label(detail, "section-hint"))
@@ -576,6 +623,81 @@ class RoomPage(Gtk.ScrolledWindow):
         spoken.append(label(format_duration(row.seconds), "stat-value"))
         spoken.append(label("MÓWIENIA", "stat-label"))
         card.append(spoken)
+        return card
+
+    def _render_history(self) -> None:
+        people = self._history.get("people") or []
+        sessions = self._history.get("sessions") or []
+        totals = self._history.get("totals") or {}
+
+        words = int(totals.get("words") or 0)
+        count = int(totals.get("sessions") or 0)
+        self._totals_label.set_label(
+            f"RAZEM W TYM POKOJU · {words} SŁÓW W {count} "
+            f"{'SESJI' if count == 1 else 'SESJACH'}"
+            if words
+            else "RAZEM W TYM POKOJU"
+        )
+
+        while child := self._totals_holder.get_first_child():
+            self._totals_holder.remove(child)
+        for person in people:
+            appearances = int(person.get("sessions") or 0)
+            self._totals_holder.append(
+                self._history_row(
+                    str(person.get("name") or "—"),
+                    f"{appearances} {sessions_word(appearances)}"
+                    f" · {int(person.get('dictations') or 0)} dyktowań"
+                    f" · średnio {int(person.get('averageWords') or 0)}"
+                    f" {words_word(int(person.get('averageWords') or 0))}",
+                    int(person.get("words") or 0),
+                    int(person.get("seconds") or 0),
+                )
+            )
+
+        while child := self._history_holder.get_first_child():
+            self._history_holder.remove(child)
+        if not sessions:
+            self._history_holder.append(
+                empty_state("document-open-recent-symbolic", "Ta sesja jest pierwsza w tym pokoju.")
+            )
+            return
+        for entry in sessions:
+            speakers = int(entry.get("speakers") or 0)
+            running = not entry.get("endedAt")
+            name = str(entry.get("name") or "Sesja bez nazwy")
+            self._history_holder.append(
+                self._history_row(
+                    f"{name} — trwa" if running else name,
+                    f"{session_span(str(entry.get('startedAt') or ''), entry.get('endedAt'))}"
+                    f" · {speakers} {people_word(speakers)}"
+                    f" · {int(entry.get('dictations') or 0)} dyktowań",
+                    int(entry.get("words") or 0),
+                    int(entry.get("seconds") or 0),
+                    highlight=running,
+                )
+            )
+
+    def _history_row(
+        self, title: str, detail: str, words: int, seconds: int, *, highlight: bool = False
+    ) -> Gtk.Widget:
+        card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=style.SPACE_16)
+        card.add_css_class("card")
+        card.add_css_class("content-card")
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=style.SPACE_4)
+        text.set_hexpand(True)
+        name = label(title, "card-title")
+        if highlight:
+            name.add_css_class("recording-dot")
+        text.append(name)
+        text.append(label(detail, "section-hint"))
+        card.append(text)
+        for value, caption in ((str(words), "SŁÓW"), (format_duration(seconds), "MÓWIENIA")):
+            column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=style.SPACE_4)
+            column.set_valign(Gtk.Align.CENTER)
+            column.append(label(value, "stat-value"))
+            column.append(label(caption, "stat-label"))
+            card.append(column)
         return card
 
     def _render_nearby(self) -> bool:

@@ -423,7 +423,7 @@ function renderRanking(data) {
     const share = totalWords > 0 ? Math.round((entry.words / totalWords) * 100) : 0;
     const parts = [
       `${numbers.format(entry.dictations ?? 0)} dyktowań`,
-      `średnio ${numbers.format(entry.averageWords)} słów`,
+      `średnio ${numbers.format(entry.averageWords)} ${wordWord(entry.averageWords)}`,
       `${share}% sesji`,
     ];
     meta.innerHTML = escapeHtml(parts.join(' · '))
@@ -478,7 +478,7 @@ function renderHistory(data) {
         <div class="hname">${escapeHtml(person.name ?? '—')}</div>
         <div class="hmeta">${numbers.format(person.sessions)} ${sessionWord(person.sessions)}
           · ${numbers.format(person.dictations)} dyktowań
-          · średnio ${numbers.format(person.averageWords)} słów</div>
+          · średnio ${numbers.format(person.averageWords)} ${wordWord(person.averageWords)}</div>
       </div>
       <div class="hstat"><b>${numbers.format(person.words)}</b><small>słów</small></div>
       <div class="hstat"><b>${formatDuration(person.seconds)}</b><small>mówienia</small></div>
@@ -516,6 +516,7 @@ function plural(count, one, few, many) {
 
 const sessionWord = (count) => plural(count, 'sesja', 'sesje', 'sesji');
 const personWord = (count) => plural(count, 'osoba', 'osoby', 'osób');
+const wordWord = (count) => plural(count, 'słowo', 'słowa', 'słów');
 
 async function refreshHistory() {
   try {

@@ -184,6 +184,52 @@ def fetch_ranking(server: str, code: str) -> dict[str, Any]:
     return document
 
 
+def fetch_history(server: str, code: str) -> dict[str, Any]:
+    """Fetch past sessions and all-time totals. Worker thread only."""
+    url = f"{http_base(server)}/api/rooms/{code.upper()}/history"
+    try:
+        with urllib.request.urlopen(url, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+            document = json.loads(response.read().decode("utf-8"))
+    except (OSError, ValueError) as exc:
+        raise RoomDataError("Nie udało się pobrać historii pokoju") from exc
+    return document if isinstance(document, dict) else {}
+
+
+def plural(count: int, one: str, few: str, many: str) -> str:
+    """Polish plural by number.
+
+    Without this the interface says "0 osoby" and "1 sesjach" — the kind of
+    detail that gives away that nobody read the screen out loud. The `many`
+    branch also covers 12–14, which take it despite ending in 2–4.
+    """
+    number = abs(int(count))
+    if number == 1:
+        return one
+    rest, teens = number % 10, number % 100
+    return few if 2 <= rest <= 4 and not 12 <= teens <= 14 else many
+
+
+def sessions_word(count: int) -> str:
+    return plural(count, "sesja", "sesje", "sesji")
+
+
+def people_word(count: int) -> str:
+    return plural(count, "osoba", "osoby", "osób")
+
+
+def words_word(count: int) -> str:
+    return plural(count, "słowo", "słowa", "słów")
+
+
+def session_span(started_at: str, ended_at: str | None, now: datetime | None = None) -> str:
+    """How long a session ran — or has been running, when it is still open."""
+    start = _parse_timestamp(started_at)
+    if start is None:
+        return "—"
+    end = _parse_timestamp(ended_at or "") or (now or datetime.now(timezone.utc))
+    return format_duration(max(0.0, (end - start).total_seconds()))
+
+
 def start_session(server: str, code: str, name: str) -> None:
     """Open a fresh named session, closing whatever was running."""
     _post(f"{http_base(server)}/api/rooms/{code.upper()}/session", {"name": name.strip()})

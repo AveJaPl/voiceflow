@@ -173,3 +173,47 @@ def test_empty_speaker_is_silence_not_a_person_called_nothing(tmp_path):
     path.write_text(json.dumps({"code": "MSV5H3", "speaking": ""}), encoding="utf-8")
 
     assert read_room_state(path).speaking is None
+
+
+# --- historia sesji --------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("count", "expected"),
+    [(0, "osób"), (1, "osoba"), (2, "osoby"), (4, "osoby"), (5, "osób"),
+     (12, "osób"), (14, "osób"), (22, "osoby"), (25, "osób")],
+)
+def test_polish_plural_for_people(count, expected):
+    from voiceflow_app.roomdata import people_word
+
+    assert people_word(count) == expected
+
+
+@pytest.mark.parametrize(
+    ("count", "expected"),
+    [(0, "sesji"), (1, "sesja"), (2, "sesje"), (5, "sesji"), (13, "sesji")],
+)
+def test_polish_plural_for_sessions(count, expected):
+    from voiceflow_app.roomdata import sessions_word
+
+    assert sessions_word(count) == expected
+
+
+def test_closed_session_span_uses_its_own_end():
+    from voiceflow_app.roomdata import session_span
+
+    assert session_span("2026-08-10T18:00:00Z", "2026-08-10T20:35:00Z") == "2 godz. 35 min"
+
+
+def test_open_session_span_runs_until_now():
+    from voiceflow_app.roomdata import session_span
+
+    now = datetime(2026, 8, 11, 12, 0, 0, tzinfo=timezone.utc)
+
+    assert session_span("2026-08-11T11:00:00Z", None, now) == "1 godz."
+
+
+def test_session_span_without_a_start_is_unknown():
+    from voiceflow_app.roomdata import session_span
+
+    assert session_span("", None) == "—"

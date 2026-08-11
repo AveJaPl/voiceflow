@@ -57,6 +57,10 @@ install -m 0644 \
 install -m 0755 \
     "${PROJECT_ROOT}/scripts/voiceflow-app.py" \
     "${APP_INSTALL_ROOT}/scripts/voiceflow-app.py"
+# Bez tego `installed_version()` czyta pustkę i zwraca 0.0.0, przez co
+# sprawdzanie wydań uznaje KAŻDE wydanie za nowsze i zapala przycisk
+# aktualizacji na stałe.
+install -m 0644 "${PROJECT_ROOT}/pyproject.toml" "${APP_INSTALL_ROOT}/pyproject.toml"
 
 while IFS= read -r -d '' source_file; do
     relative_path="${source_file#"${PROJECT_ROOT}/app/voiceflow_app/"}"
@@ -65,13 +69,41 @@ while IFS= read -r -d '' source_file; do
     install -m 0644 "${source_file}" "${target_file}"
 done < <(find "${PROJECT_ROOT}/app/voiceflow_app" -type f -name '*.py' -print0)
 
+# Znacznik czasu instalacji. Po nim wrapper poznaje, czy kod źródłowy zdążył
+# się zmienić — porównanie dat plików jest tańsze i pewniejsze niż numer wersji,
+# który przy pracy nad kodem stoi w miejscu.
+touch -- "${APP_INSTALL_ROOT}/.installed"
+
+# Wrapper dosynchrowuje kopię przy KAŻDYM uruchomieniu. Bez tego edycja kodu
+# w repozytorium nie docierała do skrótu w menu i aplikacja po cichu chodziła
+# na starej wersji — co kosztowało nas jedno szukanie nieistniejącej usterki.
 temporary_wrapper="$(mktemp "${BIN_DIR}/.voiceflow-app.XXXXXX")"
 trap 'rm -f -- "${temporary_wrapper}"' EXIT
-printf '#!/usr/bin/env bash\nexec /usr/bin/python3 %q "$@"\n' \
-    "${APP_INSTALL_ROOT}/scripts/voiceflow-app.py" > "${temporary_wrapper}"
+cat > "${temporary_wrapper}" <<WRAPPER
+#!/usr/bin/env bash
+# Wygenerowane przez scripts/install-app.sh — nie edytuj ręcznie.
+SOURCE_ROOT=$(printf '%q' "${PROJECT_ROOT}")
+INSTALL_ROOT=$(printf '%q' "${APP_INSTALL_ROOT}")
+
+# Katalog źródłowy może już nie istnieć (instalacja z paczki, przeniesione
+# repozytorium). Wtedy po prostu uruchamiamy to, co jest — brak źródeł nie
+# jest błędem.
+if [[ "\${VOICEFLOW_APP_NO_SYNC:-}" != "1" && -x "\${SOURCE_ROOT}/scripts/install-app.sh" ]]; then
+    if [[ -n "\$(find "\${SOURCE_ROOT}/app" "\${SOURCE_ROOT}/scripts/voiceflow-app.py" \\
+                 -newer "\${INSTALL_ROOT}/.installed" -print -quit 2>/dev/null)" ]]; then
+        echo "voiceflow: kod źródłowy jest nowszy, aktualizuję aplikację…" >&2
+        # Nieudana aktualizacja nie może odebrać działającej aplikacji.
+        "\${SOURCE_ROOT}/scripts/install-app.sh" >/dev/null || \\
+            echo "voiceflow: aktualizacja się nie powiodła, uruchamiam poprzednią wersję" >&2
+    fi
+fi
+
+exec /usr/bin/python3 "\${INSTALL_ROOT}/scripts/voiceflow-app.py" "\$@"
+WRAPPER
 chmod 0755 "${temporary_wrapper}"
 mv -f -- "${temporary_wrapper}" "${WRAPPER_TARGET}"
 trap - EXIT
 
 refresh_desktop_database
 echo "Zainstalowano aplikację voiceflow. Uruchom ją z menu aplikacji lub poleceniem: voiceflow-app"
+echo "Kolejne zmiany w ${PROJECT_ROOT} dociągną się same przy następnym uruchomieniu."

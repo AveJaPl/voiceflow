@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>voiceflow — pokój</title>
+<style>
+/* Paleta i typografia przeniesione z aplikacji linuksowej (app/voiceflow_app/style.py),
+   żeby trzy powierzchnie wyglądały jak jeden produkt. Jedyny kolor w całym
+   interfejsie to czerwień nagrywania — wszystko inne jest monochromatyczne. */
+:root{
+  --bg:#0d0d0f; --surface:#131316; --raised:#1b1b1e; --border:#232327;
+  --text:#f5f5f7; --muted:rgba(255,255,255,.55); --faint:rgba(255,255,255,.35);
+  --rec:#ff453a;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:16px/1.5 "Inter","Cantarell","Ubuntu",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:960px; margin:0 auto; padding:40px 24px}
+header{display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; margin-bottom:8px}
+h1{font-size:1.9rem; margin:0; letter-spacing:-.01em}
+.code{
+  font-family:ui-monospace,"JetBrains Mono",monospace; font-size:.95rem;
+  color:var(--faint); border:1px solid var(--border); padding:4px 10px; border-radius:6px;
+}
+.sub{color:var(--muted); margin:4px 0 28px; font-size:.95rem}
+
+.now{
+  display:flex; align-items:center; gap:14px;
+  background:var(--surface); border:1px solid rgba(255,255,255,.07);
+  border-radius:12px; padding:20px; margin-bottom:24px;
+}
+.dot{width:11px; height:11px; border-radius:50%; background:var(--faint); flex:none}
+.dot.live{background:var(--rec); animation:breathe 1.8s ease-in-out infinite}
+@keyframes breathe{0%,100%{opacity:1}50%{opacity:.25}}
+.now-title{font-size:1.15rem}
+.now-sub{color:var(--muted); font-size:.85rem}
+
+table{width:100%; border-collapse:collapse; background:var(--surface);
+  border:1px solid rgba(255,255,255,.07); border-radius:12px; overflow:hidden}
+th,td{padding:14px 18px; text-align:left}
+th{font-size:.68rem; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--faint); font-weight:500; border-bottom:1px solid var(--border)}
+td{border-bottom:1px solid rgba(255,255,255,.04); font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:none}
+tr.speaking td{background:var(--raised)}
+.rank{color:var(--faint); width:2.5rem}
+.name{font-weight:500}
+.num{text-align:right}
+.empty{padding:28px 18px; color:var(--faint)}
+footer{margin-top:24px; color:var(--faint); font-size:.8rem}
+.offline{color:var(--rec)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 id="room-name">Pokój</h1>
+    <span class="code" id="room-code">—</span>
+  </header>
+  <p class="sub" id="session-line">Wczytywanie…</p>
+
+  <div class="now">
+    <span class="dot" id="dot"></span>
+    <div>
+      <div class="now-title" id="now-title">Cisza</div>
+      <div class="now-sub" id="now-sub">Nikt teraz nie dyktuje</div>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th class="rank">#</th>
+        <th>Kto</th>
+        <th class="num">Słowa</th>
+        <th class="num">Czas mówienia</th>
+        <th class="num">Średnio słów</th>
+      </tr>
+    </thead>
+    <tbody id="rows">
+      <tr><td class="empty" colspan="5">Wczytywanie…</td></tr>
+    </tbody>
+  </table>
+
+  <footer id="status">Łączenie…</footer>
+</div>
+
+<script>
+const code = decodeURIComponent(location.pathname.split('/').filter(Boolean)[1] ?? '').toUpperCase();
+const el = (id) => document.getElementById(id);
+let speakingName = null;
+
+function formatDuration(seconds) {
+  const minutes = Math.max(0, Math.round(seconds / 60));
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours && rest) return `${hours} godz. ${rest} min`;
+  if (hours) return `${hours} godz.`;
+  return `${minutes} min`;
+}
+
+function renderSpeaker() {
+  const live = Boolean(speakingName);
+  el('dot').classList.toggle('live', live);
+  el('now-title').textContent = live ? `${speakingName} dyktuje` : 'Cisza';
+  el('now-sub').textContent = live
+    ? 'Reszta pokoju czeka — mikrofony nie nakładają się na siebie'
+    : 'Nikt teraz nie dyktuje';
+  document.title = live ? `${speakingName} dyktuje — voiceflow` : 'voiceflow — pokój';
+}
+
+function renderRanking(data) {
+  el('room-code').textContent = data.room?.code ?? code;
+  el('room-name').textContent = data.room?.name || 'Pokój';
+  if (data.session) {
+    const started = new Date(data.session.started_at);
+    const minutes = Math.round((Date.now() - started.getTime()) / 60000);
+    const name = data.session.name || 'Sesja bez nazwy';
+    el('session-line').textContent = `${name} · trwa ${formatDuration(minutes * 60)}`;
+  } else {
+    el('session-line').textContent = 'Brak otwartej sesji';
+  }
+
+  const rows = el('rows');
+  if (!data.ranking?.length) {
+    rows.innerHTML = '<tr><td class="empty" colspan="5">Jeszcze nikt nic nie podyktował w tej sesji.</td></tr>';
+    return;
+  }
+  rows.innerHTML = data.ranking.map((entry, index) => `
+    <tr class="${entry.name === speakingName ? 'speaking' : ''}">
+      <td class="rank">${index + 1}</td>
+      <td class="name">${entry.name ?? '—'}</td>
+      <td class="num">${entry.words}</td>
+      <td class="num">${formatDuration(entry.seconds)}</td>
+      <td class="num">${entry.averageWords}</td>
+    </tr>`).join('');
+}
+
+async function refresh() {
+  try {
+    const response = await fetch(`/api/rooms/${code}/ranking`);
+    if (!response.ok) throw new Error(String(response.status));
+    renderRanking(await response.json());
+    el('status').textContent = 'Na żywo';
+    el('status').classList.remove('offline');
+  } catch {
+    el('status').textContent = 'Brak połączenia z serwerem pokoi';
+    el('status').classList.add('offline');
+  }
+}
+
+/* Podgląd łączy się bez tokenu urządzenia — nie może mówić ani blokować, tylko
+   patrzy. Serwer i tak przyjmuje wyłącznie tokeny urządzeń, więc strona
+   dowiaduje się o zmianie mówiącego przez odpytanie; WebSocket jest tu tylko
+   po to, żeby zmiana była natychmiastowa, gdy działa. */
+function connect() {
+  const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+  const socket = new WebSocket(`${scheme}://${location.host}/ws?room=${code}&view=1`);
+  socket.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    if (message.type === 'speaker_changed' || message.type === 'room_state') {
+      speakingName = message.speaking?.name ?? null;
+      renderSpeaker();
+      refresh();
+    }
+  };
+  socket.onclose = () => setTimeout(connect, 3000);
+}
+
+renderSpeaker();
+refresh();
+setInterval(refresh, 5000);
+connect();
+</script>
+</body>
+</html>

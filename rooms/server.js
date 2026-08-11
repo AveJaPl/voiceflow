@@ -67,8 +67,9 @@ const wss = new WebSocketServer({ server, path: '/ws' });
 wss.on('connection', async (socket, req) => {
   const url = new URL(req.url, 'http://localhost');
   const roomCode = (url.searchParams.get('room') ?? '').toUpperCase();
+  const isViewer = url.searchParams.get('view') === '1';
   const device = await store.deviceByToken(url.searchParams.get('token') ?? '');
-  if (!device || !roomCode) {
+  if (!roomCode || (!device && !isViewer)) {
     socket.close(4001, 'unauthorized');
     return;
   }
@@ -79,8 +80,9 @@ wss.on('connection', async (socket, req) => {
   }
 
   const connection = {
-    deviceId: device.id,
-    name: device.name,
+    deviceId: device?.id ?? `viewer-${Math.random().toString(36).slice(2)}`,
+    name: device?.name ?? null,
+    viewer: !device,
     roomCode,
     roomId: room.id,
     send(obj) {
@@ -105,7 +107,7 @@ wss.on('connection', async (socket, req) => {
   socket.on('error', () => hub.disconnect(connection));
 
   await hub.handleMessage(connection, { type: 'hello' });
-  store.touchDevice(device.id).catch(() => {});
+  if (device) store.touchDevice(device.id).catch(() => {});
 });
 
 // Sprzątanie po klientach, którzy zniknęli w trakcie mówienia. Częściej niż

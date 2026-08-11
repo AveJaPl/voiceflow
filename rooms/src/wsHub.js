@@ -54,10 +54,17 @@ export function createHub({ store }) {
 
       if (message.type === 'hello') {
         entry.connections.add(connection);
-        entry.state = join(entry.state, connection.deviceId, connection.name);
+        // Widz (strona rankingu) dostaje rozgłoszenia, ale NIE wchodzi do składu
+        // pokoju: nie może mówić, nie może niczego zablokować i nie liczy się do
+        // rankingu. Patrzy.
+        if (!connection.viewer) {
+          entry.state = join(entry.state, connection.deviceId, connection.name);
+        }
         connection.send({ type: 'room_state', speaking: speakerPayload(entry) });
         return;
       }
+
+      if (connection.viewer) return;
 
       if (message.type === 'heartbeat') {
         entry.state = heartbeat(entry.state, connection.deviceId, now);

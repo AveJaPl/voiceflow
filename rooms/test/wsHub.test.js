@@ -140,3 +140,21 @@ test('pokoje są od siebie odizolowane', async () => {
     'cudzy pokój nie ścisza nam głośnika',
   );
 });
+
+test('widz patrzy, ale nie może mówić ani wejść do składu', async () => {
+  const hub = createHub({ store: noopStore });
+  const filip = fakeConnection('f', 'Filip');
+  const tablet = { ...fakeConnection('v', null), viewer: true };
+  await hub.handleMessage(filip, { type: 'hello' });
+  await hub.handleMessage(tablet, { type: 'hello' });
+
+  await hub.handleMessage(tablet, { type: 'speaking_started' }, 1000);
+  await hub.handleMessage(filip, { type: 'speaking_started' }, 1100);
+
+  assert.equal(
+    tablet.sent.filter((m) => m.type === 'speaking_denied').length, 0,
+    'widz nie próbuje mówić, więc nie dostaje odmowy',
+  );
+  const toTablet = tablet.sent.filter((m) => m.type === 'speaker_changed').at(-1);
+  assert.equal(toTablet.speaking.name, 'Filip', 'ale widzi, kto mówi');
+});

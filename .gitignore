@@ -13,3 +13,6 @@ models/
 
 # Notatki robocze i próbki — nie należą do repozytorium
 tmp/
+
+# zależności Node (usługa pokoi, relay)
+node_modules/

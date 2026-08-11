@@ -22,6 +22,24 @@ protocol SpeechEngine: AnyObject {
     var updates: AsyncStream<TranscriptUpdate> { get }
     func prewarm() async throws
     func beginUtterance()
-    func endUtterance()
+
+    /// Kończy wypowiedź i zwraca TEKST KOŃCOWY, jeśli silnik potrafi zrobić lepszy
+    /// niż to, co narosło w strumieniu.
+    ///
+    /// Dlaczego `async` i dlaczego coś zwraca: wcześniej ta metoda tylko zlecała
+    /// pracę i wracała natychmiast, a `SessionController` czytał `differ.displayedText`
+    /// w następnej linijce — czyli ZANIM silnik zdążył zdekodować końcówkę. Ostatnie
+    /// słowa wypowiedzi systematycznie ginęły, a test end-to-end maskował to
+    /// `sleep`em 700 ms wpisanym na sztywno.
+    ///
+    /// `nil` znaczy „nie mam nic lepszego, użyj tekstu ze strumienia" — tak
+    /// odpowiada `AppleSpeechEngine`, który nie ma osobnego przebiegu końcowego.
+    func endUtterance() async -> String?
+
+    /// Porzucenie wypowiedzi (Escape). Silnik ma zapomnieć audio i NIE emitować
+    /// już żadnych aktualizacji — inaczej ostatnie zdekodowane okno dolatuje po
+    /// anulowaniu i dokleja się do następnej wypowiedzi.
+    func cancelUtterance()
+
     func feed(_ buffer: AVAudioPCMBuffer)
 }

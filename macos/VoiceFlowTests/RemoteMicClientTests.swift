@@ -21,7 +21,11 @@ private final class RecordingSpeechEngine: SpeechEngine {
 
     func prewarm() async throws {}
     func beginUtterance() { beginCount += 1 }
-    func endUtterance() { endCount += 1 }
+    func endUtterance() async -> String? { endCount += 1
+        return nil
+    }
+
+    func cancelUtterance() { endCount += 1 }
     func feed(_ buffer: AVAudioPCMBuffer) { fedBuffers.append(buffer) }
 }
 

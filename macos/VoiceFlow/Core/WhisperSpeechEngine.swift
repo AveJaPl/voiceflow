@@ -55,6 +55,28 @@ final class WhisperSpeechEngine: SpeechEngine {
     /// (`trim()`), bo sesja jest TRWAŁA przez cały czas życia silnika i bez
     /// przycinania bufor rósłby bez ograniczeń.
     private var samples: [Float] = []
+
+    /// CAŁE audio bieżącej wypowiedzi, nigdy nieprzycinane — materiał dla
+    /// przebiegu końcowego (`endUtterance`).
+    ///
+    /// Musi być osobnym buforem, bo `samples` wyżej jest agresywnie przycinane
+    /// przez `trim()` po każdym commicie: w momencie puszczenia skrótu nie ma już
+    /// czego przepuścić drugim przebiegiem. To była przyczyna źródłowa tego, że
+    /// tekst końcowy był sklejką niepewnych commitów zamiast jednej, spójnej
+    /// transkrypcji.
+    ///
+    /// Koszt pamięci jest nieistotny: 16 kHz × Float32 = 64 KB na sekundę, więc
+    /// limit `maxUtteranceSeconds` (jak `audio.max_seconds` na Linuksie) to ~19 MB
+    /// w najgorszym razie.
+    private var utteranceSamples: [Float] = []
+    private static let maxUtteranceSeconds = 300
+    private var maxUtteranceSampleCount: Int { Self.maxUtteranceSeconds * 16_000 }
+
+    /// Rośnie przy każdym `beginUtterance`/`cancelUtterance`. Dekodowanie zlecone
+    /// przed zmianą nie ma prawa dopisać niczego do nowej wypowiedzi ani odezwać
+    /// się po anulowaniu.
+    private var generation = 0
+
     private var discardedSampleCount = 0
     private var committedSampleCount = 0
     private var lastDecodedSampleCount = 0
@@ -84,7 +106,9 @@ final class WhisperSpeechEngine: SpeechEngine {
     // MARK: - SpeechEngine
 
     func prewarm() async throws {
-        let modelURL = try await WhisperModelProvisioner.ensureModelAvailable()
+        let choice = WhisperModelChoice.current(defaults)
+        let modelURL = try await WhisperModelProvisioner.ensureModelAvailable(choice)
+        DebugLog.write("WhisperEngine", "model: \(choice.rawValue)")
 
         let rssBefore = ProcessMemory.residentBytes()
         DebugLog.write("WhisperEngine", "RSS przed załadowaniem modelu: \(rssBefore / 1_000_000) MB")
@@ -126,6 +150,8 @@ final class WhisperSpeechEngine: SpeechEngine {
     /// Wołane wyłącznie na `queue`.
     private func resetTranscript() {
         samples.removeAll(keepingCapacity: true)
+        utteranceSamples.removeAll(keepingCapacity: true)
+        generation &+= 1
         discardedSampleCount = 0
         committedSampleCount = 0
         lastDecodedSampleCount = 0
@@ -133,15 +159,63 @@ final class WhisperSpeechEngine: SpeechEngine {
         agreement.reset()
     }
 
-    func endUtterance() {
+    /// Kończy wypowiedź PEŁNYM przebiegiem po całym nagraniu i zwraca jego wynik.
+    ///
+    /// To jest odpowiednik drugiego przejścia z Linuksa: strumień służy wyłącznie
+    /// do podglądu na żywo, a to, co użytkownik dostaje do wklejenia, powstaje raz,
+    /// z pełnym kontekstem całego zdania. Wcześniej tekst końcowy był sklejką
+    /// commitów `LocalAgreement`, więc pojedyncze przesłyszenie w trakcie mówienia
+    /// zostawało w wyniku na stałe (zmierzone: „Dzień dobry. W chciałbym…" zamiast
+    /// „Dzień dobry, chciałbym…" — ten sam model, to samo audio).
+    ///
+    /// `await` po stronie wołającego jest CAŁYM sensem tej zmiany: `SessionController`
+    /// czytał wcześniej tekst zanim silnik zdążył cokolwiek policzyć.
+    func endUtterance() async -> String? {
+        await withCheckedContinuation { continuation in
+            queue.async { [weak self] in
+                guard let self else { return continuation.resume(returning: nil) }
+                isFeeding = false
+
+                guard let context, !utteranceSamples.isEmpty else {
+                    // Bardzo krótkie stuknięcie albo cisza — nie ma czego dekodować.
+                    return continuation.resume(returning: nil)
+                }
+
+                let vocabulary = defaults.stringArray(forKey: Self.customVocabularyKey) ?? []
+                let prompt = Self.buildInitialPrompt(vocabulary: vocabulary, stitchContext: "")
+                let startedAt = Date()
+                let text = context.transcribeFull(
+                    samples: utteranceSamples, language: language, initialPrompt: prompt
+                )
+                let seconds = Date().timeIntervalSince(startedAt)
+                let audioSeconds = Double(utteranceSamples.count) / 16_000
+                DebugLog.write(
+                    "WhisperEngine",
+                    String(
+                        format: "przebieg końcowy: %.2f s audio → %.2f s liczenia (%.2f× czasu rzeczywistego)",
+                        audioSeconds, seconds, seconds / max(audioSeconds, 0.001)
+                    )
+                )
+
+                guard !text.isEmpty else {
+                    // Pełny przebieg nic nie zwrócił — lepiej oddać to, co narosło
+                    // w strumieniu, niż wyciszyć całą wypowiedź.
+                    DebugLog.write("WhisperEngine", "przebieg końcowy pusty — zostaje tekst ze strumienia")
+                    return continuation.resume(returning: nil)
+                }
+                DebugLog.write("WhisperEngine", "tekst końcowy: \"\(text)\"")
+                continuation.resume(returning: text)
+            }
+        }
+    }
+
+    /// Escape: zapominamy audio i podbijamy `generation`, żeby dekodowanie zlecone
+    /// przed anulowaniem nie odezwało się już ani słowem.
+    func cancelUtterance() {
         queue.async { [weak self] in
-            self?.isFeeding = false
-            // Best-effort: dobij ostatni kawałek audio od razu, nie czekając
-            // na kolejny pełny `stepMs` — zmniejsza (nie eliminuje: patrz
-            // raport agenta o synchronicznym odczycie `differ.displayedText`
-            // zaraz po `SessionController.endUtterance()`) opóźnienie ostatnich
-            // słów wypowiedzi względem momentu puszczenia skrótu.
-            self?.decodeStepIfNeeded(force: true)
+            guard let self else { return }
+            isFeeding = false
+            resetTranscript()
         }
     }
 
@@ -150,6 +224,10 @@ final class WhisperSpeechEngine: SpeechEngine {
             guard let self, self.isFeeding else { return }
             guard let mono = self.resample(buffer) else { return }
             self.samples.append(contentsOf: mono)
+            // Drugi, nieprzycinany bufor — materiał dla przebiegu końcowego.
+            if self.utteranceSamples.count < self.maxUtteranceSampleCount {
+                self.utteranceSamples.append(contentsOf: mono)
+            }
             self.decodeStepIfNeeded(force: false)
         }
     }

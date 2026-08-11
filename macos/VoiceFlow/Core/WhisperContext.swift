@@ -58,6 +58,73 @@ final class WhisperContext {
     /// (dokumentacja whisper.h: "Not thread safe for same context") —
     /// wołający (`WhisperSpeechEngine`) musi serializować wywołania na
     /// jednej kolejce.
+    /// Pełny przebieg po CAŁYM nagraniu wypowiedzi — to jest tekst, który trafia
+    /// do użytkownika.
+    ///
+    /// Odpowiednik `Transcriber.transcribe` z Linuksa (`src/voiceflow/transcriber.py`),
+    /// gdzie podgląd na żywo i tekst końcowy to DWA różne przebiegi: pierwszy jest
+    /// szybki i niepewny, drugi widzi całe zdanie naraz. macOS tego nie miał — tekst
+    /// końcowy był sklejką commitów `LocalAgreement` ze strumienia, więc raz źle
+    /// usłyszane słowo zostawało w nim na zawsze.
+    ///
+    /// Zmierzone na `VoiceFlowTests/Fixtures/dyktowanie-pl.wav` (4,3 s, model `base`,
+    /// 2026-08-11) — ten sam model, ta sama maszyna, różnica wyłącznie w sposobie
+    /// dekodowania:
+    ///   strumień + local-agreement → "Dzień dobry. W chciałbym dzisiaj porozmawiać…"
+    ///   pełny przebieg beam 5      → "Dzień dobry, chciałbym dzisiaj porozmawiać…"  (poprawnie)
+    /// Koszt: ~1,2 s przy `base`. Dlatego to osobna metoda, wołana RAZ na koniec, a
+    /// nie zamiennik `transcribe` w pętli strumienia.
+    ///
+    /// Różnice względem przebiegu strumieniowego, wszystkie celowe:
+    /// - **beam search** zamiast greedy (`beam_size` jak `model.beam_size: 5` na Linuksie),
+    /// - **bez `single_segment`** — całe nagranie może mieć wiele zdań,
+    /// - **bez `max_tokens`** — limit 64 tokenów obciąłby dłuższą wypowiedź w pół słowa,
+    /// - **`no_context = true`** — świeży start, bez pozostałości po oknach strumienia.
+    func transcribeFull(
+        samples: [Float],
+        language: String,
+        initialPrompt: String = "",
+        beamSize: Int32 = 5
+    ) -> String {
+        guard !samples.isEmpty else { return "" }
+        var params = whisper_full_default_params(WHISPER_SAMPLING_BEAM_SEARCH)
+        params.beam_search.beam_size = beamSize
+        params.print_progress = false
+        params.print_special = false
+        params.print_realtime = false
+        params.print_timestamps = false
+        params.single_segment = false
+        params.no_context = true
+        // `max_tokens = 0` znaczy „bez limitu". Strumień ma 64, bo dekoduje okna po
+        // 2 s; tutaj obcięłoby to każdą dłuższą wypowiedź.
+        params.max_tokens = 0
+        params.n_threads = Int32(max(1, min(ProcessInfo.processInfo.activeProcessorCount, 8)))
+        params.translate = false
+        params.no_timestamps = true
+        params.suppress_blank = true
+
+        return language.withCString { languagePtr -> String in
+            params.language = languagePtr
+            return initialPrompt.withCString { promptPtr -> String in
+                if !initialPrompt.isEmpty { params.initial_prompt = promptPtr }
+                let rc = samples.withUnsafeBufferPointer { buffer -> Int32 in
+                    guard let base = buffer.baseAddress else { return -1 }
+                    return whisper_full(ctx, params, base, Int32(buffer.count))
+                }
+                guard rc == 0 else { return "" }
+
+                var text = ""
+                let segmentCount = whisper_full_n_segments(ctx)
+                for i in 0..<segmentCount {
+                    if let segment = whisper_full_get_segment_text(ctx, i) {
+                        text += String(cString: segment)
+                    }
+                }
+                return text.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+    }
+
     func transcribe(samples: [Float], language: String, initialPrompt: String = "") -> String {
         guard !samples.isEmpty else { return "" }
         var params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY)

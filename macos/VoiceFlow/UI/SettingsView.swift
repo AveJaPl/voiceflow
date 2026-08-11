@@ -14,6 +14,9 @@ enum SettingsKeys {
     static let language = "voiceflow.language"
     static let mainHotkeyKeyCode = "voiceflow.mainHotkeyKeyCode"
     static let speechEngine = "voiceflow.speechEngine"
+    /// Model whisper.cpp — patrz `WhisperModelChoice` po pomiary, na których
+    /// oparto domyślny wybór.
+    static let whisperModel = "voiceflow.whisperModel"
     static let micIsolationEnabled = "voiceflow.micIsolationEnabled"
     static let pillPositionX = "voiceflow.pillPositionX"
     static let pillPositionY = "voiceflow.pillPositionY"
@@ -131,6 +134,10 @@ final class SettingsModel: ObservableObject {
     }
     /// Zmiana wymaga restartu — silnik tworzy się raz, przy starcie
     /// (`VoiceFlowApp.setupSessionController`), tak samo jak `language` wyżej.
+    @Published var whisperModel: WhisperModelChoice {
+        didSet { defaults.set(whisperModel.rawValue, forKey: SettingsKeys.whisperModel) }
+    }
+
     @Published var speechEngine: SpeechEngineChoice {
         didSet { defaults.set(speechEngine.rawValue, forKey: SettingsKeys.speechEngine) }
     }
@@ -212,6 +219,7 @@ final class SettingsModel: ObservableObject {
             .flatMap(InsertionMode.init(rawValue:)) ?? .liveTyping
         self.language = defaults.string(forKey: SettingsKeys.language)
             .flatMap(DictationLanguage.init(rawValue:)) ?? .polish
+        self.whisperModel = WhisperModelChoice.current(defaults)
         self.speechEngine = defaults.string(forKey: SettingsKeys.speechEngine)
             .flatMap(SpeechEngineChoice.init(rawValue:)) ?? .whisper
         self.customVocabulary = defaults.stringArray(forKey: SettingsKeys.customVocabulary) ?? []
@@ -255,6 +263,16 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.radioGroup)
                 Text("Dotyczy TYLKO polskiego — angielski zawsze idzie przez Apple. Zmiana wymaga restartu VoiceFlow, silnik tworzy się raz przy starcie. whisper.cpp działa w pełni lokalnie i offline (zero zależności od serwera Apple); zalecane po awarii serwera Apple 2026-08-10.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+
+                Picker("Model whisper.cpp", selection: $model.whisperModel) {
+                    ForEach(WhisperModelChoice.allCases) { choice in
+                        Text(choice.displayName).tag(choice)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                Text("Pomiar na nagraniu 4,3 s (ten Mac, bez GPU — Homebrew'owy whisper.cpp nie ma backendu Metal): base 1,2 s, large-v3-turbo 6,4 s, oba z tym samym, poprawnym tekstem. Większy model bierz na żargon, akcent i hałas. Pierwsze użycie pobiera model (574 MB); zmiana wymaga restartu VoiceFlow.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
 

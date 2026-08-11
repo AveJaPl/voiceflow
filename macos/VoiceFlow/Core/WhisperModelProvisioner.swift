@@ -10,23 +10,69 @@ import os.log
 /// `~/Library/Application Support/VoiceFlow/...` — apka w TYM repo nazywa się
 /// nadal VoiceFlow (bundle `pl.programo.voiceflow`, `apps/mac/VoiceFlow/`), nie VoiceFlow;
 /// zamiana nazwy nigdzie w historii repo się nie wydarzyła. Patrz raport agenta.
+/// Model whisper.cpp do wyboru w Ustawieniach.
+///
+/// Linux jedzie na `large-v3-turbo`, bo tam whisper liczy się na GPU i jest to
+/// darmowe. Homebrew'owy whisper.cpp na tym Macu **nie ma backendu Metal**
+/// (`libggml` bez jednego symbolu Metal, brak `libggml-metal`), więc wszystko idzie
+/// przez CPU i wielkość modelu przekłada się wprost na czas oczekiwania.
+///
+/// Zmierzone 2026-08-11 na `VoiceFlowTests/Fixtures/dyktowanie-pl.wav` (4,3 s mowy,
+/// pełny przebieg, beam 5, 8 wątków):
+///
+/// | model | tekst | czas |
+/// |---|---|---|
+/// | `base` (148 MB) | poprawny, z przecinkiem | **1,2 s** |
+/// | `large-v3-turbo-q5_0` (574 MB) | identyczny | 6,4 s |
+///
+/// Dlatego domyślny jest `base`: na czystym polskim daje ten sam wynik pięć razy
+/// szybciej. Większy model ma sens przy żargonie, akcencie i hałasie — i dlatego
+/// jest wyborem użytkownika, a nie decyzją podjętą za niego.
+enum WhisperModelChoice: String, CaseIterable, Identifiable {
+    case base
+    case largeV3TurboQ5 = "large-v3-turbo-q5_0"
+
+    var id: String { rawValue }
+
+    var fileName: String { "ggml-\(rawValue).bin" }
+
+    var displayName: String {
+        switch self {
+        case .base: "base — szybki (148 MB)"
+        case .largeV3TurboQ5: "large-v3-turbo — dokładniejszy, wolniejszy (574 MB)"
+        }
+    }
+
+    var approximateBytes: Int64 {
+        switch self {
+        case .base: 147_000_000
+        case .largeV3TurboQ5: 574_000_000
+        }
+    }
+
+    /// Próg wykrywania uciętego pobrania — połowa oczekiwanego rozmiaru. Nie
+    /// wymagamy dokładnego rozmiaru, bo plik na HF bywa aktualizowany.
+    var minimumValidSize: Int64 { approximateBytes / 2 }
+
+    static func current(_ defaults: UserDefaults = .standard) -> WhisperModelChoice {
+        defaults.string(forKey: SettingsKeys.whisperModel).flatMap(WhisperModelChoice.init(rawValue:)) ?? .base
+    }
+}
+
 enum WhisperModelProvisioner {
     private static let log = Logger(subsystem: "pl.programo.voiceflow", category: "WhisperModelProvisioner")
-    private static let downloadURL = URL(
-        string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"
-    )!
-    /// Pełny plik ma ~148 MB; próg dużo niższy łapie ucięte/przerwane pobrania
-    /// bez sztywnego wymogu dokładnego rozmiaru w bajtach (model może dostać
-    /// drobną aktualizację na HF bez zmiany rzędu wielkości).
-    private static let minimumValidSize: Int64 = 100_000_000
+
+    private static func downloadURL(for choice: WhisperModelChoice) -> URL {
+        URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/\(choice.fileName)")!
+    }
 
     static var modelsDirectory: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return appSupport.appendingPathComponent("VoiceFlow/models", isDirectory: true)
     }
 
-    static var modelURL: URL {
-        modelsDirectory.appendingPathComponent("ggml-base.bin")
+    static func modelURL(for choice: WhisperModelChoice) -> URL {
+        modelsDirectory.appendingPathComponent(choice.fileName)
     }
 
     enum ProvisionError: LocalizedError {
@@ -45,36 +91,41 @@ enum WhisperModelProvisioner {
 
     /// Zwraca ścieżkę do modelu, pobierając go jeśli jeszcze nie istnieje na
     /// dysku. Wołane z `WhisperSpeechEngine.prewarm()`, przy starcie apki.
-    static func ensureModelAvailable() async throws -> URL {
-        if isValid(at: modelURL) {
-            DebugLog.write("WhisperModel", "model już obecny, pomijam pobieranie")
-            return modelURL
+    static func ensureModelAvailable(_ choice: WhisperModelChoice = .current()) async throws -> URL {
+        let destination = modelURL(for: choice)
+        if isValid(at: destination, choice: choice) {
+            DebugLog.write("WhisperModel", "model \(choice.rawValue) już obecny, pomijam pobieranie")
+            return destination
         }
 
         try FileManager.default.createDirectory(at: modelsDirectory, withIntermediateDirectories: true)
-        DebugLog.write("WhisperModel", "pobieram ggml-base.bin (~148 MB) z \(downloadURL.absoluteString)")
+        let url = downloadURL(for: choice)
+        DebugLog.write(
+            "WhisperModel",
+            "pobieram \(choice.fileName) (~\(choice.approximateBytes / 1_000_000) MB) z \(url.absoluteString)"
+        )
         log.info("Pobieranie modelu whisper.cpp rozpoczęte")
 
         let downloader = ProgressLoggingDownloader()
-        let tmpLocation = try await downloader.download(from: downloadURL)
+        let tmpLocation = try await downloader.download(from: url)
 
         let size = (try? FileManager.default.attributesOfItem(atPath: tmpLocation.path)[.size] as? Int64) ?? 0
-        guard size >= minimumValidSize else {
+        guard size >= choice.minimumValidSize else {
             try? FileManager.default.removeItem(at: tmpLocation)
             throw ProvisionError.downloadTooSmall(bytes: size)
         }
 
-        _ = try? FileManager.default.removeItem(at: modelURL)
-        try FileManager.default.moveItem(at: tmpLocation, to: modelURL)
-        DebugLog.write("WhisperModel", "pobrano ggml-base.bin, \(size / 1_000_000) MB")
-        return modelURL
+        _ = try? FileManager.default.removeItem(at: destination)
+        try FileManager.default.moveItem(at: tmpLocation, to: destination)
+        DebugLog.write("WhisperModel", "pobrano \(choice.fileName), \(size / 1_000_000) MB")
+        return destination
     }
 
-    private static func isValid(at url: URL) -> Bool {
+    private static func isValid(at url: URL, choice: WhisperModelChoice) -> Bool {
         guard let size = try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64 else {
             return false
         }
-        return size >= minimumValidSize
+        return size >= choice.minimumValidSize
     }
 }
 

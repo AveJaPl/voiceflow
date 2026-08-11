@@ -9,7 +9,11 @@ private final class NoOpSpeechEngine: SpeechEngine {
     private var continuation: AsyncStream<TranscriptUpdate>.Continuation!
     let updates: AsyncStream<TranscriptUpdate>
     private(set) var beginCount = 0
+    /// „Silnik zatrzymany" — podbijane ZARÓWNO przez `endUtterance`, jak i
+    /// `cancelUtterance`, bo z punktu widzenia tych testów liczy się fakt
+    /// zatrzymania. `cancelCount` niżej rozróżnia, KTÓRĄ drogą.
     private(set) var endCount = 0
+    private(set) var cancelCount = 0
 
     init() {
         var cont: AsyncStream<TranscriptUpdate>.Continuation!
@@ -19,7 +23,11 @@ private final class NoOpSpeechEngine: SpeechEngine {
 
     func prewarm() async throws {}
     func beginUtterance() { beginCount += 1 }
-    func endUtterance() { endCount += 1 }
+    func endUtterance() async -> String? { endCount += 1
+        return nil
+    }
+
+    func cancelUtterance() { endCount += 1; cancelCount += 1 }
     func feed(_ buffer: AVAudioPCMBuffer) {}
 }
 
@@ -84,6 +92,10 @@ final class SessionControllerCancelTests: XCTestCase {
 
         XCTAssertEqual(controller.state, .idle, "Escape musi wrócić do .idle")
         XCTAssertEqual(engine.endCount, 1, "silnik ASR musi zostać zatrzymany")
+        XCTAssertEqual(
+            engine.cancelCount, 1,
+            "Escape musi PORZUCIĆ audio (cancelUtterance), a nie kończyć wypowiedź — `endUtterance` wymusiłby jeszcze jedno dekodowanie, którego wynik dolatuje po anulowaniu i doklejał się do następnej wypowiedzi"
+        )
         XCTAssertTrue(injector.applyPlans.isEmpty, "cancelUtterance NIGDY nie wstrzykuje na żywo")
         XCTAssertTrue(injector.clipboardTexts.isEmpty, "cancelUtterance NIGDY nie woła applyFinal (zero wklejania przez schowek)")
 

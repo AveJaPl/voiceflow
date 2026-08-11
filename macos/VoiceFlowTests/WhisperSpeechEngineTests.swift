@@ -91,6 +91,14 @@ final class WhisperSpeechEngineTests: XCTestCase {
     }
 
     /// Kryterium #3: `WhisperSpeechEngine` sam w sobie, bez `SessionController`.
+    /// Porównanie odporne na drobiazgi, które nie są przedmiotem testu
+    /// (wielkość liter na starcie, wielokrotne spacje, białe znaki na brzegach).
+    private static func normalized(_ text: String) -> String {
+        text.lowercased()
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+    }
+
     func testTranscribesWavFixtureInRealTime() async throws {
         let engine = WhisperSpeechEngine(language: "pl")
         try await engine.prewarm()
@@ -111,18 +119,29 @@ final class WhisperSpeechEngineTests: XCTestCase {
             let seconds = Double(piece.frameLength) / sampleRate
             try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
         }
-        // Łaska po ostatnim kawałku audio — daje ostatniemu krokowi
-        // dekodowania (co ~stepMs=300ms) szansę dobiec, zanim czytamy wynik.
-        try await Task.sleep(nanoseconds: 700_000_000)
-        engine.endUtterance()
-        try await Task.sleep(nanoseconds: 300_000_000)
+        // Tekst końcowy bierzemy z TEGO, co zwraca `endUtterance` — czyli z pełnego
+        // przebiegu po całym nagraniu. Wcześniej test czytał ostatni partial ze
+        // strumienia i musiał sobie dosypać `sleep` 700 ms, żeby ten partial zdążył
+        // dolecieć; to maskowało realny wyścig w `SessionController`.
+        let engineFinal = await engine.endUtterance()
 
         let firstPartial = await collector.firstPartial
-        let finalText = await collector.latestText
+        let streamedText = await collector.latestText
+        let finalText = engineFinal ?? streamedText
         DebugLog.write("Test", "WhisperSpeechEngine pierwszy partial: \"\(firstPartial ?? "")\"")
         DebugLog.write("Test", "WhisperSpeechEngine finalny tekst: \"\(finalText)\"")
 
         XCTAssertNotNil(firstPartial, "powinien pojawić się co najmniej jeden partial")
+        XCTAssertNotNil(engineFinal, "przebieg końcowy MUSI zwrócić tekst — to on trafia do użytkownika")
+        // Wzorzec zweryfikowany niezależnie: `whisper-cli -m ggml-base.bin -l pl -bs 5`
+        // na tym samym pliku zwraca dokładnie to zdanie. Słabsza asercja
+        // (`contains("dzień dobry")`) przepuszczała wynik "Dzień dobry. W chciałbym…",
+        // czyli dokładnie ten defekt, dla którego powstał przebieg końcowy.
+        XCTAssertEqual(
+            Self.normalized(finalText),
+            "dzień dobry, chciałbym dzisiaj porozmawiać o planach na przyszły tydzień.",
+            "pełny przebieg rozjechał się z referencją whisper-cli: \(finalText)"
+        )
         XCTAssertFalse(finalText.isEmpty, "finalny tekst nie powinien być pusty")
         // Sanity na słowach kluczowych, nie ścisła równość znak-w-znak — ASR
         // nie jest deterministycznie idealny nawet dla tego samego audio.
@@ -171,17 +190,30 @@ final class WhisperSpeechEngineTests: XCTestCase {
         // `endUtterance()` czyta SYNCHRONICZNIE, bez await) może być odrobinę
         // w tyle za ostatnimi słowami. Krótka łaska = to samo, co dzieje się
         // naturalnie, gdy użytkownik puszcza skrót chwilę po skończeniu mówić.
-        try await Task.sleep(nanoseconds: 700_000_000)
         controller.endUtterance()
-        try await Task.sleep(nanoseconds: 200_000_000)
+
+        // Finalizacja jest ASYNCHRONICZNA i taka ma być: `SessionController` czeka
+        // teraz, aż silnik przepuści całe nagranie pełnym przebiegiem. Zamiast
+        // zgadywać sztywnym `sleep` (poprzednia wersja czekała 200 ms, czyli mniej
+        // niż trwa samo dekodowanie) odpytujemy do skutku z limitem czasu.
+        let deadline = Date().addingTimeInterval(20)
+        while injector.clipboardTexts.isEmpty, Date() < deadline {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
 
         XCTAssertFalse(injector.clipboardTexts.isEmpty, "applyFinal powinien wstawić tekst przez schowek (oba tryby wstawiania go wołają)")
         let finalText = injector.clipboardTexts.last ?? ""
         DebugLog.write("Test", "SessionController applyFinal: \"\(finalText)\"")
 
         XCTAssertFalse(finalText.isEmpty)
-        let lower = finalText.lowercased()
-        XCTAssertTrue(lower.contains("dzień dobry") || lower.contains("dzien dobry"), "brak \"dzień dobry\" w applyFinal: \(finalText)")
+        // Mocna asercja: to, co realnie ląduje w schowku użytkownika, musi być
+        // pełnym zdaniem z przebiegu końcowego — nie sklejką commitów strumienia.
+        // Słabsze `contains("dzień dobry")` przepuszczało "Dzień dobry. W chciałbym…".
+        XCTAssertEqual(
+            Self.normalized(finalText),
+            "dzień dobry, chciałbym dzisiaj porozmawiać o planach na przyszły tydzień.",
+            "tekst wstrzyknięty rozjechał się z referencją whisper-cli: \(finalText)"
+        )
 
         try? FileManager.default.removeItem(at: tmpNotesURL)
     }

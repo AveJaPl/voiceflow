@@ -246,11 +246,24 @@ final class SessionController {
             return
         }
         state = .finalizing
-
-        engine.endUtterance()
         audioCapture.stop()
 
-        let finalRaw = differ.displayedText
+        Task { [weak self] in await self?.finishUtterance() }
+    }
+
+    /// Druga połowa `endUtterance()`, wykonywana PO tym, jak silnik naprawdę
+    /// skończył liczyć.
+    ///
+    /// Wcześniej wszystko poniżej działo się synchronicznie tuż po
+    /// `engine.endUtterance()`, które jedynie zlecało pracę i wracało natychmiast —
+    /// więc `differ.displayedText` czytany w następnej linijce nie zawierał jeszcze
+    /// końcówki wypowiedzi. Test end-to-end maskował to `sleep`em 700 ms.
+    private func finishUtterance() async {
+        // `engineFinal` to pełny przebieg po całym nagraniu (whisper). `nil` znaczy
+        // „nie mam nic lepszego" — wtedy zostaje tekst narosły w strumieniu, tak jak
+        // dla silnika Apple.
+        let engineFinal = await engine.endUtterance()
+        let finalRaw = engineFinal ?? differ.displayedText
         let formatted = formatter.format(finalRaw, isSentenceStart: true, endsUtterance: true)
 
         // Puszczenie skrótu ZANIM ASR zdążył cokolwiek zwrócić (bardzo szybkie
@@ -306,7 +319,10 @@ final class SessionController {
             return
         }
         DebugLog.write("Session", "cancelUtterance: Escape — przerywam dyktowanie bez wstrzykiwania")
-        engine.endUtterance()
+        // `cancelUtterance`, NIE `endUtterance`: to drugie wymuszało jeszcze jedno
+        // dekodowanie, którego wynik wpadał do strumienia już po anulowaniu i
+        // doklejał się do następnej wypowiedzi. Escape ma znaczyć „zapomnij".
+        engine.cancelUtterance()
         audioCapture.stop()
         segmenter.reset()
         room.reportCancelled()

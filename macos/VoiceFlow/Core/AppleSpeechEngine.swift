@@ -103,7 +103,18 @@ final class AppleSpeechEngine: SpeechEngine {
         oldRequest?.endAudio()
     }
 
-    func endUtterance() {
+    /// `nil` — silnik Apple nie ma osobnego przebiegu końcowego (transkrypcja
+    /// powstaje po stronie serwera, strumieniowo), więc tekst końcowy zostaje ten,
+    /// który narósł w `TextDiffer`. Kontrakt `SpeechEngine` przewiduje dokładnie
+    /// ten przypadek.
+    func endUtterance() async -> String? {
+        queue.async { [weak self] in
+            self?.isFeeding = false
+        }
+        return nil
+    }
+
+    func cancelUtterance() {
         queue.async { [weak self] in
             self?.isFeeding = false
         }

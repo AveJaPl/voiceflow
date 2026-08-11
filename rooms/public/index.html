@@ -57,7 +57,32 @@ footer{margin-top:24px; color:var(--faint); font-size:.8rem}
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="wrap" id="no-room" hidden>
+  <header><h1>voiceflow — pokoje</h1></header>
+  <p class="sub">Ta strona pokazuje, kto w pokoju właśnie dyktuje, i wynik bieżącej sesji.</p>
+  <div class="now" style="display:block">
+    <p style="margin:0 0 14px">Nie podałeś kodu pokoju, więc nie ma czego pokazać.</p>
+    <form id="code-form" style="display:flex; gap:10px; flex-wrap:wrap">
+      <input id="code-input" placeholder="KOD POKOJU" maxlength="6" autocapitalize="characters"
+        style="background:var(--raised); border:1px solid var(--border); color:var(--text);
+               border-radius:8px; padding:10px 14px; font:inherit; letter-spacing:.18em;
+               text-transform:uppercase; width:12rem">
+      <button type="submit"
+        style="background:var(--text); color:var(--bg); border:0; border-radius:8px;
+               padding:10px 18px; font:inherit; font-weight:500; cursor:pointer">Pokaż</button>
+    </form>
+  </div>
+  <p class="sub" style="margin-top:26px">Nie masz jeszcze pokoju? Na komputerze, na którym dyktujesz:</p>
+  <pre style="background:var(--surface); border:1px solid var(--border); border-radius:10px;
+              padding:16px; overflow-x:auto; font-size:.85rem; color:var(--muted)"><code>voiceflow room create --as TwojeImie --name "Salon"
+systemctl --user restart voiceflow</code></pre>
+  <p class="sub">Dostaniesz sześcioznakowy kod i adres tej strony. Druga osoba dołącza tak:</p>
+  <pre style="background:var(--surface); border:1px solid var(--border); border-radius:10px;
+              padding:16px; overflow-x:auto; font-size:.85rem; color:var(--muted)"><code>voiceflow room join KOD --as ImieDrugiejOsoby
+systemctl --user restart voiceflow</code></pre>
+</div>
+
+<div class="wrap" id="room-view" hidden>
   <header>
     <h1 id="room-name">Pokój</h1>
     <span class="code" id="room-code">—</span>
@@ -144,6 +169,16 @@ function renderRanking(data) {
 async function refresh() {
   try {
     const response = await fetch(`/api/rooms/${code}/ranking`);
+    if (response.status === 404) {
+      // Nieznany kod to CO INNEGO niż pusty pokój. Wcześniej strona pokazywała
+      // w obu wypadkach „Cisza", co wyglądało jak działający pokój, w którym
+      // nikt nie mówi — i kosztowało kwadrans szukania nieistniejącej usterki.
+      el('status').textContent = `Nie ma pokoju o kodzie ${code}`;
+      el('status').classList.add('offline');
+      el('rows').innerHTML =
+        '<tr><td class="empty" colspan="5">Sprawdź kod albo utwórz pokój: voiceflow room create --as TwojeImie</td></tr>';
+      return;
+    }
     if (!response.ok) throw new Error(String(response.status));
     renderRanking(await response.json());
     el('status').textContent = 'Na żywo';
@@ -172,10 +207,21 @@ function connect() {
   socket.onclose = () => setTimeout(connect, 3000);
 }
 
-renderSpeaker();
-refresh();
-setInterval(refresh, 5000);
-connect();
+if (!code) {
+  // Bez kodu w adresie nie udajemy pokoju — mówimy, czego brakuje.
+  el('no-room').hidden = false;
+  document.getElementById('code-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    const wanted = document.getElementById('code-input').value.trim().toUpperCase();
+    if (wanted) location.pathname = `/room/${wanted}`;
+  });
+} else {
+  el('room-view').hidden = false;
+  renderSpeaker();
+  refresh();
+  setInterval(refresh, 5000);
+  connect();
+}
 </script>
 </body>
 </html>

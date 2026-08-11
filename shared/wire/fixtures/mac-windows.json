@@ -1,0 +1,6 @@
+{"type":"windows","generation":42,
+ "displays":[{"id":1,"w":3456,"h":2234,"main":true}],
+ "windows":[
+   {"id":"812:0","app":"Terminal","bundleID":"com.apple.Terminal","title":"claude — ~/Programo/voiceflow","display":1,"x":0,"y":0,"w":1728,"h":2234,"z":0,"focused":true,"minimized":false,"kind":"terminal","inject":"clipboard"},
+   {"id":"913:0","app":"Cursor","bundleID":"com.todesktop.230313mzl4w4u92","title":"RemoteSession.swift","display":1,"x":1728,"y":0,"w":1728,"h":1117,"z":1,"focused":false,"minimized":false,"kind":"other","inject":"clipboard"}
+ ]}

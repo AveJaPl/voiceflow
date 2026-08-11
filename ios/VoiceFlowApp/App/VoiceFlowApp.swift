@@ -30,6 +30,7 @@ struct VoiceFlowApp: App {
 /// (nowa sesja nagrywania), zamiast pokazywania poprzedniego ekranu "Gotowe".
 struct RootView: View {
     @State private var onboardingDone = AppGroup.defaults.bool(forKey: AppGroupKeys.keyboardHasLaunched)
+        || LaunchOverrides.skipOnboarding
     @State private var launchedForDictation = false
     @State private var dictationSessionID = UUID()
 
@@ -55,13 +56,24 @@ struct RootView: View {
 }
 
 struct MainTabView: View {
+    /// Jedna sesja na całą apkę, trzymana tutaj, a nie w `RemoteView` — inaczej
+    /// każde wejście w zakładkę zaczynałoby połączenie od zera.
+    @StateObject private var remote = RemoteSession()
+
     var body: some View {
         TabView {
             NavigationStack { DictationView() }
                 .tabItem { Label("Dyktuj", systemImage: "mic") }
+            // Zakładka pojawia się DOPIERO po sparowaniu. Pokazywanie jej
+            // wcześniej znaczyłoby pokazywanie ekranu, który umie tylko
+            // powiedzieć „najpierw sparuj" — a od tego są Ustawienia.
+            if remote.isPaired {
+                NavigationStack { RemoteView(session: remote) }
+                    .tabItem { Label("Mac", systemImage: "macbook.and.iphone") }
+            }
             NavigationStack { HistoryView() }
                 .tabItem { Label("Historia", systemImage: "clock") }
-            NavigationStack { SettingsView() }
+            NavigationStack { SettingsView(remote: remote) }
                 .tabItem { Label("Ustawienia", systemImage: "gearshape") }
         }
         .tint(VFColor.text)

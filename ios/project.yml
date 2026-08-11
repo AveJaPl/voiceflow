@@ -21,6 +21,10 @@ targets:
     sources:
       - path: VoiceFlowApp
       - path: Shared
+      # Kontrakt ramek WS wspólny z macOS — JEDNO źródło prawdy, nie kopia.
+      # Fixture'y są tylko dla testów — nie ma powodu, żeby ważyły w apce.
+      - path: ../shared/wire
+        excludes: ["fixtures/**"]
     info:
       path: VoiceFlowApp/Info.plist
       properties:
@@ -33,6 +37,16 @@ targets:
           - UIInterfaceOrientationPortrait
         NSMicrophoneUsageDescription: "VoiceFlow potrzebuje mikrofonu, żeby transkrybować dyktowanie na żywo."
         NSSpeechRecognitionUsageDescription: "VoiceFlow potrzebuje rozpoznawania mowy Apple do transkrypcji polskiej."
+        NSCameraUsageDescription: "VoiceFlow używa aparatu wyłącznie do zeskanowania kodu QR, którym parujesz telefon z Makiem."
+        # ATS: produkcyjny relay chodzi po `wss://` i tego NIE ruszamy. Wyjątek
+        # dotyczy WYŁĄCZNIE sieci lokalnej i loopbacku — bez niego nie da się
+        # przetestować apki przeciw relayowi na `ws://127.0.0.1` (iOS odrzuca
+        # takie połączenie bez błędu, ekran po prostu wisi na „łączę…").
+        # To jest też warunek konieczny dla bezpośredniego połączenia po LAN,
+        # przewidzianego w planie §6. NIE jest to `NSAllowsArbitraryLoads`:
+        # ruch do internetu dalej musi być szyfrowany.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         # PIVOT #2 (docs/plans/ios-voiceflow-app.md §7): klawiatura otwiera
         # apkę kontenerową przez `extensionContext?.open(voiceflow://dictate)`
         # — mikrofon jest zablokowany w samym rozszerzeniu, więc to jedyny
@@ -129,6 +143,16 @@ targets:
       # odrzucona, `KeyboardLayout.swift`/`KeyboardInputController.swift`
       # usunięte — cała testowalna logika tego zadania (`PendingInsert`,
       # `TextDiffer`) jest już w `Shared/`, więc nic dodatkowego tu nie trzeba.
+      #
+      # Zakładka "Mac" (docs/plans/2026-08-11-ios-zdalne-sterowanie-mac.md):
+      # dokładamy kontrakt wire i rdzeń zdalnej sesji. CELOWO bez `VoiceFlowApp`
+      # w całości — ten katalog zawiera `@main`, którego nie wolno wciągać do
+      # bundle'a testowego.
+      - path: ../shared/wire
+        excludes: ["fixtures/**"]
+      - path: ../shared/wire/fixtures
+        buildPhase: resources
+      - path: VoiceFlowApp/Remote
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.avejapl.voiceflow.ios.tests

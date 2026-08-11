@@ -1,0 +1,73 @@
+/** Fikcyjny, ale celowo czytelny układ jednego pulpitu 3456 × 2234. */
+export const DISPLAY = { id: 1, w: 3456, h: 2234, main: true };
+
+export const INITIAL_WINDOWS = [
+  {
+    id: '501:0',
+    app: 'Terminal',
+    bundleID: 'com.apple.Terminal',
+    title: 'claude — ~/Programo/voiceflow',
+    display: 1,
+    x: 80,
+    y: 90,
+    w: 1580,
+    h: 1250,
+    z: 0,
+    focused: true,
+    minimized: false,
+    kind: 'terminal',
+    inject: 'clipboard',
+  },
+  {
+    id: '502:0',
+    app: 'iTerm2',
+    bundleID: 'com.googlecode.iterm2',
+    title: 'zsh — ~/Programo/voiceflow',
+    display: 1,
+    x: 1780,
+    y: 100,
+    w: 1550,
+    h: 920,
+    z: 1,
+    focused: false,
+    minimized: false,
+    kind: 'terminal',
+    inject: 'clipboard',
+  },
+  {
+    id: '503:0',
+    app: 'Cursor',
+    bundleID: 'com.todesktop.230313mzl4w4u92',
+    title: 'RemoteSession.swift — voiceflow',
+    display: 1,
+    x: 1730,
+    y: 1110,
+    w: 1600,
+    h: 1010,
+    z: 2,
+    focused: false,
+    minimized: false,
+    kind: 'other',
+    inject: 'liveTyping',
+  },
+  {
+    id: '504:0',
+    app: 'Safari',
+    bundleID: 'com.apple.Safari',
+    title: 'VoiceFlow documentation',
+    display: 1,
+    x: 120,
+    y: 1450,
+    w: 1500,
+    h: 680,
+    z: 3,
+    focused: false,
+    minimized: false,
+    kind: 'other',
+    inject: 'liveTyping',
+  },
+];
+
+export function cloneWindows(windows = INITIAL_WINDOWS) {
+  return windows.map((window) => ({ ...window }));
+}

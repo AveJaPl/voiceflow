@@ -1,0 +1,19 @@
+{
+  "name": "voiceflow-macsim",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Referencyjny symulator strony Maca dla protokołu VoiceFlow.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/**/*.test.js",
+    "fake-phone": "node scripts/fake-phone.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

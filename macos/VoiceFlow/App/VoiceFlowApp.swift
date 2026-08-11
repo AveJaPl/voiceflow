@@ -36,6 +36,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pillHideWorkItem: DispatchWorkItem?
     private let settingsModel = SettingsModel()
     private var settingsWindow: NSWindow?
+    private var mainWindow: NSWindow?
+    /// Stan, który widzi okno główne. Jedno źródło prawdy: aktualizuje je
+    /// wyłącznie ten kontroler, okno samo niczego nie odpytuje.
+    private lazy var uiModel = AppUIModel(store: notesStore)
     private var settingsCancellables: Set<AnyCancellable> = []
     /// Escape podczas `.listening` = anulowanie dyktowania (§Zadanie 2 audytu
     /// — Linux ma `voiceflow cancel`). Monitor GLOBALNY (nie lokalny) — VoiceFlow
@@ -77,6 +81,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.image?.isTemplate = true
 
         let menu = NSMenu()
+        let mainItem = NSMenuItem(title: "Otwórz voiceflow", action: #selector(showMainWindow), keyEquivalent: "o")
+        mainItem.target = self
+        menu.addItem(mainItem)
         let settingsItem = NSMenuItem(title: "Ustawienia…", action: #selector(showSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
@@ -93,6 +100,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.menu = menu
 
         statusItem = item
+    }
+
+    @objc private func showMainWindow() {
+        if mainWindow == nil {
+            guard let remoteMicClient else {
+                log.error("showMainWindow wołane przed setupRemoteMic — pomijam okno")
+                return
+            }
+            let root = MainView(model: uiModel, settingsModel: settingsModel, remoteMic: remoteMicClient)
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 1180, height: 760),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "voiceflow"
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            // Ciemny wygląd na sztywno: paleta jest przeniesiona z Linuksa i
+            // istnieje tylko w wersji ciemnej, więc jasny motyw systemu dałby
+            // czarny tekst na czarnym tle.
+            window.appearance = NSAppearance(named: .darkAqua)
+            window.contentView = NSHostingView(rootView: root)
+            window.isReleasedWhenClosed = false
+            window.center()
+            mainWindow = window
+        }
+        uiModel.reload()
+        mainWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc private func showSettings() {
@@ -173,6 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.updateIcon(for: state)
                 self?.updatePill(for: state)
                 self?.updateEscapeMonitor(for: state)
+                self?.updateWindow(for: state)
                 self?.debugWindowController?.update(state: "\(state)")
             }
             controller.onTextChange = { [weak self] text in
@@ -314,6 +352,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSEvent.removeMonitor(escapeMonitor)
                 self.escapeMonitor = nil
             }
+        }
+    }
+
+    /// Przekłada stan sesji na to, co pokazuje okno główne: nazwę stanu, kropkę
+    /// nagrywania i odświeżenie historii po zakończonym dyktowaniu. Okno jest
+    /// zwykle zamknięte — aktualizacja modelu jest wtedy i tak darmowa, a przy
+    /// otwartym oknie oszczędza odpytywania.
+    private func updateWindow(for state: SessionController.State) {
+        switch state {
+        case .idle:
+            uiModel.stateTitle = "Gotowy"
+            uiModel.stateDetail = ""
+            uiModel.isRecording = false
+        case .arming, .listening:
+            uiModel.stateTitle = "Nagrywanie"
+            uiModel.stateDetail = "Mów — tekst pojawi się w aktywnym oknie"
+            uiModel.isRecording = true
+        case .finalizing:
+            uiModel.stateTitle = "Przetwarzanie"
+            uiModel.stateDetail = "Domykam wypowiedź"
+            uiModel.isRecording = false
+        case .done:
+            uiModel.stateTitle = "Gotowy"
+            uiModel.stateDetail = ""
+            uiModel.isRecording = false
+            // Notatka jest już zapisana (SessionController robi to przed
+            // przejściem w .done), więc to najwcześniejszy moment, w którym
+            // historia w oknie ma co pokazać.
+            uiModel.noteAdded()
+        case .error(let reason):
+            uiModel.stateTitle = "Błąd"
+            uiModel.stateDetail = reason
+            uiModel.isRecording = false
         }
     }
 

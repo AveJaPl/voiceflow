@@ -4,6 +4,21 @@ Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[
 
 ## Unreleased
 
+- **[macOS]** Added the main window, built to match the Linux application:
+  sidebar navigation and the same five pages — Przegląd, Historia, Statystyki,
+  Słownik, Ustawienia — with the same headings, the same dark monochrome palette
+  and the same layout of cards. Until now the Mac was a menu-bar app with a
+  settings sheet and a separate notes list, and had no statistics at all. Open it
+  from the menu bar with **Otwórz voiceflow** (⌘O).
+- **[macOS]** `StatsLib` ports the shared statistics to Swift — totals, daily
+  series, streak, quantile activity levels, and the Polish number and duration
+  formatting. Its tests assert values produced by running the Python
+  implementation, so the two cannot drift without a test failing.
+- **[macOS]** Settings keep their existing controls for now. They carry real
+  behaviour — remote-microphone pairing, Discord shortcut capture — that is not
+  worth rewriting blind; they now live inside the new window instead of a
+  separate sheet.
+
 - **[macOS]** Dictation history now uses the same format as Linux and Windows:
   one JSON object per line, same keys, in `history.jsonl`. The Mac kept its own
   `notes.json` with a different schema that carried no word or character counts,

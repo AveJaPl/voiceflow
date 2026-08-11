@@ -44,6 +44,61 @@ export function rankingRows(rows) {
     .sort((a, b) => b.words - a.words);
 }
 
+/**
+ * Zamknięte i trwające sesje pokoju, z sumami każdej z nich.
+ *
+ * Sesja bez ani jednego dyktowania też tu jest: „zaczęliśmy i nic z tego nie
+ * wyszło" to prawdziwy fakt o pracy, a ukrycie takiej sesji wyglądałoby na
+ * zgubione dane.
+ */
+export function historyRows(rows) {
+  return rows.map((row) => {
+    const words = Number(row.words);
+    const dictations = Number(row.dictations);
+    return {
+      id: Number(row.id),
+      name: row.name,
+      startedAt: row.started_at,
+      endedAt: row.ended_at,
+      words,
+      seconds: Number(row.seconds),
+      dictations,
+      speakers: Number(row.speakers),
+      averageWords: dictations > 0 ? Math.round(words / dictations) : 0,
+    };
+  });
+}
+
+/** Dorobek każdej osoby w pokoju przez WSZYSTKIE sesje, nie tylko bieżącą. */
+export function summaryRows(rows) {
+  return rows
+    .map((row) => {
+      const words = Number(row.words);
+      const dictations = Number(row.dictations);
+      return {
+        deviceId: row.device_id,
+        name: row.name,
+        sessions: Number(row.sessions),
+        words,
+        seconds: Number(row.seconds),
+        dictations,
+        averageWords: dictations > 0 ? Math.round(words / dictations) : 0,
+      };
+    })
+    .sort((a, b) => b.words - a.words);
+}
+
+/** Sumy całego pokoju — jedna liczba na wiersz tablicy „razem". */
+export function historyTotals(sessions, people) {
+  return {
+    sessions: sessions.length,
+    people: people.length,
+    words: people.reduce((total, person) => total + person.words, 0),
+    seconds: people.reduce((total, person) => total + person.seconds, 0),
+    dictations: people.reduce((total, person) => total + person.dictations, 0),
+  };
+}
+
 export function createStore(pool) {
   return {
     async registerDevice(name, platform) {
@@ -120,6 +175,46 @@ export function createStore(pool) {
         [roomId],
       );
       return rows[0] ?? null;
+    },
+
+    /**
+     * Historia sesji pokoju, od najnowszej. LEFT JOIN, żeby sesja bez ani
+     * jednego dyktowania nie wypadła z listy.
+     */
+    async sessionHistory(roomId, limit = 50) {
+      const { rows } = await pool.query(
+        `SELECT s.id, s.name, s.started_at, s.ended_at,
+                COALESCE(SUM(d.words), 0)          AS words,
+                COALESCE(SUM(d.seconds), 0)        AS seconds,
+                COUNT(d.id)                        AS dictations,
+                COUNT(DISTINCT d.device_id)        AS speakers
+         FROM sessions s
+         LEFT JOIN dictations d ON d.session_id = s.id
+         WHERE s.room_id = $1
+         GROUP BY s.id
+         ORDER BY s.started_at DESC
+         LIMIT $2`,
+        [roomId, limit],
+      );
+      return historyRows(rows);
+    },
+
+    /** Dorobek każdej osoby przez wszystkie sesje tego pokoju. */
+    async roomSummary(roomId) {
+      const { rows } = await pool.query(
+        `SELECT d.device_id, dev.name,
+                COUNT(DISTINCT d.session_id) AS sessions,
+                COALESCE(SUM(d.words), 0)    AS words,
+                COALESCE(SUM(d.seconds), 0)  AS seconds,
+                COUNT(*)                     AS dictations
+         FROM dictations d
+         JOIN devices dev ON dev.id = d.device_id
+         JOIN sessions s  ON s.id = d.session_id
+         WHERE s.room_id = $1
+         GROUP BY d.device_id, dev.name`,
+        [roomId],
+      );
+      return summaryRows(rows);
     },
 
     async endSession(sessionId) {

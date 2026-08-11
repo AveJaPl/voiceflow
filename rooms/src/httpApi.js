@@ -6,9 +6,11 @@
  * tylko tym, co która trasa robi.
  */
 
+import { historyTotals } from './store.js';
+
 // `/session/end` stoi przed `/session`, bo alternatywa jest uporządkowana —
 // odwrotna kolejność zjadałaby dłuższą trasę krótszym wariantem.
-const ROOM_PATH = /^\/api\/rooms\/([^/]+)(\/join|\/ranking|\/session\/end|\/session)?$/;
+const ROOM_PATH = /^\/api\/rooms\/([^/]+)(\/join|\/ranking|\/history|\/session\/end|\/session)?$/;
 
 export function routeFor(method, url) {
   if (method === 'GET' && url === '/health') return { name: 'health', code: null };
@@ -21,6 +23,7 @@ export function routeFor(method, url) {
   const tail = match[2] ?? '';
   if (method === 'POST' && tail === '/join') return { name: 'join', code };
   if (method === 'GET' && tail === '/ranking') return { name: 'ranking', code };
+  if (method === 'GET' && tail === '/history') return { name: 'history', code };
   if (method === 'POST' && tail === '/session/end') return { name: 'endSession', code };
   if (method === 'POST' && tail === '/session') return { name: 'startSession', code };
   return null;
@@ -100,6 +103,21 @@ export function createHttpApi({ store }) {
       if (active) await store.endSession(active.id);
       const session = await store.startSession(room.id, body.name || null);
       return sendJson(res, 201, { ended: active?.id ?? null, session });
+    }
+
+    if (route.name === 'history') {
+      // Historia i sumy jadą jednym wejściem, bo strona i tak rysuje je razem,
+      // a dwa odpytania dawałyby widok, w którym sumy nie zgadzają się z listą.
+      const [sessions, people] = await Promise.all([
+        store.sessionHistory(room.id),
+        store.roomSummary(room.id),
+      ]);
+      return sendJson(res, 200, {
+        room,
+        sessions,
+        people,
+        totals: historyTotals(sessions, people),
+      });
     }
 
     if (route.name === 'ranking') {

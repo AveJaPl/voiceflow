@@ -166,3 +166,49 @@ test('nazwana sesja w nieistniejącym pokoju to 404', async () => {
 
   assert.equal(res.statusCode, 404);
 });
+
+test('historia pokoju ma własną trasę', () => {
+  assert.deepEqual(routeFor('GET', '/api/rooms/AB23CD/history'), {
+    name: 'history',
+    code: 'AB23CD',
+  });
+});
+
+test('historia zwraca sesje, osoby i zgodne z nimi sumy', async () => {
+  const store = fakeStore({
+    async sessionHistory() {
+      return [
+        { id: 9, name: 'coding session', startedAt: 'b', endedAt: null,
+          words: 40, seconds: 20, dictations: 1, speakers: 1, averageWords: 40 },
+        { id: 7, name: null, startedAt: 'a', endedAt: 'a2',
+          words: 60, seconds: 30, dictations: 2, speakers: 1, averageWords: 30 },
+      ];
+    },
+    async roomSummary() {
+      return [
+        { deviceId: 'dev-1', name: 'Filip', sessions: 2, words: 100,
+          seconds: 50, dictations: 3, averageWords: 33 },
+      ];
+    },
+  });
+  const handle = createHttpApi({ store });
+  const { req, res } = fakeExchange('GET', '/api/rooms/AB23CD/history');
+
+  await handle(req, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.sessions.length, 2);
+  assert.equal(res.body.sessions[0].name, 'coding session', 'najnowsza sesja pierwsza');
+  assert.equal(res.body.totals.sessions, 2);
+  assert.equal(res.body.totals.words, 100, 'sumy zgadzają się z listą osób');
+  assert.equal(res.body.totals.people, 1);
+});
+
+test('historia nieistniejącego pokoju to 404', async () => {
+  const handle = createHttpApi({ store: fakeStore() });
+  const { req, res } = fakeExchange('GET', '/api/rooms/ZZZZZZ/history');
+
+  await handle(req, res);
+
+  assert.equal(res.statusCode, 404);
+});

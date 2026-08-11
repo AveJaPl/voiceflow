@@ -57,6 +57,30 @@ page when ready. Details and current limitations: [docs/WINDOWS.md](docs/WINDOWS
 > silently executes it inside WSL, where dictation cannot work (the installer
 > now detects this and stops, but save yourself the round trip).
 
+### 🍎 macOS (alpha — build from source)
+
+**There is no download and no installer yet.** No `.dmg`, nothing on the
+Releases page: the Mac port is a native SwiftUI app you build yourself, and it
+needs a signing identity that only you can provide. Full walkthrough in
+[macos/README.md](macos/README.md); the short version:
+
+```bash
+brew install --cask xcodes        # or install Xcode from the App Store
+brew install whisper-cpp xcodegen
+git clone https://github.com/AveJaPl/voiceflow.git
+cd voiceflow/macos
+xcodegen generate
+open VoiceFlow.xcodeproj          # pick your team under Signing, then ⌘R
+```
+
+**Check this first:** the project targets **macOS 26**. On anything older it
+will not build, and lowering the target has not been tested.
+
+Two more things that will stop a first build if nobody warns you: the signing
+team in `project.yml` is the one belonging to whoever set the port up, so you
+must substitute your own; and the Homebrew paths assume Apple Silicon. Both are
+covered in [macos/README.md](macos/README.md).
+
 ### After installing (both systems)
 
 The installer downloads the speech model (~1.6 GB) **with a visible progress
@@ -247,13 +271,17 @@ logic, vocabulary, and config are already platform-neutral; only `recorder`,
   Core Audio ducking, CUDA transcription, toasts, and the same command line over
   a local control channel. See [docs/WINDOWS.md](docs/WINDOWS.md); feedback in
   [#2](https://github.com/AveJaPl/voiceflow/issues/2)
-- [ ] **macOS** — AVFoundation recorder, CGEvent paste, NSPanel overlay, Accessibility
-  permissions; Apple Silicon inference via CPU or an mlx/whisper.cpp backend ([#3](https://github.com/AveJaPl/voiceflow/issues/3))
+- [x] **macOS** *(alpha — build from source, see [macos/README.md](macos/README.md))* —
+  a native SwiftUI menu-bar app rather than a port of the Python daemon: AVFoundation
+  recording, hold-to-talk, on-device whisper.cpp, non-activating NSPanel overlay,
+  Accessibility injection, and the same window, pages and history format as Linux.
+  No installer yet — it needs your own signing identity
+  ([#3](https://github.com/AveJaPl/voiceflow/issues/3))
 - [ ] **Android** *(in progress — early alpha in [`android/`](android/))* — a custom
   keyboard (IME) with on-device whisper.cpp, so dictation works in every app
   ([#6](https://github.com/AveJaPl/voiceflow/issues/6))
-- [ ] **iOS** — keyboard extension, sibling of the Android app
-  ([#7](https://github.com/AveJaPl/voiceflow/issues/7))
+- [ ] **iOS** *(in progress — see [`ios/`](ios/))* — keyboard extension, sibling of the
+  Android app ([#7](https://github.com/AveJaPl/voiceflow/issues/7))
 - [ ] **i18n** of user-facing strings (currently Polish — the author dictates in Polish)
   ([#5](https://github.com/AveJaPl/voiceflow/issues/5))
 

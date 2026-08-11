@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from voiceflow.gui import service
+from voiceflow.gui.hotkeyfield import HotkeyField
 from voiceflow.gui.widgets import (
     BackgroundCall,
     Card,
@@ -118,15 +119,15 @@ class SettingsPage(QWidget):
         card = Card()
         card.body.addWidget(label("Skrót klawiszowy", name="card-title"))
         form = _form(card)
-        self._hotkey = QLineEdit()
-        self._hotkey.setPlaceholderText("ctrl+shift+space")
-        self._hotkey.textChanged.connect(self._touch)
+        self._hotkey = HotkeyField()
+        self._hotkey.changed.connect(self._touch)
         form.addRow("Skrót", self._hotkey)
         card.body.addWidget(
             _hint(
-                "Modyfikatory: ctrl, shift, alt, win. Klawisz: litera, cyfra, "
-                "space, insert, pause albo f1–f12. Zmiana działa po ponownym "
-                "uruchomieniu demona."
+                "Naciśnij „Nagraj skrót” i wciśnij kombinację — klawisz Windows "
+                "też zostanie złapany. Modyfikatory: ctrl, shift, alt, win. "
+                "Klawisz: litera, cyfra, space, insert, pause albo f1–f24. "
+                "Zapis ustawień restartuje demona, więc skrót działa od razu."
             )
         )
 
@@ -180,6 +181,11 @@ class SettingsPage(QWidget):
         card.body.addWidget(self._duck_enabled)
 
         form = _form(card)
+        self._mute_apps = QLineEdit()
+        self._mute_apps.setPlaceholderText("Discord.exe, Teams.exe")
+        self._mute_apps.textChanged.connect(self._touch)
+        form.addRow("Wycisz mikrofon w", self._mute_apps)
+
         self._duck_volume = QSpinBox()
         self._duck_volume.setRange(0, 100)
         self._duck_volume.setSuffix(" %")
@@ -205,9 +211,12 @@ class SettingsPage(QWidget):
         card.body.addWidget(self._audio_list)
         card.body.addWidget(
             _hint(
-                "Windows nie pozwala wyciszyć mikrofonu pojedynczej aplikacji, "
-                "więc voiceflow tylko przycisza odtwarzanie. Na rozmowie użyj "
-                "push-to-talk."
+                "Aplikacje po przecinku — ich mikrofon jest wyciszany na czas "
+                "dyktowania, więc rozmówcy nie słyszą promptu, a voiceflow "
+                "nagrywa dalej. Po nagraniu wszystko wraca do poprzedniego "
+                "stanu. Oznaczone 🎤 właśnie nagrywają, ● odtwarzają. Aplikacje "
+                "korzystające ze starego MME zamiast WASAPI są niewidoczne dla "
+                "systemu i nie da się ich wyciszyć osobno."
             )
         )
         return card
@@ -308,7 +317,7 @@ class SettingsPage(QWidget):
             self._beam.setValue(service.int_value(model, "beam_size", 5))
 
             hotkey = service.section(raw, "hotkey")
-            self._hotkey.setText(service.string_value(hotkey, "binding", "ctrl+shift+space"))
+            self._hotkey.set_value(service.string_value(hotkey, "binding", "ctrl+shift+space"))
 
             inject = service.section(raw, "inject")
             self._paste_key.setText(service.string_value(inject, "paste_key", "ctrl+v"))
@@ -328,6 +337,7 @@ class SettingsPage(QWidget):
             self._max_seconds.setValue(service.int_value(audio, "max_seconds", 300))
 
             mute = service.section(raw, "mute_apps")
+            self._mute_apps.setText(", ".join(service.string_list_value(mute, "apps")))
             self._duck_enabled.setChecked(service.bool_value(mute, "duck_enabled", True))
             self._duck_volume.setValue(int(service.float_value(mute, "duck_volume", 0.4) * 100))
 
@@ -388,7 +398,7 @@ class SettingsPage(QWidget):
         model["language"] = language or None
         model["beam_size"] = self._beam.value()
 
-        service.mutable_section(raw, "hotkey")["binding"] = self._hotkey.text().strip()
+        service.mutable_section(raw, "hotkey")["binding"] = self._hotkey.value()
 
         inject = service.mutable_section(raw, "inject")
         inject["paste_key"] = self._paste_key.text().strip() or "ctrl+v"
@@ -403,6 +413,7 @@ class SettingsPage(QWidget):
         service.mutable_section(raw, "audio")["max_seconds"] = self._max_seconds.value()
 
         mute = service.mutable_section(raw, "mute_apps")
+        mute["apps"] = [name.strip() for name in self._mute_apps.text().split(",") if name.strip()]
         mute["duck_enabled"] = self._duck_enabled.isChecked()
         mute["duck_volume"] = round(self._duck_volume.value() / 100, 2)
 
@@ -459,7 +470,9 @@ class SettingsPage(QWidget):
             self._audio_list.setText("Nie wykryto aplikacji odtwarzających dźwięk.")
             return
         names = [
-            f"{application.name}{' ●' if application.playing else ''}"
+            f"{application.name}"
+            f"{' 🎤' if application.capturing else ''}"
+            f"{' ●' if application.playing else ''}"
             for application in applications
         ]
         self._audio_list.setText("   ".join(names))

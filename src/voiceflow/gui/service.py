@@ -82,6 +82,30 @@ def daemon_status() -> dict[str, Any] | None:
         return None
 
 
+def probe_binding(binding: str) -> str:
+    """Can the daemon actually have this chord? One of free/taken/current.
+
+    Windows answers by letting us register it, but our own running daemon holds
+    the shortcut it is listening on — probing that one fails, and reporting it
+    as "taken" would tell the user their current, working hotkey is unusable.
+    So the daemon's own binding is recognised first.
+
+    Raises ``ValueError`` when the text is not a binding at all.
+    """
+    from voiceflow.winplat.hotkey import binding_is_available
+
+    status = daemon_status()
+    if (
+        isinstance(status, dict)
+        and binding == status.get("hotkey")
+        # Only when it really holds it. A daemon whose registration failed owns
+        # nothing, and the probe below is then the honest answer.
+        and status.get("hotkey_active")
+    ):
+        return "current"
+    return "free" if binding_is_available(binding) else "taken"
+
+
 def daemon_command(command: str, *, timeout: float = 3.0) -> dict[str, Any]:
     try:
         return send_request(command, timeout=timeout)
@@ -350,40 +374,58 @@ class AudioApplication:
     ``playing`` means it has a live playback session right now. Windows keeps
     expired sessions around for a while, which is useful: an app that is merely
     paused stays visible instead of vanishing from the ducking list.
+
+    ``capturing`` means it is holding a microphone — the apps worth adding to
+    the mic-mute list, and the only ones that can be muted individually.
     """
 
     name: str
     playing: bool = False
+    capturing: bool = False
 
 
 def discover_audio_applications() -> list[AudioApplication]:
-    """List applications with playback sessions, via Core Audio."""
+    """List applications playing or recording audio, via Core Audio."""
     if os.name != "nt":
         return []
-    from voiceflow.winplat.micmute import _com_apartment
+    from voiceflow.winplat.micmute import capture_sessions, run_with_audio
 
     found: dict[str, bool] = {}
-    try:
+    capturing: set[str] = set()
+
+    def collect() -> None:
+        # Runs on the Core Audio thread; see micmute for why that matters.
         from pycaw.pycaw import AudioUtilities
 
-        with _com_apartment():
-            for session in AudioUtilities.GetAllSessions():
-                process = session.Process
-                if process is None:
-                    continue
-                try:
-                    name = process.name()
-                except Exception:  # noqa: BLE001 - the process may have just exited
-                    continue
-                if not name:
-                    continue
-                # State 1 is Active; anything else is expired or inactive.
-                active = getattr(session, "State", 0) == 1
-                found[name] = found.get(name, False) or active
+        for session in AudioUtilities.GetAllSessions():
+            process = session.Process
+            if process is None:
+                continue
+            try:
+                name = process.name()
+            except Exception:  # noqa: BLE001 - the process may have just exited
+                continue
+            if not name:
+                continue
+            # State 1 is Active; anything else is expired or inactive.
+            active = getattr(session, "State", 0) == 1
+            found[name] = found.get(name, False) or active
+        for session in capture_sessions():
+            # Only a session Windows calls Active means "holding the microphone
+            # right now"; the rest are leftovers and would read as a lie.
+            if session.active:
+                capturing.add(session.app)
+            found.setdefault(session.app, False)
+
+    try:
+        run_with_audio(collect)
     except Exception as exc:  # noqa: BLE001 - Core Audio is best effort
         raise RuntimeError(f"Nie można odczytać sesji audio: {exc}") from exc
     return sorted(
-        (AudioApplication(name, playing) for name, playing in found.items()),
+        (
+            AudioApplication(name, playing, name in capturing)
+            for name, playing in found.items()
+        ),
         key=lambda application: application.name.casefold(),
     )
 

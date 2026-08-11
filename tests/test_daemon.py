@@ -68,6 +68,25 @@ class _Notifier:
         self.messages.append(f"{urgency}:{message}")
 
 
+class _Muter:
+    """Records mute calls instead of touching the machine's real audio.
+
+    Without this the daemon builds a live Core Audio muter, and running the
+    suite genuinely mutes the developer's microphone and turns their music down
+    — which is both rude and a source of crashes, since COM pointers then
+    outlive the threads pytest creates and destroys.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def mute(self) -> None:
+        self.calls.append("mute")
+
+    def unmute(self) -> None:
+        self.calls.append("unmute")
+
+
 class _Overlay:
     """Records overlay calls instead of spawning a real on-screen window."""
 
@@ -95,6 +114,7 @@ def test_toggle_state_machine_ignores_toggle_during_transcription(tmp_path: Path
         notifier=_Notifier(),  # type: ignore[arg-type]
         overlay=_Overlay(),  # type: ignore[arg-type]
         history=History(HistoryConfig(), tmp_path / "history.jsonl"),
+        micmuter=_Muter(),  # type: ignore[arg-type]
     )
 
     started = daemon.handle_command("toggle")
@@ -129,6 +149,7 @@ def test_cancel_discards_recording(tmp_path: Path) -> None:
         notifier=_Notifier(),  # type: ignore[arg-type]
         overlay=_Overlay(),  # type: ignore[arg-type]
         history=History(HistoryConfig(), tmp_path / "history.jsonl"),
+        micmuter=_Muter(),  # type: ignore[arg-type]
     )
 
     daemon.handle_command("start")

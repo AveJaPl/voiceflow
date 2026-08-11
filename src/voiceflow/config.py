@@ -21,6 +21,12 @@ _WINDOWS = os.name == "nt"
 #: apps ignore outright — there the universal chord is plain ctrl+v.
 DEFAULT_PASTE_KEY = "ctrl+v" if _WINDOWS else "ctrl+shift+v"
 
+#: Applications whose microphone is silenced while dictating. The two platforms
+#: name the same thing differently: PipeWire reports a stream's
+#: ``application.name`` ("WEBRTC VoiceEngine" is Discord's mic stream), while
+#: Core Audio identifies a session by the executable behind it.
+DEFAULT_MUTE_APPS = ("Discord.exe",) if _WINDOWS else ("WEBRTC VoiceEngine",)
+
 _INJECT_COMMENT = (
     """\
   # Windows pastes with ctrl+v; the clipboard route is the only one that
@@ -40,13 +46,15 @@ _AUDIO_SOURCE_COMMENT = (
 _MUTE_APPS_SECTION = (
     """\
 mute_apps:
-  # Windows has no public per-application microphone mute, so `apps` is a
-  # no-op here — use Discord's own push-to-talk while dictating.
+  # While recording, mute these applications' microphone so people on a voice
+  # chat do not hear the dictation. The physical mic stays live for voiceflow.
+  # Named by executable, with or without .exe. Only apps recording through
+  # WASAPI can be singled out; legacy MME/DirectSound apps are invisible.
   enabled: true
-  apps: []
-  # Ducking DOES work: application playback (music, calls, videos) is turned
-  # down while you dictate. duck_volume is the default target; duck_rules
-  # overrides it per process name (1.0 = never duck that app).
+  apps: [Discord.exe]
+  # Application playback (music, calls, videos) is also turned down while you
+  # dictate. duck_volume is the default target; duck_rules overrides it per
+  # process name (1.0 = never duck that app).
   duck_enabled: true
   duck_volume: 0.4          # apps without a rule duck to 40%
   duck_rules: {}            # e.g. {Spotify.exe: 0.2, Discord.exe: 0.3}
@@ -194,9 +202,9 @@ class MuteAppsConfig:
     """Muting and ducking other applications' audio during recording."""
 
     enabled: bool = True
-    #: application.name values of PipeWire capture streams to silence.
-    #: "WEBRTC VoiceEngine" is Discord's microphone stream.
-    apps: tuple[str, ...] = ("WEBRTC VoiceEngine",)
+    #: Applications whose microphone is silenced while dictating: PipeWire
+    #: ``application.name`` values on Linux, executable names on Windows.
+    apps: tuple[str, ...] = DEFAULT_MUTE_APPS
     #: Also turn DOWN application playback (music, calls, videos) while dictating.
     duck_enabled: bool = True
     #: Default duck target for apps WITHOUT a specific rule, as a fraction of
@@ -445,7 +453,7 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
         ),
         mute_apps=MuteAppsConfig(
             enabled=_boolean(mute_apps.get("enabled", True), True, "mute_apps.enabled"),
-            apps=_string_tuple(mute_apps.get("apps", ("WEBRTC VoiceEngine",)), "mute_apps.apps"),
+            apps=_string_tuple(mute_apps.get("apps", DEFAULT_MUTE_APPS), "mute_apps.apps"),
             duck_enabled=_boolean(mute_apps.get("duck_enabled", True), True, "mute_apps.duck_enabled"),
             duck_volume=_fraction(mute_apps.get("duck_volume", 0.4), 0.4, "mute_apps.duck_volume"),
             duck_rules=_duck_rules(mute_apps.get("duck_rules"), "mute_apps.duck_rules"),

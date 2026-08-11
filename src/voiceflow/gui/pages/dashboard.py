@@ -145,13 +145,30 @@ class DashboardPage(QWidget):
             f"Model {status.get('model', '?')} — {status.get('device', '?')}"
             f"/{status.get('compute_type', '?')}"
         )
-        hotkey = status.get("hotkey")
-        self._hint_label.setText(
-            f"Skrót: {hotkey} — wciśnij, mów, wciśnij ponownie." if hotkey else ""
-        )
+        self._apply_hotkey(status)
         self._toggle_button.setText("Zatrzymaj demona")
         self._toggle_button.setEnabled(True)
         self._restart_button.setEnabled(True)
+
+    def _apply_hotkey(self, status: dict) -> None:
+        """Say whether the shortcut works, not merely what it is set to.
+
+        ``hotkey_active`` is absent on older daemons and during the moment
+        before registration settles; there the configured name is all we can
+        honestly show.
+        """
+        hotkey = status.get("hotkey")
+        if not hotkey:
+            self._hint_label.setText("")
+            self._hint_label.setStyleSheet("")
+            return
+        if status.get("hotkey_active") is False:
+            reason = status.get("hotkey_error") or "zajmuje go inna aplikacja"
+            self._hint_label.setText(f"Skrót {hotkey} NIE działa — {reason}")
+            self._hint_label.setStyleSheet(f"color: {theme.ACCENT};")
+            return
+        self._hint_label.setText(f"Skrót: {hotkey} — wciśnij, mów, wciśnij ponownie.")
+        self._hint_label.setStyleSheet("")
 
     def _apply_history(self, summary: object) -> None:
         if not isinstance(summary, dict):

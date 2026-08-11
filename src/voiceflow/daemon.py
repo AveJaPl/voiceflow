@@ -137,6 +137,7 @@ class VoiceflowDaemon:
         notifier: NotifierLike | None = None,
         overlay: Overlay | None = None,
         history: History | None = None,
+        micmuter: MicMuter | None = None,
     ) -> None:
         self.config = config
         self.state = State.IDLE
@@ -150,7 +151,11 @@ class VoiceflowDaemon:
             self.overlay = WinOverlay(config.overlay)
         else:
             self.overlay = overlay or Overlay(config.overlay)
-        if _WINDOWS:
+        if micmuter is not None:
+            # Injectable like every other collaborator: a test that drives the
+            # state machine must not reach the machine's real microphone.
+            self.micmuter = micmuter
+        elif _WINDOWS:
             from voiceflow.winplat.micmute import WinMicMuter
 
             self.micmuter = WinMicMuter(config.mute_apps)
@@ -180,6 +185,7 @@ class VoiceflowDaemon:
                 config.audio, runtime_dir(), self._max_duration_reached
             )
         self._server: socketserver.BaseServer | None = None
+        self._hotkey_listener: Any = None
         threading.Thread(
             target=self._announce_update, name="voiceflow-update-check", daemon=True
         ).start()
@@ -404,6 +410,15 @@ class VoiceflowDaemon:
             # The daemon owns the shortcut here, so it is the only place that
             # can answer "which key am I actually listening for?".
             status["hotkey"] = self.config.hotkey.binding
+            listener = self._hotkey_listener
+            if listener is not None and listener.state != "pending":
+                # Reporting the configured string alone made a dead shortcut
+                # look healthy: the config says ctrl+shift+space, Windows gave
+                # it to somebody else, and the dashboard cheerfully told the
+                # user to press it. Report what was registered, not what was asked.
+                status["hotkey_active"] = listener.state == "active"
+                if listener.error:
+                    status["hotkey_error"] = listener.error
         return status
 
     def run(self) -> None:
@@ -460,6 +475,7 @@ class VoiceflowDaemon:
             lambda: self.handle_command("toggle"),
             on_error=lambda message: self.notifier.send(f"❌ {message}", urgency="critical"),
         )
+        self._hotkey_listener = listener
         listener.start()
 
         def request_shutdown(signum: int, _frame: object) -> None:

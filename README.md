@@ -153,7 +153,7 @@ inject:
   method: clipboard       # clipboard | ydotool | auto
   paste_key: ctrl+shift+v # Linux terminals paste with shift; Windows uses ctrl+v
 mute_apps:
-  apps: [WEBRTC VoiceEngine]   # Discord's mic stream; find others via pw-dump
+  apps: [WEBRTC VoiceEngine]   # Discord's mic stream (Windows: Discord.exe)
   duck_volume: 0.4        # duck the call to 40% while dictating
 ```
 
@@ -176,7 +176,7 @@ mute_apps:
 | `preview.enabled` | `true` | live preview while speaking |
 | `preview.interval_seconds` | `1.0` | preview refresh rate |
 | `mute_apps.enabled` | `true` | mute configured apps' mic streams while recording |
-| `mute_apps.apps` | `[WEBRTC VoiceEngine]` | PipeWire `application.name` values |
+| `mute_apps.apps` | `[WEBRTC VoiceEngine]`, Windows `[Discord.exe]` | apps whose mic is muted: PipeWire `application.name` on Linux, executable name on Windows |
 | `mute_apps.duck_enabled` | `true` | also duck those apps' playback |
 | `mute_apps.duck_volume` | `0.4` | duck target as a fraction of full volume |
 | `mute_apps.duck_rules` | `{}` | per-application playback targets keyed by PipeWire `application.name` |

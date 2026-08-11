@@ -31,6 +31,10 @@ dependencies = [
   "sounddevice; sys_platform == 'win32'",
   "pycaw; sys_platform == 'win32'",
   "comtypes; sys_platform == 'win32'",
+  # Core Audio identifies a session by process id only; psutil turns that into
+  # the executable name the config is written in. pycaw pulls it in too, but we
+  # import it directly, so it is declared directly.
+  "psutil; sys_platform == 'win32'",
   # The desktop window. Linux has the GTK4/libadwaita app in app/; PyGObject
   # publishes no Windows wheel at all, so the Windows UI is Qt.
   "PySide6; sys_platform == 'win32'",

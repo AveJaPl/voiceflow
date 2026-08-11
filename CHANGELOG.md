@@ -2,6 +2,59 @@
 
 Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[Web]**
 
+## Unreleased
+
+- **[Windows]** The microphone half of `mute_apps` now works, so dictating no
+  longer broadcasts the prompt to everyone on the call. While recording, the
+  configured applications' capture sessions are muted and all playback is
+  ducked; both are restored exactly afterwards, and a microphone the user muted
+  themselves is never touched. This shipped as a documented no-op on the claim
+  that Windows has no per-application capture mute. It does: every application
+  recording through WASAPI owns a capture session with its own mute flag.
+  Applications on the legacy MME/DirectSound paths remain invisible.
+- **[Windows]** Restores no longer follow the process id alone. Windows persists
+  an application's mixer state per application, so a session that died while
+  voiceflow held it ducked — or muted — left that app quiet, or the user silent
+  on their next call, permanently and with nothing to explain it. A restore that
+  finds no live session now falls back to any newer session of the same
+  executable, and whatever still cannot be reached is retried before the next
+  recording is ducked. The Linux backend has carried this repair for a while;
+  the Windows one now matches it.
+- **[Windows]** Fixed a crash that took the whole process down with an access
+  violation raised inside the garbage collector, pointing at whatever unrelated
+  line happened to allocate at the time. Core Audio work ran on whichever thread
+  called in, each opening and closing its own single-threaded COM apartment,
+  while pycaw's session objects survive in reference cycles until the collector
+  runs — by which time the apartment that owned them, or the thread itself, was
+  gone, and releasing the pointer was illegal. All Core Audio calls now go
+  through one immortal daemon thread in a multi-threaded apartment, where a late
+  release from any thread is legal.
+- **[All]** The daemon accepts an injectable `micmuter`, like every other
+  collaborator. Without it, running the test suite drove the real Core Audio
+  stack: the developer's microphone genuinely muted and their music genuinely
+  ducked, mid-test.
+- **[Windows]** Settings can edit which applications get their microphone muted,
+  and the detected-applications list marks what is recording (🎤) as well as
+  what is playing (●). The list existed but the setting behind it did not.
+
+- **[Windows]** The shortcut is now recorded by pressing it. The settings field
+  installs a low-level keyboard hook while recording, so it captures chords the
+  shell would otherwise eat — `Win+Alt+Space` is bindable, and pressing Win does
+  not open the Start Menu. Escape cancels, and an abandoned recording releases
+  the keyboard by itself after eight seconds.
+- **[Windows]** A recorded chord is checked against Windows before anything is
+  saved: the field says *wolny* or *zajęty przez inną aplikację* while you are
+  still choosing, instead of the daemon discovering the conflict after a restart
+  and a four-second model reload. The daemon's own shortcut is recognised rather
+  than reported as taken.
+- **[Windows]** Fixed: the dashboard reported the *configured* hotkey, so a
+  shortcut Windows had refused to register still appeared as "wciśnij, mów" —
+  the UI insisted the feature worked while nothing happened. The daemon now
+  reports whether registration actually succeeded, and the dashboard says so.
+- **[Windows]** `f13`–`f24` are accepted in `hotkey.binding`. They are on no
+  physical keyboard, which makes them the one class of shortcut nothing else
+  can claim: remap Caps Lock to F13 and dictation is a single keypress.
+
 ## 0.4.0 — 2026-08-10
 
 - **[Windows]** Added the desktop window. All five pages the Linux application

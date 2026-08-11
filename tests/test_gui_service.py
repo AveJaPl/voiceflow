@@ -140,6 +140,38 @@ def test_duck_rules_reject_out_of_range_volumes() -> None:
     assert rules == {"Spotify": 0.2, "Discord": 0.3}
 
 
+def test_probe_recognises_the_shortcut_the_daemon_already_holds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Our own daemon owns its hotkey, so Windows refuses to lend it to us.
+
+    Without this branch the settings window would tell the user that the
+    shortcut they are happily using every day is taken and must be changed.
+    """
+    monkeypatch.setattr(
+        service, "daemon_status", lambda: {"hotkey": "ctrl+shift+space", "hotkey_active": True}
+    )
+
+    assert service.probe_binding("ctrl+shift+space") == "current"
+
+
+def test_probe_still_asks_windows_when_the_daemons_hotkey_is_dead(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A daemon whose registration failed holds nothing — ask, do not assume."""
+    monkeypatch.setattr(
+        service, "daemon_status", lambda: {"hotkey": "ctrl+shift+space", "hotkey_active": False}
+    )
+    asked: list[str] = []
+    monkeypatch.setattr(
+        "voiceflow.winplat.hotkey.binding_is_available",
+        lambda binding: asked.append(binding) or True,
+    )
+
+    assert service.probe_binding("ctrl+shift+space") == "free"
+    assert asked == ["ctrl+shift+space"]
+
+
 @pytest.mark.skipif(os.name != "nt", reason="uruchamianie demona jest ścieżką windowsową")
 def test_daemon_launcher_prefers_a_windowless_interpreter() -> None:
     """Starting the daemon from the window must not flash a console."""

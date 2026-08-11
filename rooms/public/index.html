@@ -350,9 +350,15 @@ function renderRanking(data) {
   }
 
   const leader = ranking[0];
-  el('board-hint').textContent = ranking.length > 1 && leader.words > ranking[1].words
-    ? `${leader.name} prowadzi o ${numbers.format(leader.words - ranking[1].words)}`
-    : 'remis';
+  // Sam na tablicy nie remisuje z nikim — to trzeci przypadek, nie brak przewagi.
+  if (ranking.length < 2) {
+    el('board-hint').textContent = 'sam na tablicy';
+  } else if (leader.words > ranking[1].words) {
+    el('board-hint').textContent =
+      `${leader.name} prowadzi o ${numbers.format(leader.words - ranking[1].words)}`;
+  } else {
+    el('board-hint').textContent = 'remis';
+  }
 
   const seen = new Set();
   ranking.forEach((entry, index) => {

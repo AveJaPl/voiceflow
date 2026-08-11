@@ -322,6 +322,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _print_last(arguments.n, arguments.copy)
     if arguments.command == "update":
         return _print_update()
+    if arguments.command == "room":
+        return _room_command(arguments)
     try:
         config = load_config()
     except RuntimeError as exc:

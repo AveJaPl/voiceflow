@@ -146,3 +146,31 @@ def test_broken_transport_does_not_break_dictation() -> None:
     )
 
     client.report_finished(words=3, seconds=1.0)  # nie może rzucić
+
+
+def test_every_cli_command_is_dispatched() -> None:
+    """A subcommand the parser knows but main() ignores falls through silently.
+
+    That is exactly how `voiceflow room` shipped once already: the parser
+    accepted it, nothing handled it, and it was forwarded to the daemon as an
+    unknown command. Comparing the two lists catches the next one.
+    """
+    import inspect
+
+    from voiceflow import cli
+
+    parser = cli.build_parser()
+    known = set()
+    for action in parser._subparsers._group_actions:  # noqa: SLF001
+        known.update(action.choices)
+
+    source = inspect.getsource(cli.main)
+    undispatched = {
+        command
+        for command in known
+        if f'"{command}"' not in source
+    }
+    # `quit` is translated to the wire-level name, the rest fall through to the
+    # daemon client on purpose.
+    forwarded = {"toggle", "start", "stop", "cancel", "quit"}
+    assert undispatched <= forwarded, f"komendy bez obsługi w main(): {undispatched - forwarded}"

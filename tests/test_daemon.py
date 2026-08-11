@@ -413,3 +413,48 @@ def test_free_room_reports_the_numbers_it_already_counts(tmp_path: Path) -> None
     assert room.reports[0] == ("started",)
     finished = [report for report in room.reports if report[0] == "finished"]
     assert finished == [("finished", 3, 1.0)], "trzy słowa z 'Zażółć gęślą jaźń'"
+
+
+def test_cancel_releases_the_room_immediately(tmp_path: Path) -> None:
+    """Otherwise the room shows a phantom speaker and blocks everyone for 10 s."""
+    room = _Room()
+    room.report_cancelled = lambda: room.reports.append(("cancelled",))  # type: ignore[method-assign]
+    daemon = VoiceflowDaemon(
+        Config(),
+        recorder=_Recorder(tmp_path / "recording.wav"),
+        transcriber=_BlockingTranscriber(),
+        injector=_Injector(),  # type: ignore[arg-type]
+        notifier=_Notifier(),  # type: ignore[arg-type]
+        overlay=_Overlay(),  # type: ignore[arg-type]
+        history=History(HistoryConfig(), tmp_path / "history.jsonl"),
+        micmuter=_Muter(),  # type: ignore[arg-type]
+        room=room,  # type: ignore[arg-type]
+    )
+
+    daemon.handle_command("start")
+    daemon.handle_command("cancel")
+    daemon._executor.shutdown(wait=True)  # noqa: SLF001
+
+    assert ("cancelled",) in room.reports
+
+
+def test_silence_releases_the_room_too(tmp_path: Path) -> None:
+    room = _Room()
+    room.report_cancelled = lambda: room.reports.append(("cancelled",))  # type: ignore[method-assign]
+    daemon = VoiceflowDaemon(
+        Config(),
+        recorder=_Recorder(tmp_path / "recording.wav"),
+        transcriber=_SilentTranscriber(),
+        injector=_Injector(),  # type: ignore[arg-type]
+        notifier=_Notifier(),  # type: ignore[arg-type]
+        overlay=_Overlay(),  # type: ignore[arg-type]
+        history=History(HistoryConfig(), tmp_path / "history.jsonl"),
+        micmuter=_Muter(),  # type: ignore[arg-type]
+        room=room,  # type: ignore[arg-type]
+    )
+
+    daemon.handle_command("start")
+    daemon.handle_command("stop")
+    daemon._executor.shutdown(wait=True)  # noqa: SLF001
+
+    assert ("cancelled",) in room.reports, "cisza też musi zwolnić pokój"

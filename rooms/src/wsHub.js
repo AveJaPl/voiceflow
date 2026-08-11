@@ -94,7 +94,11 @@ export function createHub({ store }) {
         entry.state = { ...entry.state, pending: [] };
 
         try {
-          const session = await store.activeSession(entry.roomId);
+          // Zero słów to anulowanie albo cisza — głos zwalniamy, ale wpisu nie
+          // tworzymy: pusty rekord zaniżałby średnią długość dyktowania i
+          // zaśmiecał ranking zdarzeniami, w których nikt nic nie powiedział.
+          const worthRecording = (message.words ?? 0) > 0;
+          const session = worthRecording ? await store.activeSession(entry.roomId) : null;
           if (session) {
             await store.recordDictation(
               session.id, connection.deviceId, now,

@@ -358,6 +358,7 @@ class VoiceflowDaemon:
                 return {"ok": False, "message": "Nie ma nagrania do anulowania", "state": self.state.value}
             self.state = State.IDLE
         self._stop_preview()
+        self.room.report_cancelled()
         self.micmuter.unmute()
         self.presence.clear()
         try:
@@ -380,6 +381,7 @@ class VoiceflowDaemon:
                 # a silent recording is a non-event, and it should vanish on
                 # its own instead of parking a banner in the tray.
                 self.overlay.notice("Nie wykryto mowy")
+                self.room.report_cancelled()
                 showed_notice = True
                 LOGGER.info("Transkrypcja jest pusta; pomijam wstrzykiwanie")
                 return

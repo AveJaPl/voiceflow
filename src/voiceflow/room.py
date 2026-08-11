@@ -68,6 +68,16 @@ class RoomClient:
     def report_finished(self, *, words: int, seconds: float) -> None:
         self._send({"type": "speaking_ended", "words": words, "seconds": seconds})
 
+    def report_cancelled(self) -> None:
+        """Speaking ended with nothing to report — release the room now.
+
+        Cancelling, or a recording that turned out to be silence, used to send
+        nothing at all: the room went on showing this person as the speaker and
+        kept everybody else blocked until the heartbeat expired ten seconds
+        later. Zero words is how the server knows not to write a row for it.
+        """
+        self._send({"type": "speaking_ended", "words": 0, "seconds": 0})
+
     def heartbeat(self) -> None:
         self._send({"type": "heartbeat"})
 

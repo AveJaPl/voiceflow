@@ -158,3 +158,28 @@ test('widz patrzy, ale nie może mówić ani wejść do składu', async () => {
   const toTablet = tablet.sent.filter((m) => m.type === 'speaker_changed').at(-1);
   assert.equal(toTablet.speaking.name, 'Filip', 'ale widzi, kto mówi');
 });
+
+test('anulowanie zwalnia głos, ale nie tworzy wpisu w rankingu', async () => {
+  const recorded = [];
+  const store = {
+    async activeSession() { return { id: 7 }; },
+    async recordDictation(...args) { recorded.push(args); },
+  };
+  const hub = createHub({ store });
+  const filip = fakeConnection('f', 'Filip');
+  const wojtek = fakeConnection('w', 'Wojtek');
+  await hub.handleMessage(filip, { type: 'hello' });
+  await hub.handleMessage(wojtek, { type: 'hello' });
+  await hub.handleMessage(filip, { type: 'speaking_started' }, 1000);
+
+  await hub.handleMessage(filip, { type: 'speaking_ended', words: 0, seconds: 0 }, 1500);
+
+  assert.deepEqual(recorded, [], 'puste dyktowanie nie zaniża średniej');
+  const last = wojtek.sent.filter((m) => m.type === 'speaker_changed').at(-1);
+  assert.equal(last.speaking, null, 'ale głos jest wolny NATYCHMIAST, bez czekania na puls');
+  const again = await hub.handleMessage(wojtek, { type: 'speaking_started' }, 1600);
+  assert.equal(
+    wojtek.sent.filter((m) => m.type === 'speaking_denied').length, 0,
+    'druga osoba może od razu mówić',
+  );
+});

@@ -17,6 +17,7 @@ from voiceflow_app import __version__, charts, services, style
 from voiceflow_app.pages.dashboard import DashboardPage
 from voiceflow_app.pages.history import HistoryPage
 from voiceflow_app.pages.settings import SettingsPage
+from voiceflow_app.pages.room import RoomPage
 from voiceflow_app.pages.stats import StatsPage
 from voiceflow_app.pages.vocabulary import VocabularyPage
 
@@ -61,6 +62,7 @@ class VoiceflowWindow(Adw.ApplicationWindow):
 
         self._cairo_available = cairo_available
         self._build_pages()
+        self.connect("close-request", self._on_close_request)
         self._build_shell()
         self._load_editors()
         self._refresh_history()
@@ -81,12 +83,14 @@ class VoiceflowWindow(Adw.ApplicationWindow):
         )
         self.history = HistoryPage(self._copy_text, self._delete_history_record)
         self.stats = StatsPage(cairo_available=self._cairo_available)
+        self.room = RoomPage(self._toast)
         self.vocabulary = VocabularyPage(self._set_dirty, self._toast)
         self.settings = SettingsPage(self._set_dirty, self._toast)
         self._pages = {
             "dashboard": self.dashboard,
             "history": self.history,
             "stats": self.stats,
+            "room": self.room,
             "vocabulary": self.vocabulary,
             "settings": self.settings,
         }
@@ -145,6 +149,7 @@ class VoiceflowWindow(Adw.ApplicationWindow):
             ("dashboard", "audio-input-microphone-symbolic", "Przegląd"),
             ("history", "document-open-recent-symbolic", "Historia"),
             ("stats", "view-grid-symbolic", "Statystyki"),
+            ("room", "system-users-symbolic", "Pokój"),
             ("vocabulary", "accessories-dictionary-symbolic", "Słownik"),
             ("settings", "emblem-system-symbolic", "Ustawienia"),
         )
@@ -325,6 +330,7 @@ class VoiceflowWindow(Adw.ApplicationWindow):
             "dashboard": "Przegląd",
             "history": "Historia",
             "stats": "Statystyki",
+            "room": "Pokój",
             "vocabulary": "Słownik",
             "settings": "Ustawienia",
         }
@@ -335,8 +341,15 @@ class VoiceflowWindow(Adw.ApplicationWindow):
         )
         if page_name in {"dashboard", "history", "stats"}:
             self._refresh_history()
+        if page_name == "room":
+            self.room.refresh()
         if page_name == "settings":
             self.settings.refresh_runtime_status()
+
+    def _on_close_request(self, _window: Adw.ApplicationWindow) -> bool:
+        """Withdraw the mDNS advertisement before the window disappears."""
+        self.room.shutdown()
+        return False
 
     def _load_editors(self) -> None:
         self.vocabulary.load_config(self._raw_config)

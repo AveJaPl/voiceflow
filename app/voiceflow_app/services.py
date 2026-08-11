@@ -11,10 +11,11 @@ import copy
 import json
 from dataclasses import dataclass
 import os
+import shutil
 import socket
 import subprocess
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any, TypedDict
@@ -97,6 +98,54 @@ def history_path() -> Path:
     """Return the local JSONL history file without importing the daemon."""
     base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
     return base / "voiceflow" / "history.jsonl"
+
+
+def room_state_path() -> Path:
+    """Return the live room state the daemon writes for this application.
+
+    The daemon runs in a different Python environment, so who-is-speaking
+    travels through a file rather than a call — same arrangement as the history
+    above.
+    """
+    base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+    return base / "voiceflow" / "room.json"
+
+
+def voiceflow_cli() -> str:
+    """Locate the daemon's command-line entry point.
+
+    The application cannot import the `voiceflow` package — separate
+    environments — so room actions are performed by running the very binary the
+    systemd unit runs. Preferring the explicit path matters because a desktop
+    launcher does not necessarily inherit a shell's PATH.
+    """
+    explicit = Path.home() / ".local" / "bin" / "voiceflow"
+    if explicit.exists():
+        return str(explicit)
+    found = shutil.which("voiceflow")
+    if found:
+        return found
+    raise RuntimeError(
+        "Nie znaleziono polecenia voiceflow. Zainstaluj demona albo dodaj ~/.local/bin do PATH."
+    )
+
+
+def run_room_command(arguments: Sequence[str]) -> str:
+    """Run `voiceflow room …` and return its output, or raise a readable error."""
+    try:
+        result = subprocess.run(
+            [voiceflow_cli(), "room", *arguments],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Serwer pokoi nie odpowiedział na czas") from exc
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(detail or f"voiceflow room zakończyło się kodem {result.returncode}")
+    return result.stdout.strip()
 
 
 def daemon_socket_path() -> Path:

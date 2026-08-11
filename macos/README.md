@@ -4,6 +4,30 @@ Native SwiftUI menu-bar app implementing the roadmap item [#3](https://github.co
 (daemon/transcriber/preview/vocabulary logic reimplemented natively per module,
 matching the boundaries in the main README's "How it works" table).
 
+## What works today
+
+Feature parity with Linux, module by module. Anything not listed here is not
+implemented on macOS yet.
+
+| | |
+|---|---|
+| **Hold-to-talk** | Hold a modifier (right ⌥ by default), speak, release. Configurable: Fn/Globe, either ⌃, ⇧, ⌘. There is no press-to-toggle mode here — the Linux one exists because GNOME cannot report key release; macOS can, so holding is the native fit. |
+| **Recognition** | whisper.cpp on-device for Polish (offline, no server), Apple's engine for English. Local-agreement partial commit, so text appears while you speak rather than after. |
+| **Live typing** | Text goes into the focused window as you talk, via Accessibility. Applications that break under synthetic keystrokes (Electron, some IDEs) fall back to clipboard paste automatically, and the final pass always goes through the clipboard so the result is deterministic. |
+| **Overlay** | A non-activating pill: waveform while listening, the result with a copy button when done. Draggable, and it remembers where you put it. It can never take focus — that is the one thing that would break dictation entirely. |
+| **Cancel** | Escape during dictation drops everything: no text, no history entry. |
+| **History** | Every dictation is stored in `history.jsonl`, the same format Linux and Windows use, including whether the text actually reached the target application. |
+| **Window** | Przegląd, Historia, Statystyki, Słownik, Ustawienia — the same five pages as the Linux app, same layout and palette. Open with ⌘O from the menu bar. |
+| **Statistics** | Totals, words per day, streak, 26-week activity calendar. Computed by `StatsLib`, a port of the shared Python implementation whose tests assert values taken from running that implementation. |
+| **Vocabulary** | Proper nouns pushed into the whisper decoder prompt — takes effect immediately, no restart. |
+| **Audio ducking** | Other applications are turned down while you dictate, restored afterwards. |
+| **Microphone isolation** | Optional: swaps the system default input to a silent device (BlackHole) so a voice chat cannot hear the dictation, and restores it after. Needs BlackHole installed and Discord set to "Default" input. |
+| **Discord Rich Presence** | Optional, shows that you are dictating. Local IPC only. |
+| **Remote microphone** | Optional: an iPhone can act as a hold-to-talk microphone over a relay. |
+
+Not implemented: per-application volume rules (`duck_rules` on Linux) — macOS
+exposes no per-app volume API, so ducking is all-or-nothing here.
+
 ## Modules (mirrors the main project's `recorder`/`transcriber`/`injector`/`overlay`/`micmute` split)
 
 | module | this port |

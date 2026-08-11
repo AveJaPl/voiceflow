@@ -32,6 +32,7 @@ from voiceflow.presence import DiscordPresence
 from voiceflow.preview import PreviewLoop
 from voiceflow.recorder import Recorder
 from voiceflow.room import RoomClient
+from voiceflow.roomlink import WebSocketTransport
 from voiceflow.transcriber import Transcriber, TranscriptionResult
 from voiceflow.stats import build_stats, write_stats
 from voiceflow.tray import NullTray, Tray, build_payload
@@ -171,11 +172,20 @@ class VoiceflowDaemon:
         # tylko wyzwolony cudzym zdarzeniem. Najtrudniejsza część — wierne
         # przywracanie głośności wokół strumieni, które znikają — jest już
         # napisana i przetestowana w MicMuter.
-        self.room = room or RoomClient(
-            config.room,
-            on_remote_speaking=lambda _name: self.micmuter.mute(),
-            on_remote_silence=self.micmuter.unmute,
-        )
+        if room is not None:
+            self.room = room
+            self._room_link = None
+        else:
+            link = WebSocketTransport(config.room)
+            self.room = RoomClient(
+                config.room,
+                on_remote_speaking=lambda _name: self.micmuter.mute(),
+                on_remote_silence=self.micmuter.unmute,
+                transport=link,
+            )
+            link._on_disconnected = self.room.on_disconnected  # noqa: SLF001
+            self._room_link = link
+            link.start()
         if _WINDOWS and tray is None:
             self.tray = NullTray()
         else:
@@ -572,6 +582,8 @@ class VoiceflowDaemon:
         self._stop_preview()
         self.overlay.stop()
         self.tray.stop()
+        if self._room_link is not None:
+            self._room_link.stop()
         # If the daemon dies mid-recording, the call must not stay muted forever.
         self.micmuter.unmute()
         self.presence.clear()

@@ -21,6 +21,7 @@ dependencies = [
   "faster-whisper",
   "numpy",
   "PyYAML",
+  "websockets",
   "nvidia-cublas-cu12; sys_platform == 'linux' and platform_machine == 'x86_64'",
   "nvidia-cudnn-cu12; sys_platform == 'linux' and platform_machine == 'x86_64'",
   # CTranslate2's Windows wheel links CUDA dynamically but ships no cuBLAS or

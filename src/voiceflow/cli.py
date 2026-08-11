@@ -52,6 +52,17 @@ def build_parser() -> argparse.ArgumentParser:
     last.add_argument("-n", type=int, default=1, metavar="N", help="ile ostatnich wpisów pokazać")
     last.add_argument("--copy", action="store_true", help="skopiuj najnowszy tekst do schowka")
     subparsers.add_parser("update", help="sprawdź, czy jest nowsza wersja")
+    room = subparsers.add_parser("room", help="wspólny pokój dyktowania")
+    room_sub = room.add_subparsers(dest="room_command", required=True)
+    room_create = room_sub.add_parser("create", help="utwórz pokój i zacznij sesję")
+    room_create.add_argument("--server", default="wss://rooms.pbdevs.com")
+    room_create.add_argument("--as", dest="display_name", required=True, help="Twoja nazwa w rankingu")
+    room_create.add_argument("--name", default=None, help="nazwa pokoju")
+    room_join = room_sub.add_parser("join", help="dołącz do istniejącego pokoju")
+    room_join.add_argument("code", help="sześcioznakowy kod pokoju")
+    room_join.add_argument("--server", default="wss://rooms.pbdevs.com")
+    room_join.add_argument("--as", dest="display_name", required=True, help="Twoja nazwa w rankingu")
+    room_sub.add_parser("leave", help="wyjdź z pokoju (wyłącza go w konfiguracji)")
     subparsers.add_parser(
         "download-model", help="pobierz model mowy z paskiem postępu (używane przez instalator)"
     )
@@ -262,6 +273,42 @@ def _print_update() -> int:
             "Aktualizacja: curl -fsSL "
             "https://raw.githubusercontent.com/AveJaPl/voiceflow/main/install.sh | bash"
         )
+    return 0
+
+
+def _room_command(args) -> int:
+    """Create or join a room and write the result into config.yaml."""
+    from voiceflow.config import load_config
+    from voiceflow.paths import config_dir
+    from voiceflow.roomsetup import RoomSetupError, create_room, join_room, save_to_config
+
+    if args.room_command == "leave":
+        config = load_config()
+        save_to_config(config.room.server, config.room.code, config.room.token)
+        path = config_dir() / "config.yaml"
+        text = path.read_text(encoding="utf-8").replace("  enabled: true\n  server:", "  enabled: false\n  server:")
+        path.write_text(text, encoding="utf-8")
+        print("Wyszedłeś z pokoju. Dyktowanie działa dalej, lokalnie.")
+        print("Zrestartuj demona: systemctl --user restart voiceflow")
+        return 0
+
+    existing = load_config().room.token
+    try:
+        if args.room_command == "create":
+            result = create_room(args.server, args.name, args.display_name, existing)
+        else:
+            result = join_room(args.server, args.code, args.display_name, existing)
+        save_to_config(args.server, result["code"], result["token"])
+    except RoomSetupError as exc:
+        print(f"Nie udało się: {exc}", file=sys.stderr)
+        return 1
+
+    web = args.server.replace("wss://", "https://").replace("ws://", "http://").rstrip("/")
+    print(f"Pokój: {result['code']}")
+    print(f"Ranking na tablecie: {web}/room/{result['code']}")
+    print("Podaj ten kod drugiej osobie: voiceflow room join "
+          f"{result['code']} --as ImieNazwa")
+    print("Zrestartuj demona, żeby dołączyć: systemctl --user restart voiceflow")
     return 0
 
 

@@ -204,6 +204,15 @@ overlay:
 notifications:
   # Only used for errors now; the overlay carries the normal status.
   enabled: true
+room:
+  # A shared dictation room: whoever is speaking blocks the others, and their
+  # speaking quietens audio on every machine in the room.
+  #
+  # This is the ONLY part of voiceflow that sends anything off this machine, and
+  # even then only presence events and counts — words and seconds. The recording
+  # and the transcribed text never leave. Off unless you join a room, and joining
+  # is a command: `voiceflow room create --as YourName`.
+  enabled: false
 log_level: INFO
 """
 

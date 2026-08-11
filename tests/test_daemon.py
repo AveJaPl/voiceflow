@@ -348,3 +348,68 @@ def test_cleanup_stops_the_tray(tmp_path: Path) -> None:
     daemon._cleanup(None)  # noqa: SLF001
 
     assert tray.calls[-1] == ("stop", None, None)
+
+
+class _Room:
+    """Room client that blocks or not, and records what the daemon told it."""
+
+    def __init__(self, blocked_by: str | None = None) -> None:
+        self.blocked_by = blocked_by
+        self.reports: list[tuple] = []
+
+    def may_start(self):
+        return (self.blocked_by is None, self.blocked_by)
+
+    def report_started(self):
+        self.reports.append(("started",))
+
+    def report_finished(self, *, words, seconds):
+        self.reports.append(("finished", words, seconds))
+
+
+def test_room_blocks_recording_and_says_who(tmp_path: Path) -> None:
+    """A blocked hotkey must explain itself and must not touch the microphone."""
+    overlay = _Overlay()
+    recorder = _Recorder(tmp_path / "recording.wav")
+    daemon = VoiceflowDaemon(
+        Config(),
+        recorder=recorder,
+        transcriber=_BlockingTranscriber(),
+        injector=_Injector(),  # type: ignore[arg-type]
+        notifier=_Notifier(),  # type: ignore[arg-type]
+        overlay=overlay,  # type: ignore[arg-type]
+        history=History(HistoryConfig(), tmp_path / "history.jsonl"),
+        micmuter=_Muter(),  # type: ignore[arg-type]
+        room=_Room(blocked_by="Wojtek"),  # type: ignore[arg-type]
+    )
+
+    response = daemon.handle_command("start")
+
+    assert response["ok"] is False
+    assert "Wojtek" in response["message"]
+    assert daemon.state is State.IDLE
+    assert not recorder.path.exists(), "zablokowane dyktowanie nie dotyka mikrofonu"
+    assert any(call[0] == "notice" and "Wojtek" in (call[2] or "") for call in overlay.calls)
+
+
+def test_free_room_reports_the_numbers_it_already_counts(tmp_path: Path) -> None:
+    room = _Room()
+    daemon = VoiceflowDaemon(
+        Config(),
+        recorder=_Recorder(tmp_path / "recording.wav"),
+        transcriber=_BlockingTranscriber(),
+        injector=_Injector(),  # type: ignore[arg-type]
+        notifier=_Notifier(),  # type: ignore[arg-type]
+        overlay=_Overlay(),  # type: ignore[arg-type]
+        history=History(HistoryConfig(), tmp_path / "history.jsonl"),
+        micmuter=_Muter(),  # type: ignore[arg-type]
+        room=room,  # type: ignore[arg-type]
+    )
+
+    daemon.handle_command("start")
+    daemon.handle_command("stop")
+    daemon._executor.shutdown(wait=True)  # noqa: SLF001
+
+    assert room.reports[0] == ("started",)
+    finished = [report for report in room.reports if report[0] == "finished"]
+    assert finished == [("finished", 3, 1.0)], "trzy słowa z 'Zażółć gęślą jaźń'"

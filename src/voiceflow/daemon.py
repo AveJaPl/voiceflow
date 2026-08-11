@@ -31,6 +31,7 @@ from voiceflow.paths import daemon_endpoint_path, daemon_socket_path, runtime_di
 from voiceflow.presence import DiscordPresence
 from voiceflow.preview import PreviewLoop
 from voiceflow.recorder import Recorder
+from voiceflow.room import RoomClient
 from voiceflow.transcriber import Transcriber, TranscriptionResult
 from voiceflow.stats import build_stats, write_stats
 from voiceflow.tray import NullTray, Tray, build_payload
@@ -141,6 +142,7 @@ class VoiceflowDaemon:
         history: History | None = None,
         tray: Tray | None = None,
         micmuter: MicMuter | None = None,
+        room: RoomClient | None = None,
     ) -> None:
         self.config = config
         self.state = State.IDLE
@@ -165,6 +167,15 @@ class VoiceflowDaemon:
         else:
             self.micmuter = MicMuter(config.mute_apps)
         self.history = history or History(config.history)
+        # Zdalne ściszanie to DOKŁADNIE ten sam kod, którego używa własny skrót,
+        # tylko wyzwolony cudzym zdarzeniem. Najtrudniejsza część — wierne
+        # przywracanie głośności wokół strumieni, które znikają — jest już
+        # napisana i przetestowana w MicMuter.
+        self.room = room or RoomClient(
+            config.room,
+            on_remote_speaking=lambda _name: self.micmuter.mute(),
+            on_remote_silence=self.micmuter.unmute,
+        )
         if _WINDOWS and tray is None:
             self.tray = NullTray()
         else:
@@ -233,6 +244,13 @@ class VoiceflowDaemon:
         with self._lock:
             if self.state is not State.IDLE:
                 return {"ok": False, "message": f"Nie można zacząć w stanie {self.state.value}", "state": self.state.value}
+            allowed, blocked_by = self.room.may_start()
+            if not allowed:
+                # Ktoś inny w pokoju mówi. Karta podaje kto — „nie działa" bez
+                # powodu jest gorsze niż brak funkcji. Mikrofon nie rusza.
+                message = f"{blocked_by} teraz dyktuje"
+                self.overlay.notice(message)
+                return {"ok": False, "message": message, "state": self.state.value}
             # Mute the voice chat BEFORE audio starts flowing, or the first
             # word of every dictation leaks to everyone on the call.
             self.micmuter.mute()
@@ -244,6 +262,7 @@ class VoiceflowDaemon:
                 self._fail(str(exc))
                 return {"ok": False, "message": str(exc), "state": self.state.value}
             self.state = State.RECORDING
+        self.room.report_started()
         # The overlay is the status surface: a dot that is visibly on while
         # listening answers "is it recording?" in a way a banner never could.
         self.overlay.start("listening")
@@ -366,6 +385,9 @@ class VoiceflowDaemon:
             finally:
                 # Record even failed injections: the text is exactly what the
                 # user needs to recover via `voiceflow last` or the app.
+                self.room.report_finished(
+                    words=len(result.text.split()), seconds=result.audio_seconds
+                )
                 self.history.append(
                     Record.now(
                         result.text,

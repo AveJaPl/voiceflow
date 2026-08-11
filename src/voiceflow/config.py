@@ -359,6 +359,27 @@ class TrayConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class RoomConfig:
+    """Shared dictation room. Off unless somebody deliberately joins one.
+
+    This is the only part of voiceflow that sends anything off the machine, and
+    even then only presence events and counts — never audio, never the text.
+    It stays opt-in for exactly that reason.
+    """
+
+    enabled: bool = False
+    #: e.g. wss://rooms.pbdevs.com
+    server: str = ""
+    #: Six-character room code, case-insensitive.
+    code: str = ""
+    #: Device token from POST /api/devices.
+    token: str = ""
+    #: Whether somebody else speaking may quieten audio here. A permission,
+    #: not a side effect of being in the room.
+    duck_for_others: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class NotificationsConfig:
     """Desktop notification settings."""
 
@@ -381,6 +402,7 @@ class Config:
     overlay: OverlayConfig = field(default_factory=OverlayConfig)
     tray: TrayConfig = field(default_factory=TrayConfig)
     notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
+    room: RoomConfig = field(default_factory=RoomConfig)
     log_level: str = "INFO"
 
 
@@ -397,6 +419,7 @@ _SCHEMA: dict[str, set[str] | None] = {
     "overlay": {"enabled"},
     "tray": {"enabled"},
     "notifications": {"enabled"},
+    "room": {"enabled", "server", "code", "token", "duck_for_others"},
     "log_level": None,
 }
 
@@ -586,6 +609,7 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
     overlay = _section(root, "overlay")
     tray = _section(root, "tray")
     notifications = _section(root, "notifications")
+    room = _section(root, "room")
 
     language = model.get("language", "pl")
     if language is not None and not isinstance(language, str):
@@ -654,6 +678,15 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
         ),
         notifications=NotificationsConfig(
             enabled=notifications.get("enabled", True) if isinstance(notifications.get("enabled", True), bool) else True,
+        ),
+        room=RoomConfig(
+            enabled=_boolean(room.get("enabled", False), False, "room.enabled"),
+            server=str(room.get("server", "") or "").strip(),
+            code=str(room.get("code", "") or "").strip().upper(),
+            token=str(room.get("token", "") or "").strip(),
+            duck_for_others=_boolean(
+                room.get("duck_for_others", True), True, "room.duck_for_others"
+            ),
         ),
         log_level=log_level.upper() if isinstance(log_level, str) else "INFO",
     )

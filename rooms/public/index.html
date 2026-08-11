@@ -5,120 +5,264 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>voiceflow — pokój</title>
+<link rel="icon" href="/assets/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
 <style>
-/* Paleta i typografia przeniesione z aplikacji linuksowej (app/voiceflow_app/style.py),
-   żeby trzy powierzchnie wyglądały jak jeden produkt. Jedyny kolor w całym
-   interfejsie to czerwień nagrywania — wszystko inne jest monochromatyczne. */
+/* Tokeny wzięte 1:1 z landingu (site/pl/index.html `:root`), nie z site/DESIGN.md,
+   który opisuje nieaktualną wersję ze złotym akcentem. Trzy powierzchnie —
+   landing, aplikacja, ta tablica — mają wyglądać jak jeden produkt.
+
+   Jedyny kolor w całym interfejsie to czerwień nagrywania i pojawia się
+   wyłącznie wtedy, gdy ktoś naprawdę mówi. Dzięki temu znaczy coś sama w sobie:
+   jak się zapala, to wiadomo bez czytania. */
 :root{
-  --bg:#0d0d0f; --surface:#131316; --raised:#1b1b1e; --border:#232327;
-  --text:#f5f5f7; --muted:rgba(255,255,255,.55); --faint:rgba(255,255,255,.35);
+  --bg:#0b0b0c; --surface:rgba(22,22,24,.72); --surface-solid:#161618;
+  --raised:#1e1e21;
+  --text:#f5f5f7; --muted:#9a9aa2; --faint:#55555c; --border:#28282c;
   --rec:#ff453a;
+  --maxw:1080px;
+  --display:"Archivo",system-ui,sans-serif;
+  --sans:"Inter",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,monospace;
 }
 *{box-sizing:border-box}
 body{
   margin:0; background:var(--bg); color:var(--text);
-  font:16px/1.5 "Inter","Cantarell","Ubuntu",system-ui,sans-serif;
-  -webkit-font-smoothing:antialiased;
+  font:400 16px/1.6 var(--sans);
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
 }
-.wrap{max-width:960px; margin:0 auto; padding:40px 24px}
-header{display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; margin-bottom:8px}
-h1{font-size:1.9rem; margin:0; letter-spacing:-.01em}
-.code{
-  font-family:ui-monospace,"JetBrains Mono",monospace; font-size:.95rem;
-  color:var(--faint); border:1px solid var(--border); padding:4px 10px; border-radius:6px;
-}
-.sub{color:var(--muted); margin:4px 0 28px; font-size:.95rem}
 
-.now{
-  display:flex; align-items:center; gap:14px;
-  background:var(--surface); border:1px solid rgba(255,255,255,.07);
-  border-radius:12px; padding:20px; margin-bottom:24px;
-}
-.dot{width:11px; height:11px; border-radius:50%; background:var(--faint); flex:none}
-.dot.live{background:var(--rec); animation:breathe 1.8s ease-in-out infinite}
-@keyframes breathe{0%,100%{opacity:1}50%{opacity:.25}}
-.now-title{font-size:1.15rem}
-.now-sub{color:var(--muted); font-size:.85rem}
+/* --- tło: ten sam marmurowy relief co na landingu ---------------------------
+   Obraz jest przyklejony do okna i zawinietowany do prawie-czerni, więc daje
+   stronie strukturę, ale nigdy nie walczy o uwagę z liczbami. */
+#bg{position:fixed;inset:-10vh 0;z-index:-2;pointer-events:none}
+#bg img{width:100%;height:120vh;object-fit:cover;opacity:.34}
+#bg::after{content:"";position:absolute;inset:0;
+  background:radial-gradient(115% 80% at 50% 0%,transparent 30%,rgba(11,11,12,.88) 82%,var(--bg) 100%)}
+.grain{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.5;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .05 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E")}
 
-table{width:100%; border-collapse:collapse; background:var(--surface);
-  border:1px solid rgba(255,255,255,.07); border-radius:12px; overflow:hidden}
-th,td{padding:14px 18px; text-align:left}
-th{font-size:.68rem; letter-spacing:.14em; text-transform:uppercase;
-  color:var(--faint); font-weight:500; border-bottom:1px solid var(--border)}
-td{border-bottom:1px solid rgba(255,255,255,.04); font-variant-numeric:tabular-nums}
-tr:last-child td{border-bottom:none}
-tr.speaking td{background:var(--raised)}
-.rank{color:var(--faint); width:2.5rem}
-.name{font-weight:500}
-.num{text-align:right}
-.empty{padding:28px 18px; color:var(--faint)}
-footer{margin-top:24px; color:var(--faint); font-size:.8rem}
+.wrap{max-width:var(--maxw); margin:0 auto; padding:56px 24px 80px}
+.eyebrow{font-size:.7rem; font-weight:600; letter-spacing:.22em; text-transform:uppercase; color:var(--faint)}
+
+/* --- nagłówek --- */
+header{display:flex; align-items:flex-end; justify-content:space-between; gap:24px; flex-wrap:wrap}
+h1{font-family:var(--display); font-weight:700; font-size:clamp(2.1rem,5vw,3.2rem);
+   line-height:1.02; letter-spacing:-.03em; margin:.35rem 0 0}
+.code{font-family:var(--mono); font-size:.82rem; letter-spacing:.22em; color:var(--muted);
+  border:1px solid var(--border); padding:8px 14px; border-radius:999px; white-space:nowrap}
+.rule{height:1px; background:var(--border); margin:26px 0 0}
+
+/* --- pasek sesji --- */
+.session{display:flex; align-items:baseline; gap:10px 18px; flex-wrap:wrap; padding:16px 0 0;
+  color:var(--muted); font-size:.9rem}
+.session b{font-weight:600; color:var(--text)}
+.session .sep{color:var(--faint)}
+.clock{font-family:var(--mono); font-size:.86rem; color:var(--text)}
+
+/* --- hero: kto teraz mówi --------------------------------------------------
+   To jest jedyny element strony, który zmienia się z sekundy na sekundę, więc
+   dostaje najwięcej miejsca i największą typografię. Reszta to podsumowanie. */
+.now{position:relative; margin:34px 0 0; padding:34px 32px; border:1px solid var(--border);
+  border-radius:18px; background:var(--surface); backdrop-filter:blur(14px);
+  overflow:hidden; transition:border-color .4s ease, background .4s ease}
+.now::before{content:""; position:absolute; inset:0; opacity:0; transition:opacity .5s ease;
+  background:radial-gradient(80% 140% at 0% 50%, rgba(255,69,58,.16), transparent 62%)}
+.now[data-live="1"]{border-color:rgba(255,69,58,.34)}
+.now[data-live="1"]::before{opacity:1}
+.now-inner{position:relative; display:flex; align-items:center; gap:26px; flex-wrap:wrap}
+.now-title{font-family:var(--display); font-weight:700; letter-spacing:-.025em;
+  font-size:clamp(1.7rem,4.4vw,2.6rem); line-height:1.05; margin:.3rem 0 0}
+.now-sub{color:var(--muted); font-size:.92rem; margin:.5rem 0 0; max-width:46ch}
+.now[data-live="1"] .now-title{color:#fff}
+
+/* Fala zamiast kropki: pięć słupków, każdy z własnym opóźnieniem. W ciszy stoi
+   płasko i szaro, więc „nikt nie mówi" widać bez czytania napisu. */
+.wave{display:flex; align-items:center; gap:5px; height:56px; flex:none}
+.wave i{display:block; width:5px; height:10px; border-radius:3px; background:var(--faint);
+  transition:background .4s ease, height .4s ease}
+.now[data-live="1"] .wave i{background:var(--rec); animation:pulse 1.05s ease-in-out infinite}
+.wave i:nth-child(1){animation-delay:-.9s} .wave i:nth-child(2){animation-delay:-.62s}
+.wave i:nth-child(3){animation-delay:-.34s} .wave i:nth-child(4){animation-delay:-.5s}
+.wave i:nth-child(5){animation-delay:-.15s}
+@keyframes pulse{0%,100%{height:9px}50%{height:48px}}
+
+/* --- tablica wyników -------------------------------------------------------
+   Nie tabela: lista edytorska. Numer pozycji jest wielki i pusty w środku
+   (obrys), bo ma działać jak numer rozdziału na landingu, a nie jak komórka. */
+.board{margin:44px 0 0}
+.board-head{display:flex; align-items:baseline; justify-content:space-between; gap:16px;
+  padding-bottom:14px; border-bottom:1px solid var(--border)}
+.rows{list-style:none; margin:0; padding:0}
+.row{position:relative; display:grid; gap:8px 22px; align-items:center; padding:22px 16px 22px 6px;
+  border-bottom:1px solid rgba(255,255,255,.05); border-radius:12px;
+  grid-template-columns:5.2rem minmax(0,1fr) 6.5rem 7rem;
+  transition:background .35s ease}
+.row:hover{background:rgba(255,255,255,.022)}
+.row[data-speaking="1"]{background:linear-gradient(90deg, rgba(255,69,58,.09), transparent 70%)}
+
+.pos{position:relative; z-index:0; text-align:center;
+  font-family:var(--display); font-weight:800; font-size:2.9rem; line-height:1;
+  letter-spacing:-.05em; color:transparent; -webkit-text-stroke:1.2px var(--faint);
+  align-self:center; user-select:none}
+.row[data-lead="1"] .pos{-webkit-text-stroke:1.2px rgba(255,255,255,.62); color:rgba(255,255,255,.12)}
+
+/* Wieniec laurowy dla lidera — numer pozycji stoi w jego środku.
+   Jako tło, nie <img>: gdyby pliku zabrakło, nie zostaje po nim dziura, tylko
+   czysty numer. Grafika ma alfę wyprowadzoną z jasności marmuru, więc kładzie
+   się wprost na stronie; `mix-blend-mode:screen` zostawiał tu widoczny kwadrat,
+   bo czerń wygenerowanego tła nie była idealnie zerowa. */
+.row[data-lead="1"] .pos::after{content:""; position:absolute; z-index:-1;
+  left:50%; top:50%; width:118px; height:118px; transform:translate(-50%,-50%);
+  pointer-events:none; opacity:.72;
+  background:url("/assets/laurel.webp") center/contain no-repeat}
+
+.who{min-width:0}
+.name{font-family:var(--display); font-weight:600; font-size:1.42rem; letter-spacing:-.02em;
+  line-height:1.15; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.row[data-speaking="1"] .name::after{content:"mówi"; margin-left:10px; font-family:var(--sans);
+  font-size:.6rem; font-weight:600; letter-spacing:.18em; text-transform:uppercase;
+  color:var(--rec); vertical-align:middle}
+.meta{color:var(--faint); font-size:.78rem; margin-top:5px}
+.meta .gap{color:var(--muted)}
+
+/* Pasek udziału — jedyny element, który stawia zawodników obok siebie na tej
+   samej skali. Liczby mówią „1240", pasek mówi „to jest dwa razy więcej niż on". */
+.bar{height:4px; margin-top:10px; border-radius:3px; background:rgba(255,255,255,.06); overflow:hidden}
+.bar i{display:block; height:100%; border-radius:3px; background:rgba(255,255,255,.3);
+  width:0; transition:width .9s cubic-bezier(.2,.7,.2,1), background .4s ease}
+.row[data-lead="1"] .bar i{background:rgba(255,255,255,.72)}
+.row[data-speaking="1"] .bar i{background:var(--rec)}
+
+.stat{text-align:right}
+.stat b{display:block; font-family:var(--display); font-weight:600; font-size:1.32rem;
+  letter-spacing:-.02em; font-variant-numeric:tabular-nums}
+.stat small{display:block; margin-top:3px; font-size:.65rem; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--faint)}
+
+.empty{padding:38px 6px; color:var(--muted)}
+
+/* --- stopka / stan łącza --- */
+footer{margin-top:34px; display:flex; align-items:center; gap:10px; color:var(--faint); font-size:.78rem}
+.led{width:6px; height:6px; border-radius:50%; background:var(--faint); flex:none}
+.led.ok{background:rgba(255,255,255,.55)}
+.led.bad{background:var(--rec)}
 .offline{color:var(--rec)}
+
+/* --- ekran bez kodu --- */
+.panel{margin:30px 0 0; padding:28px; border:1px solid var(--border); border-radius:18px;
+  background:var(--surface); backdrop-filter:blur(14px)}
+.lead{color:var(--muted); max-width:60ch}
+input[type=text]{background:var(--raised); border:1px solid var(--border); color:var(--text);
+  border-radius:10px; padding:12px 16px; font:inherit; font-family:var(--mono);
+  letter-spacing:.24em; text-transform:uppercase; width:11rem}
+input[type=text]:focus{outline:none; border-color:rgba(255,255,255,.35)}
+button{background:var(--text); color:var(--bg); border:0; border-radius:10px; padding:12px 22px;
+  font:inherit; font-weight:600; cursor:pointer; transition:opacity .2s ease}
+button:hover{opacity:.85}
+pre{background:rgba(0,0,0,.35); border:1px solid var(--border); border-radius:12px;
+  padding:16px 18px; overflow-x:auto; font-family:var(--mono); font-size:.8rem; color:var(--muted)}
+
+@media (max-width:760px){
+  .wrap{padding:40px 18px 60px}
+  .row{grid-template-columns:3.4rem minmax(0,1fr) auto; padding:18px 8px 18px 2px}
+  .pos{font-size:2rem}
+  .row[data-lead="1"] .pos::after{width:82px; height:82px}
+  .stat:last-child{display:none}      /* czas mówienia ustępuje słowom */
+  .now{padding:26px 22px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none !important; transition:none !important}
+}
 </style>
 </head>
 <body>
+
+<div id="bg"><img src="/assets/bg-relief.webp" alt="" aria-hidden="true"></div>
+<div class="grain" aria-hidden="true"></div>
+
+<!-- ================= bez kodu w adresie ================= -->
 <div class="wrap" id="no-room" hidden>
-  <header><h1>voiceflow — pokoje</h1></header>
-  <p class="sub">Ta strona pokazuje, kto w pokoju właśnie dyktuje, i wynik bieżącej sesji.</p>
-  <div class="now" style="display:block">
-    <p style="margin:0 0 14px">Nie podałeś kodu pokoju, więc nie ma czego pokazać.</p>
-    <form id="code-form" style="display:flex; gap:10px; flex-wrap:wrap">
-      <input id="code-input" placeholder="KOD POKOJU" maxlength="6" autocapitalize="characters"
-        style="background:var(--raised); border:1px solid var(--border); color:var(--text);
-               border-radius:8px; padding:10px 14px; font:inherit; letter-spacing:.18em;
-               text-transform:uppercase; width:12rem">
-      <button type="submit"
-        style="background:var(--text); color:var(--bg); border:0; border-radius:8px;
-               padding:10px 18px; font:inherit; font-weight:500; cursor:pointer">Pokaż</button>
+  <p class="eyebrow">voiceflow</p>
+  <h1>Pokoje</h1>
+  <p class="lead">Tablica pokazuje, kto w pokoju właśnie dyktuje, i wynik bieżącej sesji.
+    Bez kodu pokoju nie ma czego pokazać.</p>
+
+  <div class="panel">
+    <form id="code-form" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center">
+      <input type="text" id="code-input" placeholder="KOD" maxlength="6" autocapitalize="characters"
+             spellcheck="false" aria-label="Kod pokoju">
+      <button type="submit">Pokaż tablicę</button>
     </form>
   </div>
-  <p class="sub" style="margin-top:26px">Nie masz jeszcze pokoju? Na komputerze, na którym dyktujesz:</p>
-  <pre style="background:var(--surface); border:1px solid var(--border); border-radius:10px;
-              padding:16px; overflow-x:auto; font-size:.85rem; color:var(--muted)"><code>voiceflow room create --as TwojeImie --name "Salon"
+
+  <p class="lead" style="margin-top:34px">Nie masz jeszcze pokoju? Na komputerze, na którym dyktujesz:</p>
+<pre><code>voiceflow room create --as TwojeImie --name "Salon"
 systemctl --user restart voiceflow</code></pre>
-  <p class="sub">Dostaniesz sześcioznakowy kod i adres tej strony. Druga osoba dołącza tak:</p>
-  <pre style="background:var(--surface); border:1px solid var(--border); border-radius:10px;
-              padding:16px; overflow-x:auto; font-size:.85rem; color:var(--muted)"><code>voiceflow room join KOD --as ImieDrugiejOsoby
+  <p class="lead">Dostaniesz sześcioznakowy kod i adres tej strony. Druga osoba dołącza tak:</p>
+<pre><code>voiceflow room join KOD --as ImieDrugiejOsoby
 systemctl --user restart voiceflow</code></pre>
 </div>
 
+<!-- ================= tablica pokoju ================= -->
 <div class="wrap" id="room-view" hidden>
   <header>
-    <h1 id="room-name">Pokój</h1>
+    <div>
+      <p class="eyebrow">voiceflow · pokój</p>
+      <h1 id="room-name">Pokój</h1>
+    </div>
     <span class="code" id="room-code">—</span>
   </header>
-  <p class="sub" id="session-line">Wczytywanie…</p>
+  <div class="rule"></div>
 
-  <div class="now">
-    <span class="dot" id="dot"></span>
-    <div>
-      <div class="now-title" id="now-title">Cisza</div>
-      <div class="now-sub" id="now-sub">Nikt teraz nie dyktuje</div>
-    </div>
+  <div class="session">
+    <b id="session-name">Wczytywanie…</b>
+    <span class="sep">·</span>
+    <span class="clock" id="session-clock">—</span>
+    <span class="sep">·</span>
+    <span id="session-total">—</span>
   </div>
 
-  <table>
-    <thead>
-      <tr>
-        <th class="rank">#</th>
-        <th>Kto</th>
-        <th class="num">Słowa</th>
-        <th class="num">Czas mówienia</th>
-        <th class="num">Średnio słów</th>
-      </tr>
-    </thead>
-    <tbody id="rows">
-      <tr><td class="empty" colspan="5">Wczytywanie…</td></tr>
-    </tbody>
-  </table>
+  <section class="now" id="now" data-live="0">
+    <div class="now-inner">
+      <div class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+      <div>
+        <p class="eyebrow" id="now-eyebrow">Teraz</p>
+        <h2 class="now-title" id="now-title">Cisza</h2>
+        <p class="now-sub" id="now-sub">Nikt teraz nie dyktuje. Mikrofon jest wolny.</p>
+      </div>
+    </div>
+  </section>
 
-  <footer id="status">Łączenie…</footer>
+  <section class="board">
+    <div class="board-head">
+      <p class="eyebrow">Tablica sesji</p>
+      <p class="eyebrow" id="board-hint"></p>
+    </div>
+    <ul class="rows" id="rows">
+      <li class="empty">Wczytywanie…</li>
+    </ul>
+  </section>
+
+  <footer><span class="led" id="led"></span><span id="status">Łączenie…</span></footer>
 </div>
 
 <script>
 const code = decodeURIComponent(location.pathname.split('/').filter(Boolean)[1] ?? '').toUpperCase();
 const el = (id) => document.getElementById(id);
+const numbers = new Intl.NumberFormat('pl-PL');
+
 let speakingName = null;
+let sessionStartedAt = null;
+/** Wiersze trzymane po deviceId, żeby odświeżenie co 5 s nie wymiatało DOM-u —
+    inaczej paski udziału startowałyby od zera przy każdym odpytaniu i nic by
+    nie animowało się płynnie. */
+const rowsByDevice = new Map();
+
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g,
+  (character) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[character]));
 
 function formatDuration(seconds) {
   const minutes = Math.max(0, Math.round(seconds / 60));
@@ -129,41 +273,139 @@ function formatDuration(seconds) {
   return `${minutes} min`;
 }
 
+/** Zegar sesji tyka lokalnie, między odpytaniami — sesja, której długość
+    zmienia się skokowo co pięć sekund, nie wygląda na trwającą. */
+function tickClock() {
+  if (!sessionStartedAt) return;
+  const total = Math.max(0, Math.floor((Date.now() - sessionStartedAt) / 1000));
+  const hours = String(Math.floor(total / 3600)).padStart(2, '0');
+  const minutes = String(Math.floor(total / 60) % 60).padStart(2, '0');
+  const seconds = String(total % 60).padStart(2, '0');
+  el('session-clock').textContent = `${hours}:${minutes}:${seconds}`;
+}
+
 function renderSpeaker() {
   const live = Boolean(speakingName);
-  el('dot').classList.toggle('live', live);
-  el('now-title').textContent = live ? `${speakingName} dyktuje` : 'Cisza';
+  el('now').dataset.live = live ? '1' : '0';
+  el('now-eyebrow').textContent = live ? 'Na antenie' : 'Teraz';
+  el('now-title').textContent = live ? speakingName : 'Cisza';
   el('now-sub').textContent = live
-    ? 'Reszta pokoju czeka — mikrofony nie nakładają się na siebie'
-    : 'Nikt teraz nie dyktuje';
+    ? 'Dyktuje w tej chwili. Reszta pokoju czeka — dwa mikrofony naraz psują obie transkrypcje.'
+    : 'Nikt teraz nie dyktuje. Mikrofon jest wolny.';
   document.title = live ? `${speakingName} dyktuje — voiceflow` : 'voiceflow — pokój';
+  for (const [, row] of rowsByDevice) {
+    row.dataset.speaking = row.dataset.name === speakingName ? '1' : '0';
+  }
+}
+
+function buildRow() {
+  const row = document.createElement('li');
+  row.className = 'row';
+  row.innerHTML = `
+    <div class="pos"></div>
+    <div class="who">
+      <div class="name"></div>
+      <div class="bar"><i></i></div>
+      <div class="meta"></div>
+    </div>
+    <div class="stat"><b class="words"></b><small>słów</small></div>
+    <div class="stat"><b class="time"></b><small>mówienia</small></div>`;
+  row.refs = {
+    pos: row.querySelector('.pos'),
+    name: row.querySelector('.name'),
+    bar: row.querySelector('.bar i'),
+    meta: row.querySelector('.meta'),
+    words: row.querySelector('.words'),
+    time: row.querySelector('.time'),
+  };
+  return row;
 }
 
 function renderRanking(data) {
   el('room-code').textContent = data.room?.code ?? code;
   el('room-name').textContent = data.room?.name || 'Pokój';
+
   if (data.session) {
-    const started = new Date(data.session.started_at);
-    const minutes = Math.round((Date.now() - started.getTime()) / 60000);
-    const name = data.session.name || 'Sesja bez nazwy';
-    el('session-line').textContent = `${name} · trwa ${formatDuration(minutes * 60)}`;
+    sessionStartedAt = new Date(data.session.started_at).getTime();
+    el('session-name').textContent = data.session.name || 'Sesja bez nazwy';
+    tickClock();
   } else {
-    el('session-line').textContent = 'Brak otwartej sesji';
+    sessionStartedAt = null;
+    el('session-name').textContent = 'Brak otwartej sesji';
+    el('session-clock').textContent = '—';
   }
 
-  const rows = el('rows');
-  if (!data.ranking?.length) {
-    rows.innerHTML = '<tr><td class="empty" colspan="5">Jeszcze nikt nic nie podyktował w tej sesji.</td></tr>';
+  const ranking = data.ranking ?? [];
+  const list = el('rows');
+  const totalWords = ranking.reduce((sum, entry) => sum + entry.words, 0);
+  el('session-total').textContent = totalWords
+    ? `${numbers.format(totalWords)} słów razem`
+    : 'jeszcze nic';
+
+  if (!ranking.length) {
+    rowsByDevice.clear();
+    list.innerHTML = '<li class="empty">Jeszcze nikt nic nie podyktował w tej sesji. Pierwsze słowo bierze prowadzenie.</li>';
+    el('board-hint').textContent = '';
     return;
   }
-  rows.innerHTML = data.ranking.map((entry, index) => `
-    <tr class="${entry.name === speakingName ? 'speaking' : ''}">
-      <td class="rank">${index + 1}</td>
-      <td class="name">${entry.name ?? '—'}</td>
-      <td class="num">${entry.words}</td>
-      <td class="num">${formatDuration(entry.seconds)}</td>
-      <td class="num">${entry.averageWords}</td>
-    </tr>`).join('');
+
+  const leader = ranking[0];
+  el('board-hint').textContent = ranking.length > 1 && leader.words > ranking[1].words
+    ? `${leader.name} prowadzi o ${numbers.format(leader.words - ranking[1].words)}`
+    : 'remis';
+
+  const seen = new Set();
+  ranking.forEach((entry, index) => {
+    const key = entry.deviceId ?? entry.name ?? String(index);
+    seen.add(key);
+    let row = rowsByDevice.get(key);
+    if (!row) {
+      row = buildRow();
+      rowsByDevice.set(key, row);
+    }
+    const { pos, name, bar, meta, words, time } = row.refs;
+
+    row.dataset.lead = index === 0 ? '1' : '0';
+    row.dataset.name = entry.name ?? '';
+    row.dataset.speaking = entry.name === speakingName ? '1' : '0';
+
+    pos.textContent = String(index + 1).padStart(2, '0');
+    name.textContent = entry.name ?? '—';
+    words.textContent = numbers.format(entry.words);
+    time.textContent = formatDuration(entry.seconds);
+    bar.style.width = `${leader.words > 0 ? (entry.words / leader.words) * 100 : 0}%`;
+
+    // Dystans do lidera motywuje mocniej niż liczba bezwzględna: „brakuje 320"
+    // jest zadaniem, a „1240 słów" tylko faktem.
+    const behind = leader.words - entry.words;
+    const share = totalWords > 0 ? Math.round((entry.words / totalWords) * 100) : 0;
+    const parts = [
+      `${numbers.format(entry.dictations ?? 0)} dyktowań`,
+      `średnio ${numbers.format(entry.averageWords)} słów`,
+      `${share}% sesji`,
+    ];
+    meta.innerHTML = escapeHtml(parts.join(' · '))
+      + (index === 0
+        ? ''
+        : ` · <span class="gap">brakuje ${escapeHtml(numbers.format(behind))}</span>`);
+
+    list.appendChild(row);   // appendChild przenosi istniejący węzeł — stąd zmiana kolejności
+  });
+
+  for (const [key, row] of rowsByDevice) {
+    if (!seen.has(key)) {
+      row.remove();
+      rowsByDevice.delete(key);
+    }
+  }
+  const placeholder = list.querySelector('.empty');
+  if (placeholder) placeholder.remove();
+}
+
+function setStatus(text, state) {
+  el('status').textContent = text;
+  el('status').classList.toggle('offline', state === 'bad');
+  el('led').className = `led ${state}`;
 }
 
 async function refresh() {
@@ -173,19 +415,17 @@ async function refresh() {
       // Nieznany kod to CO INNEGO niż pusty pokój. Wcześniej strona pokazywała
       // w obu wypadkach „Cisza", co wyglądało jak działający pokój, w którym
       // nikt nie mówi — i kosztowało kwadrans szukania nieistniejącej usterki.
-      el('status').textContent = `Nie ma pokoju o kodzie ${code}`;
-      el('status').classList.add('offline');
+      setStatus(`Nie ma pokoju o kodzie ${code}`, 'bad');
+      rowsByDevice.clear();
       el('rows').innerHTML =
-        '<tr><td class="empty" colspan="5">Sprawdź kod albo utwórz pokój: voiceflow room create --as TwojeImie</td></tr>';
+        '<li class="empty">Sprawdź kod albo utwórz pokój: <code>voiceflow room create --as TwojeImie</code></li>';
       return;
     }
     if (!response.ok) throw new Error(String(response.status));
     renderRanking(await response.json());
-    el('status').textContent = 'Na żywo';
-    el('status').classList.remove('offline');
+    setStatus('Na żywo', 'ok');
   } catch {
-    el('status').textContent = 'Brak połączenia z serwerem pokoi';
-    el('status').classList.add('offline');
+    setStatus('Brak połączenia z serwerem pokoi', 'bad');
   }
 }
 
@@ -210,9 +450,9 @@ function connect() {
 if (!code) {
   // Bez kodu w adresie nie udajemy pokoju — mówimy, czego brakuje.
   el('no-room').hidden = false;
-  document.getElementById('code-form').addEventListener('submit', (event) => {
+  el('code-form').addEventListener('submit', (event) => {
     event.preventDefault();
-    const wanted = document.getElementById('code-input').value.trim().toUpperCase();
+    const wanted = el('code-input').value.trim().toUpperCase();
     if (wanted) location.pathname = `/room/${wanted}`;
   });
 } else {
@@ -220,6 +460,7 @@ if (!code) {
   renderSpeaker();
   refresh();
   setInterval(refresh, 5000);
+  setInterval(tickClock, 1000);
   connect();
 }
 </script>

@@ -38,6 +38,8 @@ const CONTENT_TYPES = {
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
 };
 
 const server = createServer(async (req, res) => {

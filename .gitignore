@@ -10,3 +10,6 @@ models/
 *.safetensors
 .worktrees/
 
+
+# Notatki robocze i próbki — nie należą do repozytorium
+tmp/

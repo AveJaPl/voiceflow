@@ -186,11 +186,11 @@ class SettingsPage(QWidget):
         self._mute_apps.textChanged.connect(self._touch)
         form.addRow("Wycisz mikrofon w", self._mute_apps)
 
-        self._duck_volume = QSpinBox()
-        self._duck_volume.setRange(0, 100)
-        self._duck_volume.setSuffix(" %")
-        self._duck_volume.valueChanged.connect(self._touch)
-        form.addRow("Głośność", self._duck_volume)
+        self._duck_to = QSpinBox()
+        self._duck_to.setRange(0, 100)
+        self._duck_to.setSuffix(" % obecnej")
+        self._duck_to.valueChanged.connect(self._touch)
+        form.addRow("Zostaw głośności", self._duck_to)
 
         self._max_seconds = QSpinBox()
         self._max_seconds.setRange(10, 3600)
@@ -339,7 +339,7 @@ class SettingsPage(QWidget):
             mute = service.section(raw, "mute_apps")
             self._mute_apps.setText(", ".join(service.string_list_value(mute, "apps")))
             self._duck_enabled.setChecked(service.bool_value(mute, "duck_enabled", True))
-            self._duck_volume.setValue(int(service.float_value(mute, "duck_volume", 0.4) * 100))
+            self._duck_to.setValue(int(service.float_value(mute, "duck_to", 0.6) * 100))
 
             presence = service.section(raw, "presence")
             self._presence_enabled.setChecked(service.bool_value(presence, "enabled", False))
@@ -415,7 +415,7 @@ class SettingsPage(QWidget):
         mute = service.mutable_section(raw, "mute_apps")
         mute["apps"] = [name.strip() for name in self._mute_apps.text().split(",") if name.strip()]
         mute["duck_enabled"] = self._duck_enabled.isChecked()
-        mute["duck_volume"] = round(self._duck_volume.value() / 100, 2)
+        mute["duck_to"] = round(self._duck_to.value() / 100, 2)
 
         presence = service.mutable_section(raw, "presence")
         presence["enabled"] = self._presence_enabled.isChecked()

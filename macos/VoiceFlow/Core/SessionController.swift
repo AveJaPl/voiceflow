@@ -61,9 +61,6 @@ final class SessionController {
     private static var userForcedClipboardMode: Bool {
         UserDefaults.standard.string(forKey: SettingsKeys.insertionMode) == InsertionMode.showThenInsert.rawValue
     }
-    /// Tekst tak jak stał przed audio TEJ wypowiedzi — punkt odcięcia dla
-    /// `onUtteranceTextChange`, żeby pill pokazywał tylko świeży fragment.
-    private var utteranceBaselineText: String = ""
     /// `id` bieżącej notatki dla ciągu kontynuowanych wypowiedzi — ta sama myśl
     /// nadpisuje jedną notatkę zamiast tworzyć nową przy każdym puszczeniu skrótu.
     private var currentNoteID: UUID?
@@ -107,14 +104,41 @@ final class SessionController {
             startConsumingUpdates()
             log.info("SessionController prewarmed")
         } catch {
-            state = .error("Prewarm nie powiódł się: \(error.localizedDescription)")
+            fail("Prewarm nie powiódł się: \(error.localizedDescription)")
             log.error("Prewarm failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
+    /// Zgłasza błąd i NATYCHMIAST wraca do `.idle`.
+    ///
+    /// `.error` jest komunikatem, nie stanem, w którym wolno utknąć. Wcześniej
+    /// stan zostawał w `.error` na zawsze: pill pokazywał komunikat przez 3 s i
+    /// znikał, ale `beginUtterance()` przepuszcza wyłącznie `.idle`/`.done`, więc
+    /// KAŻDE następne wciśnięcie skrótu było po cichu ignorowane — bez pilla, bez
+    /// nagrywania, bez śladu. Nieudany `prewarm()` przy starcie aplikacji
+    /// unieruchamiał w ten sposób dyktowanie aż do restartu. Zgłoszenie
+    /// 2026-08-11: „jak dyktuję, to nic się nie pojawia; czasem się pojawia,
+    /// czasem nie".
+    ///
+    /// Dwa przejścia pod rząd są celowe i UI na nie liczy: `updatePill` pokazuje
+    /// kartę błędu na `.error`, a następujące `.idle` jej nie gasi, bo gasi tylko
+    /// fazy `.arming`/`.listening`/`.transcribing`.
+    private func fail(_ message: String) {
+        DebugLog.write("Session", "BŁĄD: \(message)")
+        state = .error(message)
+        state = .idle
+    }
+
     /// Skrót wciśnięty — tylko odkręca kurek audio, sesja ASR już istnieje.
     func beginUtterance() {
-        guard state == .idle || state == .done else { return }
+        guard state == .idle || state == .done else {
+            // Kiedyś ta ścieżka była niema, a stan potrafił utknąć w `.error` na
+            // zawsze — skrót przestawał cokolwiek robić i nie było jak zobaczyć
+            // dlaczego. `.error` już nie utyka (patrz `fail`), ale jeśli kiedyś
+            // wciśnięcie znów przepadnie, log ma o tym powiedzieć wprost.
+            DebugLog.write("Session", "beginUtterance POMINIĘTY — stan to \(state), nie .idle/.done")
+            return
+        }
         state = .arming
 
         let focus = focusProbe.currentFocus()
@@ -126,17 +150,18 @@ final class SessionController {
         // sklejało się w jedno zdanie, bo wcześniej działał próg "kontynuacji
         // tej samej myśli" przy przerwie < 1,5 s — usunięty na życzenie).
         //
-        // Differ i pole `currentText` czyścimy zawsze. `rawTextAccumulator`
-        // NIE JEST zerowany — to lustro stanu silnika ASR, a silnik jest
-        // TRWAŁY (dźwignia 886ms -> 83ms) i pamięta wszystko, co powiedziano
-        // od jego startu, niezależnie od naszych wciśnięć skrótu. BASELINE =
-        // to, co silnik ma JUŻ w swojej hipotezie w tej chwili — wszystko
-        // poniżej (`utteranceLocalText`) widzi wyłącznie to, co przybyło PO
-        // naciśnięciu skrótu, więc do pola/pilla trafia tylko świeża wypowiedź.
+        // Cały stan wypowiedzi startuje od zera — łącznie z `rawTextAccumulator`,
+        // bo silniki ASR czyszczą teraz swój transkrypt w `beginUtterance()`.
+        // Wcześniej stan silnika narastał przez cały czas życia procesu i to
+        // miejsce próbowało go odciąć, porównując prefiks tekstu sprzed skrótu.
+        // Whisper rutynowo POPRAWIA już skomitowane słowa, więc prefiks
+        // przestawał pasować i kod świadomie brał całość: druga wypowiedź
+        // niosła w sobie pierwszą, wklejała ją ponownie i zapisywała obie w
+        // jednej notatce. Przyczyna leżała w silniku i tam została naprawiona.
         differ.reset()
         currentText = ""
         currentNoteID = nil
-        utteranceBaselineText = rawTextAccumulator
+        rawTextAccumulator = ""
         onUtteranceTextChange?("")
         DebugLog.write("Session", "beginUtterance: frontmost=\(focus.frontmostBundleID ?? "nil"), mode=\(focus.mode)")
         speechOnsetAt = nil
@@ -164,13 +189,13 @@ final class SessionController {
             // odcinamy go reszcie systemu.
             ducking.begin()
         } catch {
-            state = .error("Start mikrofonu nie powiódł się: \(error.localizedDescription)")
             log.error("AudioCapture start failed: \(error.localizedDescription, privacy: .public)")
-            DebugLog.write("Session", "beginUtterance BŁĄD: \(error.localizedDescription)")
             // KRYTYCZNE: bez tego nieudany start zostawiał wyciszony mikrofon
             // systemowy i przyciszone audio NA ZAWSZE — `endUtterance` odbija
             // się od guardu `state == .listening` i nigdy nie cofa duckingu.
             ducking.end()
+            audioCapture.stop()
+            fail("Start mikrofonu nie powiódł się: \(error.localizedDescription)")
         }
     }
 
@@ -317,28 +342,14 @@ final class SessionController {
         }
     }
 
-    /// Odcina od pełnej hipotezy silnika to, co było powiedziane PRZED bieżącym
-    /// dyktowaniem. Silnik jest trwały i zwraca narastająco wszystko od swojego
-    /// startu; do pola ma trafić wyłącznie świeża wypowiedź.
-    ///
-    /// Gdy hipoteza NIE zaczyna się od baseline'u (np. silnik właśnie zrotował
-    /// żądanie po 47 s i zaczął liczyć od zera), bezpieczniej zwrócić całość niż
-    /// uciąć tekst w losowym miejscu — użytkownik zobaczy najwyżej nadmiar,
-    /// nigdy nie zgubi słów.
+    /// Hipoteza silnika dotyczy już wyłącznie bieżącej wypowiedzi — silniki
+    /// czyszczą transkrypt w `beginUtterance()`. Zostaje samo przycięcie
+    /// białych znaków; nic tu nie odejmujemy od tekstu.
     private func utteranceLocalText(_ fullHypothesis: String) -> String {
-        guard fullHypothesis.hasPrefix(utteranceBaselineText) else {
-            if !utteranceBaselineText.isEmpty {
-                DebugLog.write("Session", "baseline nie pasuje do hipotezy (rotacja sesji?) — biorę całość")
-                utteranceBaselineText = ""
-            }
-            return fullHypothesis
-        }
-        return String(fullHypothesis.dropFirst(utteranceBaselineText.count))
-            .trimmingCharacters(in: .whitespaces)
+        fullHypothesis.trimmingCharacters(in: .whitespaces)
     }
 
-    /// Pill dostaje tylko to, co przybyło PO `utteranceBaselineText` (surowy
-    /// prefiks sprzed bieżącego wciśnięcia skrótu), lekko sformatowane do
+    /// Pill dostaje hipotezę bieżącej wypowiedzi, lekko sformatowaną do
     /// wyświetlenia — nie wpływa to na `differ`/wstrzykiwanie, tylko na widok.
     private func reportUtteranceOnlyText() {
         let display = formatter.format(utteranceLocalText(rawTextAccumulator), isSentenceStart: true, endsUtterance: false)
@@ -351,17 +362,6 @@ final class SessionController {
             speechOnsetAt = now
         }
         onAudioLevel?(rms)
-    }
-
-    /// Odcina od `full` to, co było już powiedziane PRZED bieżącym wciśnięciem
-    /// skrótu (`utteranceBaselineText`) — pill ma pokazywać tylko świeżą mowę,
-    /// nie całą narastającą sesję. `full` jest normalnie nadzbiorem baseline
-    /// (ASR rośnie monotonicznie); jeśli kiedyś nie jest — bezpieczny fallback
-    /// to pokazanie całości zamiast pustki.
-    private func utteranceOnlyText(_ full: String) -> String {
-        guard full.hasPrefix(utteranceBaselineText) else { return full }
-        return String(full.dropFirst(utteranceBaselineText.count))
-            .trimmingCharacters(in: .whitespaces)
     }
 
     private func reportFirstTextLatencyIfNeeded() {

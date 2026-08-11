@@ -103,8 +103,34 @@ final class WhisperSpeechEngine: SpeechEngine {
 
     func beginUtterance() {
         queue.async { [weak self] in
-            self?.isFeeding = true
+            guard let self else { return }
+            // Każde wciśnięcie skrótu zaczyna transkrypt OD ZERA. Trwały jest
+            // model (to on kosztuje 886 ms i po to jest `prewarm`), a nie
+            // narastający tekst — wcześniej `committedText` rósł przez cały czas
+            // życia procesu i wypowiedź nr 2 zawierała także wypowiedź nr 1.
+            //
+            // `SessionController` próbował to naprawiać wyżej, odejmując od
+            // hipotezy prefiks sprzed skrótu. To działa tylko dopóki whisper nie
+            // ZMIENI już skomitowanych słów — a on je zmienia rutynowo (patrz
+            // `stripRepeatedPrefix` i local-agreement niżej). Gdy prefiks
+            // przestawał pasować, tamten kod świadomie zwracał całość: stąd
+            // zgłoszenie, że dyktowanie "dokleja się do poprzedniego i zapisuje
+            // wszystko w jednej notatce". Czyszczenie stanu tutaj usuwa przyczynę
+            // zamiast łatać skutek.
+            self.resetTranscript()
+            self.isFeeding = true
         }
+    }
+
+    /// Zeruje stan JEDNEJ wypowiedzi. Model (`context`) zostaje załadowany.
+    /// Wołane wyłącznie na `queue`.
+    private func resetTranscript() {
+        samples.removeAll(keepingCapacity: true)
+        discardedSampleCount = 0
+        committedSampleCount = 0
+        lastDecodedSampleCount = 0
+        committedText = ""
+        agreement.reset()
     }
 
     func endUtterance() {

@@ -1,72 +1,69 @@
 import XCTest
 @testable import VoiceFlow
 
-/// Regresja dla realnego buga zgłoszonego 2026-08-09: "wrzuca dwa razy jednego
-/// prompta — raz powiem, skończę, chcę mówić coś drugiego, a on to łączy".
+/// Kontrakt: KAŻDE wciśnięcie skrótu to nowa, niezależna wypowiedź.
 ///
-/// Mechanizm: silnik ASR jest TRWAŁY (dźwignia 886 ms -> 83 ms) i zwraca
-/// hipotezy NARASTAJĄCO od swojego startu. Druga wypowiedź przychodzi jako
-/// "pierwsze zdanie drugie zdanie". Bez odcięcia baseline'u do pola trafiało
-/// całe pierwsze zdanie po raz drugi.
+/// Historia tego pliku jest częścią jego treści. Wcześniej silniki ASR
+/// akumulowały transkrypt przez cały czas życia procesu, a `SessionController`
+/// próbował odciąć poprzednie wypowiedzi, porównując prefiks tekstu ("baseline").
+/// To założenie jest fałszywe: whisper rutynowo POPRAWIA już skomitowane słowa,
+/// więc prefiks przestawał pasować i kod świadomie brał całość — druga
+/// wypowiedź niosła w sobie pierwszą, wklejała ją ponownie i obie lądowały w
+/// jednej notatce. Objaw zgłoszony 2026-08-11: „nie pojawia się nowe okienko,
+/// tylko tak jakbym kontynuował, i zapisuje wszystko razem".
 ///
-/// Testujemy `TextDiffer` w dokładnie tym scenariuszu — to on decyduje, co
-/// realnie zostanie wstrzyknięte do pola.
-final class UtteranceBaselineTests: XCTestCase {
+/// Naprawa siedzi w silnikach (`WhisperSpeechEngine.beginUtterance`,
+/// `AppleSpeechEngine.beginUtterance`): transkrypt startuje od zera przy każdym
+/// wciśnięciu, model zostaje załadowany. Testy poniżej pilnują skutku, który
+/// widzi użytkownik — bez odejmowania prefiksów, bo już go nie ma.
+final class UtteranceIsolationTests: XCTestCase {
 
-    /// Odpowiednik `SessionController.utteranceLocalText` — logika odcięcia.
-    private func localText(full: String, baseline: String) -> String {
-        guard full.hasPrefix(baseline) else { return full }
-        return String(full.dropFirst(baseline.count)).trimmingCharacters(in: .whitespaces)
-    }
-
+    /// Druga wypowiedź wstawia WYŁĄCZNIE swój tekst i niczego nie kasuje z
+    /// tego, co zostało wklejone przy pierwszej.
     func testDrugaWypowiedzNiePowtarzaPierwszej() {
         let differ = TextDiffer()
 
-        // --- Pierwsza wypowiedź: baseline pusty, silnik zwraca narastająco.
-        var baseline = ""
-        let plan1a = differ.diff(toHypothesis: localText(full: "Halo", baseline: baseline))
-        XCTAssertEqual(plan1a.insert, "Halo")
-        let plan1b = differ.diff(toHypothesis: localText(full: "Halo test", baseline: baseline))
-        XCTAssertEqual(plan1b.insert, " test")
-        XCTAssertEqual(differ.displayedText, "Halo test")
+        // Pierwsza wypowiedź.
+        _ = differ.diff(toHypothesis: "Halo")
+        let plan1 = differ.diff(toHypothesis: "Halo test")
+        XCTAssertEqual(plan1.insert, " test")
+        XCTAssertEqual(plan1.deleteCount, 0)
 
-        // --- Użytkownik kończy, po przerwie zaczyna DRUGĄ wypowiedź.
-        // Pole docelowe jest już "zamknięte" — differ startuje od zera, ale
-        // silnik NADAL pamięta "Halo test" i będzie to zwracał w każdej hipotezie.
+        // Puszczenie skrótu i kolejne wciśnięcie: differ startuje od zera, a
+        // silnik podaje już tylko świeżą hipotezę.
         differ.reset()
-        baseline = "Halo test" // <- to jest ta poprawka; wcześniej zerowaliśmy to na ""
 
-        let plan2a = differ.diff(toHypothesis: localText(full: "Halo test druga", baseline: baseline))
-        XCTAssertEqual(plan2a.insert, "druga", "Druga wypowiedź NIE MOŻE zawierać pierwszej")
-        XCTAssertEqual(plan2a.deleteCount, 0, "Nic nie powinno być kasowane na starcie nowej wypowiedzi")
+        let plan2a = differ.diff(toHypothesis: "druga")
+        XCTAssertEqual(plan2a.insert, "druga")
+        XCTAssertEqual(plan2a.deleteCount, 0, "nowa wypowiedź nie kasuje wklejonego wcześniej tekstu")
 
-        let plan2b = differ.diff(toHypothesis: localText(full: "Halo test druga wypowiedź", baseline: baseline))
+        let plan2b = differ.diff(toHypothesis: "druga wypowiedź")
         XCTAssertEqual(plan2b.insert, " wypowiedź")
-
-        XCTAssertEqual(differ.displayedText, "druga wypowiedź",
-                       "W polu ma stać wyłącznie druga wypowiedź")
+        XCTAssertEqual(plan2b.deleteCount, 0)
+        XCTAssertFalse(differ.displayedText.contains("Halo"), "pierwsza wypowiedź nie może wrócić w drugiej")
     }
 
-    func testBaselineNiePasujeDoHipotezyZwracaCalosc() {
-        // Silnik zrotował żądanie (co ~47 s) i liczy od zera — hipoteza nie
-        // zaczyna się już od baseline'u. Lepiej pokazać nadmiar niż uciąć
-        // tekst w losowym miejscu i zgubić słowa użytkownika.
-        let wynik = localText(full: "zupełnie nowy tekst", baseline: "stary baseline")
-        XCTAssertEqual(wynik, "zupełnie nowy tekst")
-    }
-
-    func testKontynuacjaTejSamejMysliDokladaDoIstniejacego() {
-        // Krótka przerwa (oddech) — baseline i differ NIE są resetowane,
-        // więc tekst rośnie dalej z tego samego miejsca zamiast zaczynać od nowa.
+    /// Poprawka wsteczna WEWNĄTRZ jednej wypowiedzi ma nadal działać — to jest
+    /// właśnie to, czego stare porównanie prefiksu nie przeżywało.
+    func testPoprawkaWstecznaWJednejWypowiedziDziala() {
         let differ = TextDiffer()
-        let baseline = "wcześniejsze"
 
-        _ = differ.diff(toHypothesis: localText(full: "wcześniejsze pierwsza", baseline: baseline))
-        XCTAssertEqual(differ.displayedText, "pierwsza")
+        _ = differ.diff(toHypothesis: "pierwsze zdanie")
+        let plan = differ.diff(toHypothesis: "pierwsza zdanie")
 
-        let plan = differ.diff(toHypothesis: localText(full: "wcześniejsze pierwsza część", baseline: baseline))
-        XCTAssertEqual(plan.insert, " część")
+        XCTAssertGreaterThan(plan.deleteCount, 0, "whisper poprawił słowo, differ musi je nadpisać")
+        XCTAssertEqual(differ.displayedText, "pierwsza zdanie")
+    }
+
+    /// Pusta wypowiedź (stuknięcie skrótu bez mowy) nie zostawia śladu.
+    func testPustaWypowiedzNicNieWstawia() {
+        let differ = TextDiffer()
+        _ = differ.diff(toHypothesis: "coś")
+        differ.reset()
+
+        let plan = differ.diff(toHypothesis: "")
+
+        XCTAssertEqual(plan.insert, "")
         XCTAssertEqual(plan.deleteCount, 0)
-        XCTAssertEqual(differ.displayedText, "pierwsza część")
     }
 }

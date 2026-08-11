@@ -4,6 +4,25 @@ Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[
 
 ## Unreleased
 
+- **[macOS]** Fixed: a second dictation carried the first one with it — the text
+  was pasted again and both landed in one history note. The speech engines kept
+  accumulating their transcript for the lifetime of the process, and the session
+  tried to subtract the earlier part by comparing a text prefix. Whisper revises
+  words it has already committed, so the prefix stopped matching and that code
+  deliberately fell back to taking everything. Both engines now start each
+  utterance with an empty transcript (the loaded model stays, which is what
+  `prewarm` is actually for), and the prefix arithmetic is gone.
+- **[macOS]** Fixed: after any error the state machine stayed in `error` forever.
+  `beginUtterance` only accepts `idle`/`done`, so every later press of the
+  shortcut was silently ignored — no pill, no recording, no explanation. A failed
+  `prewarm` at launch disabled dictation until the app was restarted. An error is
+  now a message, not a state to get stuck in.
+- **[macOS]** A dictation that recognised nothing no longer parks an empty result
+  card on screen for six seconds.
+- **[macOS]** Visual tokens (`UI/Theme.swift`) copied verbatim from the Linux
+  application's stylesheet, so the three platforms can converge on one look
+  instead of drifting per platform.
+
 - **[All]** Changed, and it needs a config edit: ducking is now a **multiplier**
   of each app's own volume instead of an absolute target, and `mute_apps.duck_volume`
   is renamed to `mute_apps.duck_to`. `0.6` means "leave 60% of wherever the slider

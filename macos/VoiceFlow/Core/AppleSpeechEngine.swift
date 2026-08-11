@@ -80,10 +80,27 @@ final class AppleSpeechEngine: SpeechEngine {
             self.isFeeding = true
             self.lastLoudAudioAt = CACurrentMediaTime()
             self.lastResultAt = CACurrentMediaTime()
-            if self.request == nil {
-                self.startSession()
-            }
+            // Świeże żądanie na KAŻDĄ wypowiedź. `SFSpeechRecognitionResult`
+            // zwraca transkrypt całego żądania narastająco, a żądanie żyło
+            // dotąd między wciśnięciami skrótu (rotacja tylko co 47 s albo po
+            // błędzie) — więc druga wypowiedź niosła w sobie pierwszą, wklejała
+            // ją ponownie i lądowała z nią w jednej notatce.
+            //
+            // To NIE cofa dźwigni z `prewarm()`: kosztowne jest rozgrzanie
+            // samego `SFSpeechRecognizer`, które zostaje, a nie utworzenie
+            // kolejnego żądania na gotowym rozpoznawaczu. Bez zakładki z
+            // `tailBuffers` — na granicy wypowiedzi stare audio jest dokładnie
+            // tym, czego nie chcemy przenosić dalej.
+            self.startFreshSession()
         }
+    }
+
+    /// Zamyka poprzednie żądanie i otwiera puste — bez zakładki audio.
+    /// Wołane tylko na `queue`.
+    private func startFreshSession() {
+        let oldRequest = request
+        startSession()
+        oldRequest?.endAudio()
     }
 
     func endUtterance() {

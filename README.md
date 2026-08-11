@@ -154,7 +154,7 @@ inject:
   paste_key: ctrl+shift+v # Linux terminals paste with shift; Windows uses ctrl+v
 mute_apps:
   apps: [WEBRTC VoiceEngine]   # Discord's mic stream (Windows: Discord.exe)
-  duck_volume: 0.4        # duck the call to 40% while dictating
+  duck_to: 0.6            # leave 60% of each app's current volume
 ```
 
 <details>
@@ -178,7 +178,7 @@ mute_apps:
 | `mute_apps.enabled` | `true` | mute configured apps' mic streams while recording |
 | `mute_apps.apps` | `[WEBRTC VoiceEngine]`, Windows `[Discord.exe]` | apps whose mic is muted: PipeWire `application.name` on Linux, executable name on Windows |
 | `mute_apps.duck_enabled` | `true` | also duck those apps' playback |
-| `mute_apps.duck_volume` | `0.4` | duck target as a fraction of full volume |
+| `mute_apps.duck_to` | `0.6` | multiplier applied to each app's current volume |
 | `mute_apps.duck_rules` | `{}` | per-application playback targets keyed by PipeWire `application.name` |
 | `presence.enabled` | `false` | show Discord Rich Presence while dictating |
 | `presence.client_id` | `""` | Discord developer application ID used for Rich Presence |

@@ -347,6 +347,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             pillController.model.phase = .finalizing
         case .done:
             pillHideWorkItem?.cancel()
+            guard !lastFullText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                // Nic nie rozpoznano (stuknięcie skrótu, cisza). Karta wyniku
+                // wisiałaby wtedy pusta przez 6 sekund i wyglądała jak awaria —
+                // lepiej po prostu zniknąć.
+                pillController.hide()
+                pillController.model.phase = .idle
+                pillController.model.liveText = ""
+                pillController.model.resultText = ""
+                return
+            }
             pillController.model.resultText = lastFullText
             pillController.model.phase = .result
             pillController.show()

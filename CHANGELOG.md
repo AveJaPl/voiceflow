@@ -4,11 +4,12 @@ Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[
 
 ## Unreleased
 
-- **[Web]** The landing page deploys itself again. It was wired to Coolify as a
-  "Public GitHub" source, which clones the repository but registers no webhook —
-  so *Auto Deploy* was ticked and had nothing to listen to, and every change
-  needed someone to press Redeploy. It now goes through the same GitHub App every
-  other application on that server uses, so a push to `main` publishes the site.
+- **[Web]** The landing page now deploys through the same GitHub App every other
+  application on that Coolify server uses, instead of being the one resource on a
+  "Public GitHub" source with a hand-wired webhook. Push-to-deploy worked before
+  this change and still works; what changes is that the webhook is managed by the
+  App rather than by hand, so it cannot quietly rot, and the repository could go
+  private without the deploy breaking.
 
 - **[macOS]** Added the main window, built to match the Linux application:
   sidebar navigation and the same five pages — Przegląd, Historia, Statystyki,

@@ -295,6 +295,27 @@ final class SessionController {
         state = .finalizing
         audioCapture.stop()
 
+        // Pokój i dźwięk zwalniamy TERAZ, w momencie puszczenia skrótu — nie po
+        // przebiegu końcowym. Mówienie skończyło się fizycznie w tej chwili;
+        // liczenie transkrypcji to prywatna sprawa tego Maca. Wcześniej oba
+        // działy się dopiero po `await engine.endUtterance()` (kilka sekund na
+        // dużym modelu) i przez cały ten czas pokój trzymał nas jako mówiącego:
+        // Filip zablokowany, muzyka u wszystkich ściszona, a my tylko liczyliśmy.
+        //
+        // Liczba słów do rankingu bierze się z tekstu strumieniowego — przebieg
+        // końcowy bywa o słowo dokładniejszy, ale ranking nie jest wart
+        // przetrzymywania całego pokoju do końca analizy.
+        let streamedText = differ.displayedText
+        let streamedWords = streamedText.split(whereSeparator: { $0.isWhitespace }).count
+        let duration = utteranceStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+        if streamedWords > 0 {
+            room.reportFinished(words: streamedWords, seconds: duration)
+        } else {
+            // Cisza też musi zwolnić pokój, inaczej reszta czeka na puls.
+            room.reportCancelled()
+        }
+        ducking.end()
+
         Task { [weak self] in await self?.finishUtterance() }
     }
 
@@ -333,25 +354,15 @@ final class SessionController {
                 injected: lastInjectionSucceeded
             )
             notesStore.upsert(note)
-            room.reportFinished(
-                words: formatted.split(whereSeparator: { $0.isWhitespace }).count,
-                seconds: duration
-            )
+            // Pokój dostał raport już w `endUtterance()` — w chwili, gdy mówienie
+            // fizycznie się skończyło. Tutaj NIC nie raportujemy: drugi raport
+            // wyglądałby dla serwera jak druga, zerowa wypowiedź.
         } else {
             DebugLog.write("Inject", "applyFinal pominięty — pusty tekst (nic nie rozpoznano)")
-            // Cisza też musi zwolnić pokój, inaczej reszta czeka bez powodu aż
-            // do wygaśnięcia pulsu.
-            room.reportCancelled()
         }
         segmenter.reset()
         state = .done
         state = .idle
-
-        // Przywrócenie głośności/mute Discorda jest ODROCZONE — dopiero jeśli w
-        // ciągu progu z `DictationDucking` NIE przyjdzie kolejne `beginUtterance`
-        // (kontynuacja tej samej myśli), żeby głośność nie migała między
-        // kolejnymi wypowiedziami.
-        ducking.end()
     }
 
     /// Escape podczas `.listening` (§Zadanie 2 audytu — Linux ma `voiceflow

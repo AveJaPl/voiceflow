@@ -232,15 +232,80 @@ final class SettingsModel: ObservableObject {
 
 /// Ustawienia: skrót, język, tryb wstawiania, przyciszanie audio, wyciszanie
 /// Discorda. Formularz systemowy — bez ozdobnych fontów, bez emotek.
+/// Kategorie ustawień — jedna lista po lewej zamiast jednego długiego zwoju.
+enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
+    case dictation, insertion, audio, vocabulary, room, remote
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .dictation: "Dyktowanie"
+        case .insertion: "Wstawianie tekstu"
+        case .audio: "Dźwięk"
+        case .vocabulary: "Słownik"
+        case .room: "Wspólny pokój"
+        case .remote: "Zdalny mikrofon"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .dictation: "mic"
+        case .insertion: "text.cursor"
+        case .audio: "speaker.wave.2"
+        case .vocabulary: "character.book.closed"
+        case .room: "person.2"
+        case .remote: "iphone"
+        }
+    }
+}
+
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
     @ObservedObject var remoteMic: RemoteMicClient
     @State private var adminSecretInput = ""
     @State private var pairingStatus: String?
     @State private var isPairing = false
+    @State private var category: SettingsCategory = .dictation
 
     var body: some View {
-        Form {
+        HStack(spacing: 0) {
+            categorySidebar
+            Divider()
+            Form {
+                switch category {
+                case .dictation: dictationSections
+                case .insertion: insertionSections
+                case .audio: audioSections
+                case .vocabulary: vocabularySections
+                case .room: roomSections
+                case .remote: remoteSections
+                }
+            }
+            .formStyle(.grouped)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(width: 720, height: 620)
+    }
+
+    /// Lewa kolumna z kategoriami. Powód przebudowy: wcześniej wszystkie
+    /// jedenaście sekcji leżało w jednej kolumnie, jedna pod drugą, w oknie
+    /// wysokim na 900 punktów — żeby zmienić model, trzeba było przewinąć obok
+    /// Discorda, izolacji mikrofonu i słownika. Kategorie po lewej pokazują naraz
+    /// tylko to, czego user szuka, i dają nazwom sekcji hierarchię, której płaska
+    /// lista nie miała.
+    private var categorySidebar: some View {
+        List(SettingsCategory.allCases, selection: $category) { item in
+            Label(item.title, systemImage: item.icon)
+                .tag(item)
+        }
+        .listStyle(.sidebar)
+        .frame(width: 190)
+    }
+
+    @ViewBuilder
+    private var dictationSections: some View {
             Section("Skrót") {
                 Picker("Przytrzymaj, aby dyktować", selection: $model.mainHotkey) {
                     ForEach(MainHotkey.allCases) { hotkey in
@@ -252,9 +317,6 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
-
-            RoomSettingsSection()
-
             Section("Silnik i język") {
                 Picker("Silnik rozpoznawania (polski)", selection: $model.speechEngine) {
                     ForEach(SpeechEngineChoice.allCases) { choice in
@@ -286,7 +348,10 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
+    }
 
+    @ViewBuilder
+    private var insertionSections: some View {
             Section("Wstawianie tekstu") {
                 Picker("Tryb", selection: $model.insertionMode) {
                     ForEach(InsertionMode.allCases) { mode in
@@ -298,7 +363,10 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
+    }
 
+    @ViewBuilder
+    private var audioSections: some View {
             Section("Przyciszanie audio w trakcie mówienia") {
                 Toggle("Przyciszaj muzykę i inne dźwięki systemowe", isOn: $model.duckingEnabled)
                 if model.duckingEnabled {
@@ -317,21 +385,18 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-
             Section("Izolacja mikrofonu (Discord i inne czaty)") {
                 Toggle("Podczas dyktowania nikt na czacie mnie nie słyszy", isOn: $model.micIsolationEnabled)
                 Text("Na czas dyktowania podmienia systemowe domyślne wejście audio na ciche (BlackHole) i przywraca po. Dwa warunki: BlackHole musi być zainstalowany (zrobione, jeśli widzisz ten przełącznik) i Discord musi mieć Urządzenie wejściowe ustawione na „Domyślne” w Ustawienia → Głos i wideo — nie na nazwaną kartę na sztywno. Sprawdź to raz ręcznie w Discordzie, zanim włączysz.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
-
             Section("Discord — skrót „Wycisz” (alternatywa)") {
                 DiscordHotkeyRecorder(hotkey: $model.discordHotkey)
                 Text("Starsza metoda — symuluje przycisk „Wycisz” w Discordzie. Mniej niezawodna niż izolacja mikrofonu wyżej (Discord czasem gubi jedno z dwóch identycznych naciśnięć). Jeśli włączyłeś izolację mikrofonu, ten skrót jest zbędny — możesz zostawić puste (przycisk „Wyczyść”).")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
-
             Section("Discord — status dyktowania (Rich Presence)") {
                 Toggle("Pokazuj w Discordzie, że właśnie dyktuję", isOn: $model.discordPresenceEnabled)
                 if model.discordPresenceEnabled {
@@ -342,14 +407,25 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
+    }
 
+    @ViewBuilder
+    private var vocabularySections: some View {
             Section("Słownik — słowa własne") {
                 VocabularyEditor(words: $model.customVocabulary)
                 Text("Nazwy własne, które silnik rozpoznawania mowy często myli (np. „Programo”, „Estalo”). Dla whisper.cpp trafiają wprost do promptu dekodera — działa od razu, bez restartu. Dla silnika Apple działają jak wbudowany słownik (poprawka wielkości liter) — wymaga restartu VoiceFlow.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
+    }
 
+    @ViewBuilder
+    private var roomSections: some View {
+            RoomSettingsSection()
+    }
+
+    @ViewBuilder
+    private var remoteSections: some View {
             Section("Zdalny mikrofon (telefon)") {
                 Toggle("Włącz zdalny mikrofon", isOn: $model.remoteMicEnabled)
                     .onChange(of: model.remoteMicEnabled) { _, _ in remoteMic.restart() }
@@ -386,9 +462,6 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
-        }
-        .formStyle(.grouped)
-        .frame(width: 480, height: 900)
     }
 
     private var connectionStatusLabel: String {

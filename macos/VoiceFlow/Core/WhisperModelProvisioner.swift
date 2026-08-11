@@ -30,6 +30,7 @@ import os.log
 /// jest wyborem użytkownika, a nie decyzją podjętą za niego.
 enum WhisperModelChoice: String, CaseIterable, Identifiable {
     case base
+    case smallQ5 = "small-q5_1"
     case largeV3TurboQ5 = "large-v3-turbo-q5_0"
 
     var id: String { rawValue }
@@ -38,15 +39,34 @@ enum WhisperModelChoice: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .base: "base — szybki (148 MB)"
-        case .largeV3TurboQ5: "large-v3-turbo — dokładniejszy, wolniejszy (574 MB)"
+        case .base: "base — najszybszy, najsłabszy (148 MB)"
+        case .smallQ5: "small — rozsądny środek (190 MB)"
+        case .largeV3TurboQ5: "large-v3-turbo — najdokładniejszy (574 MB)"
         }
     }
 
     var approximateBytes: Int64 {
         switch self {
         case .base: 147_000_000
+        case .smallQ5: 190_000_000
         case .largeV3TurboQ5: 574_000_000
+        }
+    }
+
+    /// Szerokość wiązki w przebiegu końcowym — **to jest główny regulator czasu
+    /// oczekiwania, nie wielkość modelu.**
+    ///
+    /// Zmierzone na tym Macu (bez GPU): `large-v3-turbo-q5` z `beam_size 5` liczy
+    /// ~4 s NIEZALEŻNIE od długości wypowiedzi (0,79 s mowy → 3,80 s; 7,90 s mowy
+    /// → 4,19 s), bo whisper i tak przetwarza pełne 30-sekundowe okno, a beam
+    /// przepuszcza dekoder pięć razy. Ten sam model greedy: ~0,5 s.
+    ///
+    /// Dlatego duży model dostaje greedy (jest na tyle mocny, że wiązka niewiele
+    /// dokłada), a małe zostają przy piątce z Linuksa, gdzie kosztuje grosze.
+    var beamSize: Int32 {
+        switch self {
+        case .base, .smallQ5: 5
+        case .largeV3TurboQ5: 1
         }
     }
 

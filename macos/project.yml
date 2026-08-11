@@ -26,6 +26,12 @@ targets:
       path: VoiceFlow/Info.plist
       properties:
         LSUIElement: true
+        # Od macOS 15 dostęp do sieci lokalnej wymaga ZGODY użytkownika i obu
+        # tych kluczy. Bez nich przeglądanie Bonjour nic nie znajduje — bez
+        # błędu i bez logu, więc wygląda jak „nikt nie rozgłasza pokoju".
+        NSLocalNetworkUsageDescription: "VoiceFlow szuka w Twojej sieci pokoi dyktowania rozgłaszanych przez inne komputery, żebyś nie musiał przepisywać kodu."
+        NSBonjourServices:
+          - _voiceflow._tcp
         NSMicrophoneUsageDescription: "VoiceFlow potrzebuje mikrofonu, żeby transkrybować dyktowanie na żywo."
         NSSpeechRecognitionUsageDescription: "VoiceFlow potrzebuje rozpoznawania mowy Apple do transkrypcji polskiej i angielskiej."
         NSAppleEventsUsageDescription: "VoiceFlow wysyła zdarzenia klawiatury i schowka, żeby wstawić przetranskrybowany tekst w aktywnej aplikacji."
@@ -53,6 +59,14 @@ targets:
         HEADER_SEARCH_PATHS: /opt/homebrew/include
         LIBRARY_SEARCH_PATHS: /opt/homebrew/lib
         OTHER_LDFLAGS: -lwhisper -lggml -lggml-base
+        # TYLKO arm64. Debug buduje aktywną architekturę i dlatego przechodził,
+        # ale Release próbuje uniwersalnie (arm64 + x86_64) i nie linkuje się w
+        # ogóle: `libwhisper`/`libggml` z Homebrew istnieją wyłącznie w arm64
+        # ("ignoring file … found architecture 'arm64', required 'x86_64'",
+        # potem setki nierozwiązanych symboli `whisper_*`). To nie jest
+        # ograniczenie do obejścia — źródłem tych bibliotek jest `brew install
+        # whisper-cpp`, a README portu i tak zakłada Apple Silicon.
+        ARCHS: arm64
   VoiceFlowTests:
     type: bundle.unit-test
     platform: macOS
@@ -71,6 +85,14 @@ targets:
         HEADER_SEARCH_PATHS: /opt/homebrew/include
         LIBRARY_SEARCH_PATHS: /opt/homebrew/lib
         OTHER_LDFLAGS: -lwhisper -lggml -lggml-base
+        # TYLKO arm64. Debug buduje aktywną architekturę i dlatego przechodził,
+        # ale Release próbuje uniwersalnie (arm64 + x86_64) i nie linkuje się w
+        # ogóle: `libwhisper`/`libggml` z Homebrew istnieją wyłącznie w arm64
+        # ("ignoring file … found architecture 'arm64', required 'x86_64'",
+        # potem setki nierozwiązanych symboli `whisper_*`). To nie jest
+        # ograniczenie do obejścia — źródłem tych bibliotek jest `brew install
+        # whisper-cpp`, a README portu i tak zakłada Apple Silicon.
+        ARCHS: arm64
 schemes:
   VoiceFlow:
     build:

@@ -9,7 +9,7 @@ import SwiftUI
 struct RoomSettingsSection: View {
 
     @AppStorage(SettingsKeys.roomEnabled) private var enabled = false
-    @AppStorage(SettingsKeys.roomServer) private var server = "wss://rooms.pbdevs.com"
+    @AppStorage(SettingsKeys.roomServer) private var server = RoomConfiguration.defaultServer
     @AppStorage(SettingsKeys.roomCode) private var code = ""
     @AppStorage(SettingsKeys.roomDuckForOthers) private var duckForOthers = true
     @AppStorage(SettingsKeys.roomDisplayName) private var displayName = ""

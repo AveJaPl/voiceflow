@@ -22,6 +22,12 @@
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>VoiceFlow wysyła zdarzenia klawiatury i schowka, żeby wstawić przetranskrybowany tekst w aktywnej aplikacji.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_voiceflow._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>VoiceFlow szuka w Twojej sieci pokoi dyktowania rozgłaszanych przez inne komputery, żebyś nie musiał przepisywać kodu.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>VoiceFlow potrzebuje mikrofonu, żeby transkrybować dyktowanie na żywo.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

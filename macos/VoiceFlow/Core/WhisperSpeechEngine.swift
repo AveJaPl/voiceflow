@@ -31,6 +31,8 @@ final class WhisperSpeechEngine: SpeechEngine {
     private let language: String
     private let defaults: UserDefaults
     private var context: WhisperContext?
+    /// Ustalane w `prewarm` razem z modelem — patrz `WhisperModelChoice.beamSize`.
+    private var finalBeamSize: Int32 = 5
 
     /// TA SAMA wartość co `SettingsKeys.customVocabulary` (UI/SettingsView.swift)
     /// — zduplikowana tutaj, nie zaimportowana, bo Core nie zależy od UI (patrz
@@ -108,7 +110,8 @@ final class WhisperSpeechEngine: SpeechEngine {
     func prewarm() async throws {
         let choice = WhisperModelChoice.current(defaults)
         let modelURL = try await WhisperModelProvisioner.ensureModelAvailable(choice)
-        DebugLog.write("WhisperEngine", "model: \(choice.rawValue)")
+        DebugLog.write("WhisperEngine", "model: \(choice.rawValue), beam \(choice.beamSize)")
+        queue.sync { self.finalBeamSize = choice.beamSize }
 
         let rssBefore = ProcessMemory.residentBytes()
         DebugLog.write("WhisperEngine", "RSS przed załadowaniem modelu: \(rssBefore / 1_000_000) MB")
@@ -185,7 +188,8 @@ final class WhisperSpeechEngine: SpeechEngine {
                 let prompt = Self.buildInitialPrompt(vocabulary: vocabulary, stitchContext: "")
                 let startedAt = Date()
                 let text = context.transcribeFull(
-                    samples: utteranceSamples, language: language, initialPrompt: prompt
+                    samples: utteranceSamples, language: language,
+                    initialPrompt: prompt, beamSize: finalBeamSize
                 )
                 let seconds = Date().timeIntervalSince(startedAt)
                 let audioSeconds = Double(utteranceSamples.count) / 16_000

@@ -10,7 +10,7 @@ import AppKit
 /// `app/voiceflow_app/`, bo to aplikacja linuksowa jest wzorcem dla całości.
 
 enum VFPage: String, CaseIterable, Identifiable {
-    case dashboard, history, stats, vocabulary, settings
+    case dashboard, history, stats, room, vocabulary, settings
 
     var id: String { rawValue }
 
@@ -19,6 +19,7 @@ enum VFPage: String, CaseIterable, Identifiable {
         case .dashboard: "Przegląd"
         case .history: "Historia"
         case .stats: "Statystyki"
+        case .room: "Pokój"
         case .vocabulary: "Słownik"
         case .settings: "Ustawienia"
         }
@@ -29,6 +30,7 @@ enum VFPage: String, CaseIterable, Identifiable {
         case .dashboard: "mic"
         case .history: "clock.arrow.circlepath"
         case .stats: "square.grid.2x2"
+        case .room: "person.2"
         case .vocabulary: "character.book.closed"
         case .settings: "gearshape"
         }
@@ -155,6 +157,12 @@ struct MainView: View {
             HistoryPage(model: model)
         case .stats:
             StatsPage(model: model)
+        case .room:
+            VFPageHeader(
+                title: "Pokój",
+                subtitle: "Wspólna sesja dyktowania: kto teraz mówi, tablica i ranking."
+            )
+            RoomPage()
         case .vocabulary:
             VocabularyPage()
         case .settings:

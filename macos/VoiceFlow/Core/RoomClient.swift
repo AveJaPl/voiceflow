@@ -25,12 +25,26 @@ struct RoomConfiguration: Equatable {
     /// Uprawnienie, nie skutek uboczny obecności w pokoju.
     var duckForOthers: Bool = true
 
+    /// Kanoniczny adres usługi pokoi — JEDNO miejsce.
+    ///
+    /// Wcześniej domyślny adres istniał wyłącznie jako wartość `@AppStorage`
+    /// w `RoomSettingsSection`, a `@AppStorage` **nie zapisuje** domyślnej wartości
+    /// do `UserDefaults` — jest tylko odpowiedzią na odczyt pustego klucza. Reszta
+    /// aplikacji (`fromDefaults` niżej, `RoomClient`, zakładka Pokój) czytała więc
+    /// pusty serwer i pokój nie mógł zadziałać: `isUsable` było zawsze fałszem, a
+    /// żądania leciały na adres "".
+    static let defaultServer = "wss://rooms.pbdevs.com"
+
     var isUsable: Bool { enabled && !server.isEmpty && !code.isEmpty && !token.isEmpty }
 
     static func fromDefaults(_ defaults: UserDefaults = .standard) -> RoomConfiguration {
         RoomConfiguration(
             enabled: defaults.bool(forKey: SettingsKeys.roomEnabled),
-            server: defaults.string(forKey: SettingsKeys.roomServer) ?? "",
+            server: {
+                let stored = (defaults.string(forKey: SettingsKeys.roomServer) ?? "")
+                    .trimmingCharacters(in: .whitespaces)
+                return stored.isEmpty ? RoomConfiguration.defaultServer : stored
+            }(),
             code: (defaults.string(forKey: SettingsKeys.roomCode) ?? "").uppercased(),
             token: defaults.string(forKey: SettingsKeys.roomToken) ?? "",
             duckForOthers: defaults.object(forKey: SettingsKeys.roomDuckForOthers) == nil

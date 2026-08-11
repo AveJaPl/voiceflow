@@ -91,6 +91,20 @@ final class WhisperSpeechEngineTests: XCTestCase {
     }
 
     /// Kryterium #3: `WhisperSpeechEngine` sam w sobie, bez `SessionController`.
+    /// Ustawienia WYŁĄCZNIE dla testów.
+    ///
+    /// Bez tego silnik czytałby `UserDefaults.standard`, czyli realne ustawienia
+    /// użytkownika na tej maszynie — i test jechałby na modelu, który akurat ktoś
+    /// wybrał w Ustawieniach. Widziane na żywo: po przełączeniu aplikacji na
+    /// `large-v3-turbo` ten test zaczął ładować 574 MB i przestał mieścić się w
+    /// limicie czasu. Test ma sprawdzać kod, nie cudzą konfigurację.
+    static func testDefaults() -> UserDefaults {
+        let defaults = UserDefaults(suiteName: "voiceflow.tests.whisper")!
+        defaults.removePersistentDomain(forName: "voiceflow.tests.whisper")
+        defaults.set(WhisperModelChoice.base.rawValue, forKey: SettingsKeys.whisperModel)
+        return defaults
+    }
+
     /// Porównanie odporne na drobiazgi, które nie są przedmiotem testu
     /// (wielkość liter na starcie, wielokrotne spacje, białe znaki na brzegach).
     private static func normalized(_ text: String) -> String {
@@ -100,7 +114,7 @@ final class WhisperSpeechEngineTests: XCTestCase {
     }
 
     func testTranscribesWavFixtureInRealTime() async throws {
-        let engine = WhisperSpeechEngine(language: "pl")
+        let engine = WhisperSpeechEngine(language: "pl", defaults: Self.testDefaults())
         try await engine.prewarm()
 
         let collector = UpdateCollector()
@@ -155,7 +169,7 @@ final class WhisperSpeechEngineTests: XCTestCase {
     /// (`AudioCapture.startOverride`/`stopOverride`, patrz jego doc-comment).
     @MainActor
     func testSessionControllerAppliesFinalTextFromWav() async throws {
-        let engine = WhisperSpeechEngine(language: "pl")
+        let engine = WhisperSpeechEngine(language: "pl", defaults: Self.testDefaults())
 
         let audioCapture = AudioCapture()
         audioCapture.startOverride = {}

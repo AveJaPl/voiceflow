@@ -1,0 +1,15 @@
+{
+  "name": "voiceflow-rooms",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "pg": "^8.13.0",
+    "ws": "^8.18.0"
+  },
+  "engines": { "node": ">=22" }
+}

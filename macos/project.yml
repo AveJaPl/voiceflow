@@ -1,0 +1,84 @@
+name: VoiceFlow
+options:
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    SWIFT_STRICT_CONCURRENCY: minimal
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    # Stała tożsamość podpisu, NIE ad-hoc: przy ad-hoc każdy build zmienia CDHash,
+    # więc macOS traktuje aplikację jak nową i kasuje nadane uprawnienia
+    # (Dostępność, Monitorowanie danych wejściowych) po każdym przebudowaniu.
+    CODE_SIGN_IDENTITY: "Apple Development"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: H7DS3ZG67S
+    CODE_SIGNING_REQUIRED: YES
+    CODE_SIGNING_ALLOWED: YES
+targets:
+  VoiceFlow:
+    type: application
+    platform: macOS
+    sources:
+      - path: VoiceFlow
+    info:
+      path: VoiceFlow/Info.plist
+      properties:
+        LSUIElement: true
+        NSMicrophoneUsageDescription: "VoiceFlow potrzebuje mikrofonu, żeby transkrybować dyktowanie na żywo."
+        NSSpeechRecognitionUsageDescription: "VoiceFlow potrzebuje rozpoznawania mowy Apple do transkrypcji polskiej i angielskiej."
+        NSAppleEventsUsageDescription: "VoiceFlow wysyła zdarzenia klawiatury i schowka, żeby wstawić przetranskrybowany tekst w aktywnej aplikacji."
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+    entitlements:
+      path: VoiceFlow/VoiceFlow.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+        com.apple.security.device.audio-input: true
+        com.apple.security.automation.apple-events: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.avejapl.voiceflow
+        PRODUCT_NAME: VoiceFlow
+        GENERATE_INFOPLIST_FILE: NO
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ENABLE_HARDENED_RUNTIME: NO
+        # whisper.cpp (WhisperSpeechEngine) linkuje wprost przeciw bibliotece z
+        # Homebrew (`brew install whisper-cpp`) — patrz komentarz w
+        # VoiceFlow/Core/VoiceFlow-Bridging-Header.h dla uzasadnienia tego wyboru
+        # zamiast oficjalnego pakietu SPM.
+        SWIFT_OBJC_BRIDGING_HEADER: VoiceFlow/Core/VoiceFlow-Bridging-Header.h
+        HEADER_SEARCH_PATHS: /opt/homebrew/include
+        LIBRARY_SEARCH_PATHS: /opt/homebrew/lib
+        OTHER_LDFLAGS: -lwhisper -lggml -lggml-base
+  VoiceFlowTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: VoiceFlowTests
+    dependencies:
+      - target: VoiceFlow
+        embed: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.avejapl.voiceflow.tests
+        GENERATE_INFOPLIST_FILE: YES
+        # Testy linkują (przez `@testable import VoiceFlow`) obiekty VoiceFlow-a, które
+        # same odwołują się do libwhisper — bez tego link testowego bundle'a
+        # nie rozwiąże symboli whisper_* (patrz target VoiceFlow wyżej).
+        HEADER_SEARCH_PATHS: /opt/homebrew/include
+        LIBRARY_SEARCH_PATHS: /opt/homebrew/lib
+        OTHER_LDFLAGS: -lwhisper -lggml -lggml-base
+schemes:
+  VoiceFlow:
+    build:
+      targets:
+        VoiceFlow: all
+        VoiceFlowTests: [test]
+    test:
+      targets:
+        - VoiceFlowTests
+    run:
+      config: Debug

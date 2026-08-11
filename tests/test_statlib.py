@@ -70,13 +70,23 @@ def test_totals_sums_words_and_audio_seconds() -> None:
 
     result = totals(records)
 
-    assert result == {"words": 8, "dictations": 2, "audio_seconds": 30.0}
+    assert result == {
+        "words": 8,
+        "dictations": 2,
+        "audio_seconds": 30.0,
+        "average_words": 4.0,
+    }
 
 
 def test_totals_of_empty_list_is_all_zero() -> None:
     from voiceflow.statlib import totals
 
-    assert totals([]) == {"words": 0, "dictations": 0, "audio_seconds": 0.0}
+    assert totals([]) == {
+        "words": 0,
+        "dictations": 0,
+        "audio_seconds": 0.0,
+        "average_words": 0.0,
+    }
 
 
 def test_period_bounds_day_is_today() -> None:

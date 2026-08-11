@@ -1,10 +1,17 @@
-"""Persistent Whisper daemon and its Unix socket state machine."""
+"""Persistent Whisper daemon and its socket state machine.
+
+The protocol is one JSON line in, one JSON line out, over whichever local
+transport the platform offers: a unix socket on Linux, a loopback TCP port
+guarded by a shared token on Windows. Everything above the transport — the
+state machine, the request handler, the client — is identical on both.
+"""
 
 from __future__ import annotations
 
 import json
 import logging
 import os
+import secrets
 import signal
 import socket
 import socketserver
@@ -18,9 +25,9 @@ from voiceflow.config import Config
 from voiceflow.history import History, Record, read_records
 from voiceflow.injector import InjectionResult, Injector
 from voiceflow.micmute import MicMuter
-from voiceflow.notifier import Notifier
+from voiceflow.notifier import NotifierLike, build_notifier
 from voiceflow.overlay import Overlay
-from voiceflow.paths import daemon_socket_path, runtime_dir
+from voiceflow.paths import daemon_endpoint_path, daemon_socket_path, runtime_dir
 from voiceflow.presence import DiscordPresence
 from voiceflow.preview import PreviewLoop
 from voiceflow.recorder import Recorder
@@ -32,6 +39,15 @@ from voiceflow.updates import check as check_updates
 _WINDOWS = os.name == "nt"
 
 LOGGER = logging.getLogger(__name__)
+
+
+class DaemonAlreadyRunning(RuntimeError):
+    """A live daemon answered the endpoint, so this process must not start one.
+
+    Its own exception type because it is not a failure: on Windows the Start
+    Menu entry and the autostart shortcut launch the same command, so clicking
+    the icon while voiceflow is already running is the *expected* path and
+    deserves a reassuring answer rather than an error."""
 
 
 class State(StrEnum):
@@ -63,6 +79,7 @@ class TranscriberLike(Protocol):
 class _RequestHandler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
         daemon: VoiceflowDaemon = self.server.voiceflow_daemon  # type: ignore[attr-defined]
+        expected_token: str | None = getattr(self.server, "voiceflow_token", None)
         raw = self.rfile.readline(65537)
         if len(raw) > 65536:
             response = {"ok": False, "message": "Żądanie jest za duże"}
@@ -72,7 +89,13 @@ class _RequestHandler(socketserver.StreamRequestHandler):
                 command = request.get("command") if isinstance(request, dict) else None
                 if not isinstance(command, str):
                     raise ValueError("brak pola command")
-                response = daemon.handle_command(command)
+                if expected_token is not None and not _token_matches(request, expected_token):
+                    # Loopback is reachable by every local process; the token is
+                    # what keeps one of them from driving somebody's microphone.
+                    LOGGER.warning("Odrzucono żądanie bez prawidłowego tokenu")
+                    response = {"ok": False, "message": "Nieprawidłowy token dostępu"}
+                else:
+                    response = daemon.handle_command(command)
             except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
                 response = {"ok": False, "message": f"Nieprawidłowe żądanie: {exc}"}
             except Exception as exc:
@@ -81,13 +104,25 @@ class _RequestHandler(socketserver.StreamRequestHandler):
         self.wfile.write(json.dumps(response, ensure_ascii=False).encode("utf-8") + b"\n")
 
 
+def _token_matches(request: dict[str, Any], expected: str) -> bool:
+    supplied = request.get("token")
+    return isinstance(supplied, str) and secrets.compare_digest(supplied, expected)
+
+
+class _TcpServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    """Loopback transport for Windows, where unix sockets do not exist."""
+
+    daemon_threads = True
+    allow_reuse_address = False
+
+
 if hasattr(socketserver, "UnixStreamServer"):
 
     class _UnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         daemon_threads = True
         allow_reuse_address = False
 
-else:  # Windows: no unix sockets; the daemon runs hotkey-driven, serverless.
+else:  # Windows: the loopback server above stands in for it.
     _UnixServer = None  # type: ignore[assignment,misc]
 
 
@@ -101,24 +136,29 @@ class VoiceflowDaemon:
         recorder: RecorderLike | None = None,
         transcriber: TranscriberLike | None = None,
         injector: Injector | None = None,
-        notifier: Notifier | None = None,
+        notifier: NotifierLike | None = None,
         overlay: Overlay | None = None,
         history: History | None = None,
         tray: Tray | None = None,
+        micmuter: MicMuter | None = None,
     ) -> None:
         self.config = config
         self.state = State.IDLE
         self._lock = threading.RLock()
         self._shutdown_requested = threading.Event()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="voiceflow-worker")
-        self.notifier = notifier or Notifier(config.notifications)
+        self.notifier = notifier or build_notifier(config.notifications)
         if _WINDOWS and overlay is None:
             from voiceflow.winplat.overlay import WinOverlay
 
             self.overlay = WinOverlay(config.overlay)
         else:
             self.overlay = overlay or Overlay(config.overlay)
-        if _WINDOWS:
+        if micmuter is not None:
+            # Injectable like every other collaborator: a test that drives the
+            # state machine must not reach the machine's real microphone.
+            self.micmuter = micmuter
+        elif _WINDOWS:
             from voiceflow.winplat.micmute import WinMicMuter
 
             self.micmuter = WinMicMuter(config.mute_apps)
@@ -144,7 +184,7 @@ class VoiceflowDaemon:
             self.injector = injector or Injector(config.inject)
         if transcriber is None:
             # Refuse a second instance before downloading/loading a large model.
-            _remove_stale_socket(daemon_socket_path())
+            _ensure_single_instance()
             _remove_orphan_recordings(runtime_dir())
             self.transcriber = Transcriber(config.model)
         else:
@@ -157,7 +197,8 @@ class VoiceflowDaemon:
             self.recorder = recorder or Recorder(
                 config.audio, runtime_dir(), self._max_duration_reached
             )
-        self._server: _UnixServer | None = None
+        self._server: socketserver.BaseServer | None = None
+        self._hotkey_listener: Any = None
         threading.Thread(
             target=self._announce_update, name="voiceflow-update-check", daemon=True
         ).start()
@@ -402,7 +443,7 @@ class VoiceflowDaemon:
         except Exception as exc:
             LOGGER.exception("Diagnostyka wstrzykiwania nie powiodła się")
             probe = {"summary": f"Błąd diagnostyki: {exc}"}
-        return {
+        status = {
             "ok": True,
             "message": "Demon działa",
             "state": self.state.value,
@@ -411,6 +452,20 @@ class VoiceflowDaemon:
             "compute_type": self.transcriber.compute_type,
             "injection": probe,
         }
+        if _WINDOWS:
+            # The daemon owns the shortcut here, so it is the only place that
+            # can answer "which key am I actually listening for?".
+            status["hotkey"] = self.config.hotkey.binding
+            listener = self._hotkey_listener
+            if listener is not None and listener.state != "pending":
+                # Reporting the configured string alone made a dead shortcut
+                # look healthy: the config says ctrl+shift+space, Windows gave
+                # it to somebody else, and the dashboard cheerfully told the
+                # user to press it. Report what was registered, not what was asked.
+                status["hotkey_active"] = listener.state == "active"
+                if listener.error:
+                    status["hotkey_error"] = listener.error
+        return status
 
     def run(self) -> None:
         """Serve until shutdown.
@@ -445,9 +500,28 @@ class VoiceflowDaemon:
             self._cleanup(socket_path)
 
     def _run_windows(self) -> None:  # pragma: no cover - Windows runtime path
+        """Hotkey listener plus a loopback IPC server.
+
+        Unlike GNOME, Windows has no place to hang a global shortcut outside the
+        process, so the daemon registers it itself. The IPC server is what keeps
+        ``voiceflow toggle``/``status``/``quit`` working exactly as on Linux."""
         from voiceflow.winplat.hotkey import HotkeyListener
 
-        listener = HotkeyListener(self.config.hotkey.binding, lambda: self.handle_command("toggle"))
+        token = secrets.token_hex(16)
+        server = _TcpServer(("127.0.0.1", 0), _RequestHandler)
+        server.voiceflow_daemon = self  # type: ignore[attr-defined]
+        server.voiceflow_token = token  # type: ignore[attr-defined]
+        self._server = server
+        endpoint = daemon_endpoint_path()
+        _write_endpoint(endpoint, server.server_address[1], token)
+        threading.Thread(target=server.serve_forever, name="voiceflow-ipc", daemon=True).start()
+
+        listener = HotkeyListener(
+            self.config.hotkey.binding,
+            lambda: self.handle_command("toggle"),
+            on_error=lambda message: self.notifier.send(f"❌ {message}", urgency="critical"),
+        )
+        self._hotkey_listener = listener
         listener.start()
 
         def request_shutdown(signum: int, _frame: object) -> None:
@@ -455,13 +529,18 @@ class VoiceflowDaemon:
             self._shutdown_requested.set()
 
         signal.signal(signal.SIGINT, request_shutdown)
-        LOGGER.info("voiceflow działa — skrót: %s (Ctrl+C kończy)", self.config.hotkey.binding)
+        LOGGER.info(
+            "voiceflow działa — skrót: %s, IPC na porcie %d",
+            self.config.hotkey.binding,
+            server.server_address[1],
+        )
         try:
             while not self._shutdown_requested.wait(0.5):
                 pass
         finally:
             listener.stop()
-            self._cleanup(None)
+            server.shutdown()
+            self._cleanup(endpoint)
 
     def _cleanup(self, socket_path: Path | None) -> None:
         with self._lock:
@@ -490,7 +569,18 @@ class VoiceflowDaemon:
         LOGGER.info("Demon zatrzymany")
 
 
-def _remove_stale_socket(path: Path) -> None:
+def _ensure_single_instance() -> None:
+    """Refuse to start when another daemon is already answering.
+
+    Two daemons means two copies of a multi-gigabyte model in RAM and a hotkey
+    that silently belongs to whichever won the race — worth a hard stop. On
+    Windows this matters more than on Linux: the Start Menu entry and the
+    autostart shortcut both launch the same thing, so a second instance is one
+    stray double-click away."""
+    _remove_stale_endpoint(daemon_endpoint_path() if _WINDOWS else daemon_socket_path())
+
+
+def _remove_stale_endpoint(path: Path) -> None:
     if not path.exists():
         return
     try:
@@ -499,12 +589,32 @@ def _remove_stale_socket(path: Path) -> None:
         try:
             path.unlink()
         except OSError as exc:
-            raise RuntimeError(f"Nie można usunąć osieroconego socketu {path}: {exc}") from exc
-        LOGGER.warning("Usunięto osierocony socket %s", path)
+            raise RuntimeError(f"Nie można usunąć osieroconego pliku {path}: {exc}") from exc
+        LOGGER.warning("Usunięto osierocony punkt kontaktu %s", path)
         return
-    # Any parseable reply means something is listening. Deleting the socket then
-    # would cut off a live daemon, so refuse to start regardless of the ok flag.
-    raise RuntimeError(f"Demon voiceflow już działa (socket {path}, odpowiedź: {response})")
+    # Any parseable reply means something is listening. Deleting the endpoint
+    # then would cut off a live daemon, so refuse to start regardless of `ok`.
+    raise DaemonAlreadyRunning(
+        f"Demon voiceflow już działa ({path}, odpowiedź: {response})"
+    )
+
+
+#: Kept as the historical name; Linux callers and tests reach for this one.
+_remove_stale_socket = _remove_stale_endpoint
+
+
+def _write_endpoint(path: Path, port: int, token: str) -> None:
+    path.write_text(json.dumps({"port": port, "token": token}), encoding="utf-8")
+
+
+def _read_endpoint(path: Path) -> tuple[int, str]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return int(data["port"]), str(data["token"])
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError(
+            f"Demon voiceflow nie działa (brak lub uszkodzony {path}): {exc}"
+        ) from exc
 
 
 def _remove_orphan_recordings(directory: Path) -> None:
@@ -518,18 +628,23 @@ def _remove_orphan_recordings(directory: Path) -> None:
 
 def send_request(command: str, *, socket_path: Path | None = None, timeout: float = 1.0) -> dict[str, Any]:
     """Send one JSON-line request and return one JSON-line response."""
-    if not hasattr(socket, "AF_UNIX"):
-        raise RuntimeError(
-            "Na Windowsie demon działa bez socketu — steruje nim skrót klawiszowy "
-            "(Ctrl+Shift+Space); log: %LOCALAPPDATA%\\voiceflow\\daemon.log"
-        )
-    path = socket_path or daemon_socket_path()
-    payload = json.dumps({"command": command}, ensure_ascii=False).encode("utf-8") + b"\n"
-    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    request: dict[str, Any] = {"command": command}
+    if _WINDOWS:
+        path = socket_path or daemon_endpoint_path()
+        port, token = _read_endpoint(path)
+        request["token"] = token
+        family: int = socket.AF_INET
+        address: Any = ("127.0.0.1", port)
+    else:
+        path = socket_path or daemon_socket_path()
+        family = socket.AF_UNIX
+        address = str(path)
+    payload = json.dumps(request, ensure_ascii=False).encode("utf-8") + b"\n"
+    client = socket.socket(family, socket.SOCK_STREAM)
     client.settimeout(timeout)
     raw = b""
     try:
-        client.connect(str(path))
+        client.connect(address)
         client.sendall(payload)
         with client.makefile("rb") as response_file:
             raw = response_file.readline(65537)

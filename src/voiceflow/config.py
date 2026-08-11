@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -13,33 +14,56 @@ from voiceflow.paths import config_dir
 
 LOGGER = logging.getLogger(__name__)
 
-DEFAULT_CONFIG = """\
-# voiceflow configuration
-model:
-  name: large-v3-turbo
-  device: cuda            # cuda | cpu | auto
-  compute_type: float16
-  language: pl            # ISO 639-1 code; null = automatic detection
-  beam_size: 5
-  # Proper nouns and jargon Whisper otherwise mangles. This biases decoding only;
-  # it never rewrites anything. Keep the list short — an overlong bias prompt
-  # costs accuracy and can leak into the transcript.
-  vocabulary: []          # e.g. [Supabase, Coolify, WooCommerce]
-audio:
-  source: null            # null = default PipeWire device
-  max_seconds: 300
-inject:
+_WINDOWS = os.name == "nt"
+
+#: The chord that pastes in the focused application. Wayland terminals need
+#: ctrl+shift+v; on Windows that is *unformatted* paste, which most native
+#: apps ignore outright — there the universal chord is plain ctrl+v.
+DEFAULT_PASTE_KEY = "ctrl+v" if _WINDOWS else "ctrl+shift+v"
+
+#: Applications whose microphone is silenced while dictating. The two platforms
+#: name the same thing differently: PipeWire reports a stream's
+#: ``application.name`` ("WEBRTC VoiceEngine" is Discord's mic stream), while
+#: Core Audio identifies a session by the executable behind it.
+DEFAULT_MUTE_APPS = ("Discord.exe",) if _WINDOWS else ("WEBRTC VoiceEngine",)
+
+_INJECT_COMMENT = (
+    """\
+  # Windows pastes with ctrl+v; the clipboard route is the only one that
+  # carries every language intact, so method stays clipboard here.
+"""
+    if _WINDOWS
+    else """\
   # clipboard is the default: ydotool 1.0.4 silently truncates non-ASCII text,
   # which loses every Polish diacritic. ydotool stays available for ASCII-only use.
-  method: clipboard       # clipboard | ydotool | auto
-  key_delay_ms: 12
-  paste_key: ctrl+shift+v
-  restore_clipboard: true
-preview:
+"""
+)
+
+_AUDIO_SOURCE_COMMENT = (
+    "null = default input device" if _WINDOWS else "null = default PipeWire device"
+)
+
+_MUTE_APPS_SECTION = (
+    """\
+mute_apps:
+  # While recording, mute these applications' microphone so people on a voice
+  # chat do not hear the dictation. The physical mic stays live for voiceflow.
+  # Named by executable, with or without .exe. Only apps recording through
+  # WASAPI can be singled out; legacy MME/DirectSound apps are invisible.
   enabled: true
-  interval_seconds: 1.0   # how often the live preview refreshes
-  window_seconds: 30      # only the last N seconds are re-transcribed per tick
-  max_chars: 330          # tail kept; roughly fills the overlay's five lines
+  apps: [Discord.exe]
+  # Application playback (music, calls, videos) is also turned down while you
+  # dictate. These values are MULTIPLIERS of each app's current volume, not
+  # target levels: 0.6 means "as loud as 60% of wherever the slider already is".
+  # An absolute target cannot work here — the same number is a gentle dip when
+  # you listen loud and dead silence when you listen quietly.
+  duck_enabled: true
+  duck_to: 0.6              # apps without a rule keep 60% of their volume
+  duck_rules: {}            # e.g. {Spotify.exe: 0.5, Discord.exe: 0.8}
+                            # 1.0 = never duck that app
+"""
+    if _WINDOWS
+    else """\
 mute_apps:
   # While recording, mute these apps' microphone streams so people on a voice
   # chat do not hear the dictation. The physical mic stays live for voiceflow.
@@ -57,6 +81,105 @@ mute_apps:
   duck_to: 0.6              # apps without a rule keep 60% of their volume
   duck_rules: {}            # e.g. {Spotify: 0.5, WEBRTC VoiceEngine: 0.8}
                             # 1.0 = never duck that app
+"""
+)
+
+_HISTORY_PATH = (
+    r"%LOCALAPPDATA%\voiceflow\history.jsonl"
+    if _WINDOWS
+    else "~/.local/share/voiceflow/history.jsonl"
+)
+
+_OVERLAY_COMMENT = (
+    """\
+  # On-screen indicator: a dot while listening, live text, gone when done.
+  # A borderless always-on-top window marked WS_EX_NOACTIVATE, so it can never
+  # steal focus from the window that should receive the paste.
+"""
+    if _WINDOWS
+    else """\
+  # On-screen indicator: a pulsing dot while listening, live text, gone when done.
+  # An X11 override-redirect window, because on GNOME/Wayland a normal window
+  # cannot refuse focus and would swallow the paste.
+  # Drag it with the mouse to move it; double-click returns it to the default
+  # spot. The position is remembered in overlay-position.json, not here.
+"""
+)
+
+#: The tray indicator is a GNOME/Ayatana AppIndicator, so it exists on Linux
+#: only. Emitting the section on Windows would advertise a switch with nothing
+#: behind it.
+_TRAY_SECTION = (
+    ""
+    if _WINDOWS
+    else """\
+tray:
+  # Top-bar icon showing today's speaking time and word count; click for
+  # this week/month/year. Reads from history, so history.enabled: false
+  # means the icon always shows zero. Needs
+  # gir1.2-ayatanaappindicator3-0.1 (installed automatically by
+  # install.sh); silently absent if that package is missing.
+  enabled: true
+"""
+)
+
+#: The two platforms trigger a dictation through different machinery, so the
+#: generated file documents only the half that is live there. Listing the other
+#: half would be a setting that quietly does nothing.
+_HOTKEY_SECTION = (
+    """\
+hotkey:
+  # The global shortcut the daemon registers for itself on Windows.
+  binding: ctrl+shift+space
+"""
+    if _WINDOWS
+    else """\
+hotkey:
+  toggle:
+    # Press to start, press again to stop. The key itself lives in the desktop's
+    # own shortcut store, which is what scripts/install-hotkey.sh writes and what
+    # the desktop app edits; this is the value that installer uses.
+    enabled: true
+    binding: <Super>g
+  # push_to_talk — record only while the key is held — is NOT active yet, so it
+  # is deliberately absent here: a setting that quietly does nothing is worse
+  # than a missing one. The mechanism is settled and scripts/voiceflow-hotkeys.py
+  # already speaks it (the GlobalShortcuts portal, the only way to see a key
+  # RELEASE without giving voiceflow read access to every input device), but
+  # nothing calls that script. The hold-up is not technical: binding a portal
+  # shortcut makes the desktop ask for confirmation once, and that prompt was
+  # judged not worth it while the toggle does the job.
+"""
+)
+
+DEFAULT_CONFIG = f"""\
+# voiceflow configuration
+model:
+  name: large-v3-turbo
+  device: cuda            # cuda | cpu | auto
+  compute_type: float16
+  language: pl            # ISO 639-1 code; null = automatic detection
+  beam_size: 5
+  # Proper nouns and jargon Whisper otherwise mangles. This biases decoding only;
+  # it never rewrites anything. Keep the list short — an overlong bias prompt
+  # costs accuracy and can leak into the transcript.
+  vocabulary: []          # e.g. [Supabase, Coolify, WooCommerce]
+audio:
+  source: null            # {_AUDIO_SOURCE_COMMENT}
+  max_seconds: 300
+{_HOTKEY_SECTION}\
+inject:
+{_INJECT_COMMENT}\
+  method: clipboard       # clipboard | ydotool | auto
+  key_delay_ms: 12
+  paste_key: {DEFAULT_PASTE_KEY}
+  restore_clipboard: true
+preview:
+  enabled: true
+  interval_seconds: 1.0   # how often the live preview refreshes
+  window_seconds: 30      # only the last N seconds are re-transcribed per tick
+  max_chars: 330          # tail kept; roughly fills the overlay's five lines
+{_MUTE_APPS_SECTION}\
 presence:
   # Discord Rich Presence: friends see "dyktuje glosem" with a timer while you
   # dictate (local IPC only, never chat messages). Register a free application
@@ -68,41 +191,16 @@ updates:
   # ONLY network request the project makes. Set false to go fully offline.
   check: true
 history:
-  # Every dictation is logged locally (~/.local/share/voiceflow/history.jsonl)
+  # Every dictation is logged locally ({_HISTORY_PATH})
   # so text is recoverable when a paste lands in the wrong window, and so the
   # settings app can show statistics. store_text: false keeps counts only.
   enabled: true
   store_text: true
   max_entries: 20000
-hotkey:
-  toggle:
-    # Press to start, press again to stop. On Linux the key itself lives in the
-    # desktop's own shortcut store, which is what scripts/install-hotkey.sh
-    # writes; this is the value that installer uses.
-    enabled: true
-    binding: <Super>g
-  # push_to_talk — record only while the key is held — is NOT active yet, so it
-  # is deliberately absent here: a setting that quietly does nothing is worse
-  # than a missing one. The mechanism is settled and scripts/voiceflow-hotkeys.py
-  # already speaks it (the GlobalShortcuts portal, the only way to see a key
-  # RELEASE without giving voiceflow read access to every input device), but
-  # nothing calls that script. The hold-up is not technical: binding a portal
-  # shortcut makes the desktop ask for confirmation once, and that prompt was
-  # judged not worth it while the toggle does the job.
 overlay:
-  # On-screen indicator: a pulsing dot while listening, live text, gone when done.
-  # An X11 override-redirect window, because on GNOME/Wayland a normal window
-  # cannot refuse focus and would swallow the paste.
-  # Drag it with the mouse to move it; double-click returns it to the default
-  # spot. The position is remembered in overlay-position.json, not here.
+{_OVERLAY_COMMENT}\
   enabled: true
-tray:
-  # Top-bar icon showing today's speaking time and word count; click for
-  # this week/month/year. Reads from history, so history.enabled: false
-  # means the icon always shows zero. Needs
-  # gir1.2-ayatanaappindicator3-0.1 (installed automatically by
-  # install.sh); silently absent if that package is missing.
-  enabled: true
+{_TRAY_SECTION}\
 notifications:
   # Only used for errors now; the overlay carries the normal status.
   enabled: true
@@ -139,7 +237,7 @@ class InjectConfig:
 
     method: str = "clipboard"
     key_delay_ms: int = 12
-    paste_key: str = "ctrl+shift+v"
+    paste_key: str = DEFAULT_PASTE_KEY
     restore_clipboard: bool = True
 
 
@@ -158,9 +256,9 @@ class MuteAppsConfig:
     """Muting and ducking other applications' audio during recording."""
 
     enabled: bool = True
-    #: application.name values of PipeWire capture streams to silence.
-    #: "WEBRTC VoiceEngine" is Discord's microphone stream.
-    apps: tuple[str, ...] = ("WEBRTC VoiceEngine",)
+    #: Applications whose microphone is silenced while dictating: PipeWire
+    #: ``application.name`` values on Linux, executable names on Windows.
+    apps: tuple[str, ...] = DEFAULT_MUTE_APPS
     #: Also turn DOWN application playback (music, calls, videos) while dictating.
     duck_enabled: bool = True
     #: How much of an app's CURRENT volume is left while dictating, for apps
@@ -501,7 +599,7 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
 
     name = model.get("name", "large-v3-turbo")
     compute_type = model.get("compute_type", "float16")
-    paste_key = inject.get("paste_key", "ctrl+shift+v")
+    paste_key = inject.get("paste_key", DEFAULT_PASTE_KEY)
     log_level = root.get("log_level", "INFO")
     return Config(
         model=ModelConfig(
@@ -519,7 +617,7 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
         inject=InjectConfig(
             method=_choice(inject.get("method", "clipboard"), {"ydotool", "clipboard", "auto"}, "clipboard", "inject.method"),
             key_delay_ms=_positive_int(inject.get("key_delay_ms", 12), 12, "inject.key_delay_ms"),
-            paste_key=paste_key if isinstance(paste_key, str) and paste_key else "ctrl+shift+v",
+            paste_key=paste_key if isinstance(paste_key, str) and paste_key else DEFAULT_PASTE_KEY,
             restore_clipboard=_boolean(inject.get("restore_clipboard", True), True, "inject.restore_clipboard"),
         ),
         preview=PreviewConfig(
@@ -530,7 +628,7 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
         ),
         mute_apps=MuteAppsConfig(
             enabled=_boolean(mute_apps.get("enabled", True), True, "mute_apps.enabled"),
-            apps=_string_tuple(mute_apps.get("apps", ("WEBRTC VoiceEngine",)), "mute_apps.apps"),
+            apps=_string_tuple(mute_apps.get("apps", DEFAULT_MUTE_APPS), "mute_apps.apps"),
             duck_enabled=_boolean(mute_apps.get("duck_enabled", True), True, "mute_apps.duck_enabled"),
             duck_to=_duck_to(mute_apps),
             duck_rules=_duck_rules(mute_apps.get("duck_rules"), "mute_apps.duck_rules"),

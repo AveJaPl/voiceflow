@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from voiceflow.config import load_config, parse_config
+from voiceflow.config import DEFAULT_PASTE_KEY, load_config, parse_config
 
 
 def test_missing_values_use_defaults() -> None:
@@ -18,7 +18,8 @@ def test_missing_values_use_defaults() -> None:
     assert config.model.beam_size == 5
     assert config.audio.max_seconds == 300
     assert config.inject.key_delay_ms == 12
-    assert config.inject.paste_key == "ctrl+shift+v"
+    # The paste chord is platform-specific; test_winplat pins each value.
+    assert config.inject.paste_key == DEFAULT_PASTE_KEY
 
 
 def test_known_values_are_parsed() -> None:

@@ -72,6 +72,9 @@ def test_finish_sends_sigint_before_waiting() -> None:
     assert process.killed is False
 
 
+@pytest.mark.skipif(
+    not hasattr(signal, "SIGKILL"), reason="SIGKILL nie istnieje na Windowsie"
+)
 def test_finish_kills_only_after_sigint_timeout() -> None:
     process = _Process([subprocess.TimeoutExpired("pw-record", 5), -signal.SIGKILL])
 

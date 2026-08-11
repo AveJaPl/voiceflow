@@ -27,6 +27,116 @@ Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[
 - **[Linux]** The tray label dropped "słów" for a 💬 emoji, and its dropdown now
   shows two bar charts — today by hour, and the last 14 days — alongside the
   existing week/month/year summary.
+- **[Windows]** The microphone half of `mute_apps` now works, so dictating no
+  longer broadcasts the prompt to everyone on the call. While recording, the
+  configured applications' capture sessions are muted and all playback is
+  ducked; both are restored exactly afterwards, and a microphone the user muted
+  themselves is never touched. This shipped as a documented no-op on the claim
+  that Windows has no per-application capture mute. It does: every application
+  recording through WASAPI owns a capture session with its own mute flag.
+  Applications on the legacy MME/DirectSound paths remain invisible.
+- **[Windows]** Restores no longer follow the process id alone. Windows persists
+  an application's mixer state per application, so a session that died while
+  voiceflow held it ducked — or muted — left that app quiet, or the user silent
+  on their next call, permanently and with nothing to explain it. A restore that
+  finds no live session now falls back to any newer session of the same
+  executable, and whatever still cannot be reached is retried before the next
+  recording is ducked. The Linux backend has carried this repair for a while;
+  the Windows one now matches it.
+- **[Windows]** Fixed a crash that took the whole process down with an access
+  violation raised inside the garbage collector, pointing at whatever unrelated
+  line happened to allocate at the time. Core Audio work ran on whichever thread
+  called in, each opening and closing its own single-threaded COM apartment,
+  while pycaw's session objects survive in reference cycles until the collector
+  runs — by which time the apartment that owned them, or the thread itself, was
+  gone, and releasing the pointer was illegal. All Core Audio calls now go
+  through one immortal daemon thread in a multi-threaded apartment, where a late
+  release from any thread is legal.
+- **[All]** The daemon accepts an injectable `micmuter`, like every other
+  collaborator. Without it, running the test suite drove the real Core Audio
+  stack: the developer's microphone genuinely muted and their music genuinely
+  ducked, mid-test.
+- **[Windows]** Settings can edit which applications get their microphone muted,
+  and the detected-applications list marks what is recording (🎤) as well as
+  what is playing (●). The list existed but the setting behind it did not.
+
+- **[Windows]** The shortcut is now recorded by pressing it. The settings field
+  installs a low-level keyboard hook while recording, so it captures chords the
+  shell would otherwise eat — `Win+Alt+Space` is bindable, and pressing Win does
+  not open the Start Menu. Escape cancels, and an abandoned recording releases
+  the keyboard by itself after eight seconds.
+- **[Windows]** A recorded chord is checked against Windows before anything is
+  saved: the field says *wolny* or *zajęty przez inną aplikację* while you are
+  still choosing, instead of the daemon discovering the conflict after a restart
+  and a four-second model reload. The daemon's own shortcut is recognised rather
+  than reported as taken.
+- **[Windows]** Fixed: the dashboard reported the *configured* hotkey, so a
+  shortcut Windows had refused to register still appeared as "wciśnij, mów" —
+  the UI insisted the feature worked while nothing happened. The daemon now
+  reports whether registration actually succeeded, and the dashboard says so.
+- **[Windows]** `f13`–`f24` are accepted in `hotkey.binding`. They are on no
+  physical keyboard, which makes them the one class of shortcut nothing else
+  can claim: remap Caps Lock to F13 and dictation is a single keypress.
+
+## 0.4.0 — 2026-08-10
+
+- **[Windows]** Added the desktop window. All five pages the Linux application
+  has — przegląd, historia, statystyki, ustawienia, słownik — with daemon
+  start/stop, searchable history, charts, the full `config.yaml` editor and the
+  vocabulary. **voiceflow** in the Start Menu now opens it instead of silently
+  re-launching an already-running daemon.
+- **[Windows]** The window is Qt, not a port of the GTK code: PyGObject
+  publishes no Windows wheel at all, so libadwaita is not reachable there. The
+  daemon underneath is unchanged, and the window edits the same `config.yaml`
+  and speaks the same control channel as the command line.
+- **[All]** Config edits are read-modify-write under a lock. Two pages saving
+  from their own threads previously raced, and whichever wrote first lost its
+  changes; keys the window does not know about are preserved either way.
+
+## 0.3.2 — 2026-08-10
+
+- **[Windows]** Fixed: clicking the Start Menu entry while voiceflow was already
+  running did nothing at all — the second instance correctly refused to start,
+  but under `pythonw.exe` it had no console to say so, which reads as "the app
+  won't open". It now reports that voiceflow is running and repeats the hotkey.
+  There is no window to open on Windows by design; this is the feedback that
+  replaces one.
+- **[Windows]** Fixed: notifications sent immediately before the process exited
+  were never drawn. The toast is delivered on a daemon thread, so exiting killed
+  it — losing exactly the message that explained the failure. Callers that are
+  about to exit now flush.
+
+## 0.3.1 — 2026-08-10
+
+- **[Windows]** Fixed: the paste chord defaulted to `ctrl+shift+v`, which most
+  native Windows applications ignore — dictation completed and delivered
+  nothing. The default is now `ctrl+v` per platform, and modifiers the user is
+  still holding from the hotkey are released before the chord is sent.
+- **[Windows]** Fixed: GPU transcription failed on the first real dictation with
+  `cublas64_12.dll is not found`. The cuBLAS/cuDNN wheels are now installed and
+  preloaded on Windows too, as they already were on Linux.
+- **[All]** Fixed: model warmup ran with the VAD on, so it discarded its own
+  silent test clip before reaching the encoder — a GPU that could not encode
+  passed warmup and only failed later, long past the CPU fallback. Warmup now
+  exercises the encoder.
+- **[Windows]** Fixed: every clipboard call truncated 64-bit handles to 32 bits
+  (missing ctypes `restype`), which could corrupt memory or crash the daemon.
+- **[Windows]** Fixed: audio ducking failed on every recording with
+  `CoInitialize has not been called`, and restored volumes across COM
+  apartments. Volumes are now remembered per process id and re-resolved.
+- **[Windows]** Fixed: holding the hotkey autorepeated and toggled recording
+  many times a second (`MOD_NOREPEAT`).
+- **[Windows]** `voiceflow status`, `toggle`, `start`, `stop`, `cancel`,
+  `last --copy` and the new `quit` now work, over a loopback control channel
+  with a token file. Two daemons can no longer run at once.
+- **[Windows]** Errors now raise a toast. Previously the daemon ran with no
+  console and reported failures nowhere the user would look.
+- **[Windows]** The installer stops a running copy before updating, launches via
+  the venv's `pythonw.exe` instead of relying on `uv` being on `PATH`, verifies
+  the install, and starts the daemon immediately.
+- **[Windows]** The generated `config.yaml` is platform-appropriate: correct
+  paste chord, real paths, a documented `hotkey` section, and no PipeWire-only
+  advice.
 
 ## 0.3.0 — 2026-08-09
 

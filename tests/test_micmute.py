@@ -4,11 +4,23 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 
 import pytest
 
-from voiceflow.config import MuteAppsConfig, parse_config
+from voiceflow.config import DEFAULT_MUTE_APPS, MuteAppsConfig, parse_config
 from voiceflow.micmute import MicMuter, _Target
+
+
+def _linux_config(**overrides: object) -> MuteAppsConfig:
+    """A config naming the app the fake PipeWire dump below serves.
+
+    The dataclass default is platform-dependent — Core Audio names sessions by
+    executable, PipeWire by ``application.name`` — and everything in this file
+    exercises the PipeWire backend, so the name is pinned rather than inherited.
+    """
+    return MuteAppsConfig(apps=("WEBRTC VoiceEngine",), **overrides)  # type: ignore[arg-type]
+
 
 PW_DUMP = json.dumps(
     [
@@ -137,7 +149,7 @@ class _FakeMuter(MicMuter):
 
 
 def test_mutes_only_the_configured_capture_stream() -> None:
-    muter = _FakeMuter(MuteAppsConfig())
+    muter = _FakeMuter(_linux_config())
 
     muter.mute()
 
@@ -146,7 +158,7 @@ def test_mutes_only_the_configured_capture_stream() -> None:
 
 
 def test_unmute_restores_exactly_what_was_muted() -> None:
-    muter = _FakeMuter(MuteAppsConfig())
+    muter = _FakeMuter(_linux_config())
     muter.mute()
 
     muter.unmute()
@@ -158,7 +170,7 @@ def test_unmute_restores_exactly_what_was_muted() -> None:
 
 def test_manually_muted_stream_stays_muted() -> None:
     """The user muted themselves in Discord: that state is theirs to keep."""
-    muter = _FakeMuter(MuteAppsConfig(), premuted={84})
+    muter = _FakeMuter(_linux_config(), premuted={84})
 
     muter.mute()
     muter.unmute()
@@ -167,7 +179,7 @@ def test_manually_muted_stream_stays_muted() -> None:
 
 
 def test_disabled_feature_does_nothing() -> None:
-    muter = _FakeMuter(MuteAppsConfig(enabled=False))
+    muter = _FakeMuter(_linux_config(enabled=False))
 
     muter.mute()
 
@@ -175,7 +187,7 @@ def test_disabled_feature_does_nothing() -> None:
 
 
 def test_missing_binaries_are_survivable() -> None:
-    muter = MicMuter(MuteAppsConfig())
+    muter = MicMuter(_linux_config())
     muter._wpctl = None  # noqa: SLF001
 
     muter.mute()
@@ -184,7 +196,7 @@ def test_missing_binaries_are_survivable() -> None:
 
 def test_leftover_state_is_restored_before_a_new_mute() -> None:
     """A crash between mute and unmute must not strand the previous streams."""
-    muter = _FakeMuter(MuteAppsConfig())
+    muter = _FakeMuter(_linux_config())
     muter.mute()
 
     muter.mute()
@@ -198,7 +210,7 @@ def test_ducks_every_playing_app_by_the_default_multiplier() -> None:
     The two streams start at different volumes on purpose: an absolute target
     would flatten them together, which is exactly the bug this replaced.
     """
-    muter = _FakeMuter(MuteAppsConfig(duck_to=0.6), volumes={90: 0.85, 95: 1.0})
+    muter = _FakeMuter(_linux_config(duck_to=0.6), volumes={90: 0.85, 95: 1.0})
 
     muter.mute()
     assert sorted(muter.volume_calls) == [(90, 0.51), (95, 0.6)]
@@ -208,8 +220,8 @@ def test_ducks_every_playing_app_by_the_default_multiplier() -> None:
 
 
 def test_per_app_rules_override_the_default() -> None:
-    """Per-app multipliers: Discord keeps 30%, Spotify keeps 20%."""
-    config = MuteAppsConfig(duck_rules=(("WEBRTC VoiceEngine", 0.3), ("spotify", 0.2)))
+    """Per-app multipliers: Discord keeps 30% of its level, Spotify 20%."""
+    config = _linux_config(duck_rules=(("WEBRTC VoiceEngine", 0.3), ("spotify", 0.2)))
     muter = _FakeMuter(config, volumes={90: 1.0, 95: 1.0})
 
     muter.mute()
@@ -223,7 +235,7 @@ def test_the_same_rule_ducks_quiet_and_loud_apps_alike() -> None:
     Under the old absolute target, 0.5 barely touched an app at full volume and
     silenced one already playing at 0.4.
     """
-    config = MuteAppsConfig(duck_rules=(("WEBRTC VoiceEngine", 0.5), ("spotify", 0.5)))
+    config = _linux_config(duck_rules=(("WEBRTC VoiceEngine", 0.5), ("spotify", 0.5)))
     muter = _FakeMuter(config, volumes={90: 1.0, 95: 0.4})
 
     muter.mute()
@@ -232,7 +244,7 @@ def test_the_same_rule_ducks_quiet_and_loud_apps_alike() -> None:
 
 
 def test_rule_of_one_means_never_duck() -> None:
-    config = MuteAppsConfig(duck_rules=(("Spotify", 1.0),))
+    config = _linux_config(duck_rules=(("Spotify", 1.0),))
     muter = _FakeMuter(config, volumes={90: 1.0, 95: 1.0})
 
     muter.mute()
@@ -242,7 +254,7 @@ def test_rule_of_one_means_never_duck() -> None:
 
 def test_already_silent_stream_is_left_alone() -> None:
     """Nothing to take away from silence, and no state worth remembering."""
-    muter = _FakeMuter(MuteAppsConfig(duck_to=0.6), volumes={90: 0.0, 95: 0.0})
+    muter = _FakeMuter(_linux_config(duck_to=0.6), volumes={90: 0.0, 95: 0.0})
 
     muter.mute()
     muter.unmute()
@@ -251,7 +263,7 @@ def test_already_silent_stream_is_left_alone() -> None:
 
 
 def test_duck_disabled_leaves_volume_alone() -> None:
-    muter = _FakeMuter(MuteAppsConfig(duck_enabled=False), volumes={90: 1.0, 95: 1.0})
+    muter = _FakeMuter(_linux_config(duck_enabled=False), volumes={90: 1.0, 95: 1.0})
 
     muter.mute()
 
@@ -261,7 +273,7 @@ def test_duck_disabled_leaves_volume_alone() -> None:
 
 def test_duck_multiplier_above_one_is_clamped() -> None:
     """A config typo like duck_to: 40 must not blast the call at 4000%."""
-    muter = _FakeMuter(MuteAppsConfig(duck_to=40.0), volumes={90: 0.85, 95: 0.9})
+    muter = _FakeMuter(_linux_config(duck_to=40.0), volumes={90: 0.85, 95: 0.9})
 
     muter.mute()
 
@@ -274,7 +286,7 @@ def test_vanished_stream_is_restored_on_its_replacement_node() -> None:
     Without this, WirePlumber persists the ducked volume under the app's name
     and every future stream of that app is born quiet.
     """
-    muter = _FakeMuter(MuteAppsConfig(), volumes={90: 1.0, 95: 1.0})
+    muter = _FakeMuter(_linux_config(), volumes={90: 1.0, 95: 1.0})
     muter.mute()  # ducks node 90 (Discord) to 0.4
 
     muter.kill_node(90)
@@ -286,7 +298,7 @@ def test_vanished_stream_is_restored_on_its_replacement_node() -> None:
 
 def test_vanished_stream_is_restored_at_the_next_recording() -> None:
     """No stream at unmute time at all: the restore waits for the app's return."""
-    muter = _FakeMuter(MuteAppsConfig(), volumes={90: 1.0, 95: 1.0})
+    muter = _FakeMuter(_linux_config(), volumes={90: 1.0, 95: 1.0})
     muter.mute()
     muter.kill_node(90)
     muter.unmute()  # nothing to restore onto — parked as pending
@@ -327,10 +339,16 @@ def test_config_parses_custom_app_list() -> None:
 
 
 def test_config_defaults_to_discord() -> None:
+    """Out of the box Discord's microphone is the one that gets silenced.
+
+    Which name that is depends on who is asking: PipeWire knows the stream as
+    "WEBRTC VoiceEngine", Core Audio knows the process as Discord.exe.
+    """
     config = parse_config({})
 
     assert config.mute_apps.enabled is True
-    assert config.mute_apps.apps == ("WEBRTC VoiceEngine",)
+    assert config.mute_apps.apps == DEFAULT_MUTE_APPS
+    assert DEFAULT_MUTE_APPS == (("Discord.exe",) if os.name == "nt" else ("WEBRTC VoiceEngine",))
 
 
 def test_config_parses_duck_rules() -> None:

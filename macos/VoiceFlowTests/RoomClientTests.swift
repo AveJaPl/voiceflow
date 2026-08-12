@@ -49,6 +49,31 @@ final class RoomClientTests: XCTestCase {
         XCTAssertTrue(client.mayStart().allowed)
     }
 
+    func testBlokadaBezSwiezegoPulsuWygasa() async {
+        let (client, transport, _) = makeClient()
+        transport.deliver(["type": "speaker_changed", "speaking": ["name": "Jakub"]])
+        await settle()
+        XCTAssertFalse(client.mayStart().allowed)
+        // Cofamy potwierdzenie poza termin ważności — jak przy zawieszonym
+        // kliencie, który trzyma serwerową blokadę, ale nie pulsuje.
+        client.expireSpeakerConfirmationForTests()
+        XCTAssertTrue(client.mayStart().allowed, "przeterminowana blokada nie może więzić lokalnego dyktowania")
+        withExtendedLifetime(client) {}
+    }
+
+    func testOdmowaSerweraNieOdswiezaTerminuBlokady() async {
+        let (client, transport, _) = makeClient()
+        transport.deliver(["type": "speaker_changed", "speaking": ["name": "Jakub"]])
+        await settle()
+        client.expireSpeakerConfirmationForTests()
+        // Odmowa przy próbie startu — z potencjalnie zawieszonej blokady —
+        // nie jest dowodem, że mówiący żyje.
+        transport.deliver(["type": "speaking_denied", "blockedBy": "Jakub"])
+        await settle()
+        XCTAssertTrue(client.mayStart().allowed, "odmowa nie może przedłużać przeterminowanej blokady")
+        withExtendedLifetime(client) {}
+    }
+
     func testCudzeDyktowanieBlokujeIPodajeImie() async {
         let (client, transport, _) = makeClient()
 

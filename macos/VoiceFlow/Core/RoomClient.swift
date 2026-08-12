@@ -69,6 +69,20 @@ final class RoomClient {
 
     /// Kto mówi GDZIE INDZIEJ, albo nil gdy w pokoju cisza.
     private(set) var remoteSpeaker: String?
+    /// Kiedy ostatnio serwer POTWIERDZIŁ mówiącego. Blokada grzecznościowa ma
+    /// termin ważności: zawieszony klient innej osoby (apka ubita w środku
+    /// wypowiedzi, ale wciąż pulsująca) potrafi trzymać serwerową blokadę
+    /// godzinami — a dyktowanie na WŁASNYM Macu nie może przez to umrzeć.
+    /// Zaobserwowane na żywo 2026-08-12: „mówi Jakub" bez końca, lokalny
+    /// skrót martwy.
+    private var remoteSpeakerConfirmedAt = Date.distantPast
+    /// Po tylu sekundach bez świeżego potwierdzenia blokada wygasa lokalnie.
+    static let speakerBlockTTL: TimeInterval = 30
+
+    /// Testom nie wolno spać 30 sekund — cofamy potwierdzenie ręcznie.
+    func expireSpeakerConfirmationForTests() {
+        remoteSpeakerConfirmedAt = Date.distantPast
+    }
     /// Czy to my ściszyliśmy tę maszynę dla kogoś innego. Przywrócenie musi
     /// nastąpić dokładnie raz: drugie ściszenie zapamiętałoby już ściszony
     /// poziom jako „oryginalny" i zostawiło ten komputer cicho na stałe.
@@ -93,6 +107,13 @@ final class RoomClient {
     func mayStart() -> (allowed: Bool, blockedBy: String?) {
         guard config.enabled else { return (true, nil) }
         guard let speaker = remoteSpeaker else { return (true, nil) }
+        guard Date().timeIntervalSince(remoteSpeakerConfirmedAt) < Self.speakerBlockTTL else {
+            DebugLog.write(
+                "Room",
+                "blokada „mówi \(speaker)” starsza niż \(Int(Self.speakerBlockTTL)) s — ignoruję (zawieszony klient?)"
+            )
+            return (true, nil)
+        }
         return (false, speaker)
     }
 
@@ -138,7 +159,10 @@ final class RoomClient {
     private func handle(_ payload: [String: Any]) {
         let kind = payload["type"] as? String
         if kind == "speaking_denied" {
-            setRemoteSpeaker(payload["blockedBy"] as? String)
+            // Odmowa NIE odświeża terminu ważności: może pochodzić z
+            // zawieszonej blokady na serwerze, a wtedy każde wciśnięcie
+            // skrótu przedłużałoby ją w nieskończoność.
+            setRemoteSpeaker(payload["blockedBy"] as? String, confirmsAlive: false)
             return
         }
         guard kind == "speaker_changed" || kind == "room_state" else { return }
@@ -146,7 +170,10 @@ final class RoomClient {
         setRemoteSpeaker(speaking?["name"] as? String)
     }
 
-    private func setRemoteSpeaker(_ name: String?) {
+    private func setRemoteSpeaker(_ name: String?, confirmsAlive: Bool = true) {
+        // Puls z serwera ODŚWIEŻA termin ważności blokady — także wtedy, gdy
+        // mówiący się nie zmienił. Żywy mówca pulsuje, martwy nie.
+        if name != nil, confirmsAlive { remoteSpeakerConfirmedAt = Date() }
         guard name != remoteSpeaker else { return }
         remoteSpeaker = name
         guard let name else {

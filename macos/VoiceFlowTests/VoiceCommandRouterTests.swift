@@ -39,6 +39,44 @@ final class VoiceCommandRouterTests: XCTestCase {
         }
     }
 
+    func testLiczebnikGlownyZamiastPorzadkowego() {
+        // Whisper na żywo oddał „terminal pierwszy" jako „Derminal jeden".
+        var r = router()
+        XCTAssertEqual(r.consume("terminal jeden nasłuchuj"), .startedCollecting(target: "pierwszy"))
+        var r2 = router()
+        XCTAssertEqual(r2.consume("terminal dwa słuchaj"), .startedCollecting(target: "drugi"))
+    }
+
+    /// DOSŁOWNE wyjścia whispera z żywego przebiegu 2026-08-12 dla jednej i tej
+    /// samej wypowiedzi „terminal jeden nasłuchuj". Ten test istnieje po to,
+    /// żeby nikt nigdy nie wrócił do porównywania całych słów.
+    func testRealneWyjsciaWhisperaZLogu() {
+        let realne = [
+            "Ale nic nie widać. Terminal 1 na słuchanie.",
+            "Terminal 1 na słuchaj",
+            "- Terminal jeden, nasłuchuj.",
+            "terminal 1 nasłuchiwanie",
+        ]
+        for fragment in realne {
+            var r = router()
+            guard case .startedCollecting(let target) = r.consume(fragment) else {
+                return XCTFail("nierozpoznane realne wyjście whispera: \(fragment)")
+            }
+            XCTAssertEqual(target, "pierwszy")
+        }
+    }
+
+    func testNakladajaceSieOknaNieDublujaSlow() {
+        var r = router()
+        _ = r.consume("terminal jeden nasłuchuj")
+        _ = r.consume("napisz testy do modułu")
+        // Następne okno zachodzi o 1,5 s, więc powtarza końcówkę poprzedniego.
+        guard case .collecting(_, let text) = r.consume("do modułu płatności i odpal je") else {
+            return XCTFail("brak zbierania")
+        }
+        XCTAssertEqual(text, "napisz testy do modułu płatności i odpal je")
+    }
+
     func testGadanieBezKomendyNieUruchamiaZbierania() {
         var r = router()
         XCTAssertEqual(r.consume("dobra, to teraz zróbmy przerwę"), .ignore)

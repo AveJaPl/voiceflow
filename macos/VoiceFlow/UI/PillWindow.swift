@@ -147,6 +147,22 @@ final class PillWindowController: NSObject {
         panel.orderOut(nil)
     }
 
+    /// Przesuwa pill nad wskazane okno (współrzędne z `CGWindowList`, czyli
+    /// z zerem w LEWYM GÓRNYM rogu ekranu głównego — NSWindow liczy od dołu,
+    /// stąd odbicie). Tryb nasłuchu używa tego, żeby było widać gołym okiem,
+    /// do którego terminala pójdzie prompt: „terminal pierwszy" ma świecić
+    /// nad terminalem pierwszym, a nie w losowym rogu ekranu.
+    func moveOverWindow(x: Int, y: Int, width: Int, height: Int) {
+        guard let mainScreen = NSScreen.screens.first else { return }
+        let size = panel.frame.size
+        let flippedY = mainScreen.frame.height - CGFloat(y + height)
+        let origin = CGPoint(
+            x: CGFloat(x) + (CGFloat(width) - size.width) / 2,
+            y: flippedY + 24   // tuż nad dolną krawędzią okna
+        )
+        panel.setFrameOrigin(origin)
+    }
+
     /// Ekran z aktywnym oknem — najlepsze przybliżenie bez czytania listy
     /// okien innych aplikacji: ekran zawierający kursor myszy, bo tam
     /// zazwyczaj jest uwaga użytkownika, z fallbackiem na ekran główny.

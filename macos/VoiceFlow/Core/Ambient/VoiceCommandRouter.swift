@@ -41,24 +41,30 @@ struct VoiceCommandRouter {
 
     /// Słowa uruchamiające nasłuch dla celu — sprawdzane rozmycie, więc
     /// wystarczy jeden wzorzec na wariant znaczeniowy.
-    static let startWords = ["nasłuchuj", "słuchaj", "nasłuch"]
-    static let endWords = ["koniec", "wyślij", "wysyłaj"]
-    static let cancelWords = ["anuluj", "odwołaj", "kasuj"]
+    /// RDZENIE, nie całe słowa: whisper rozbija i odmienia komendy w sposób,
+    /// którego nie da się wyliczyć — zmierzone na żywo dla jednego zdania
+    /// „terminal jeden nasłuchuj": „na słuchanie", „na słowę", „nasłuchuj",
+    /// „na słuchaj". Wspólny jest tylko rdzeń „słuch". Szukamy go w całym
+    /// znormalizowanym fragmencie, więc rozbicie na dwa słowa nic nie psuje.
+    static let startStems = ["sluch"]
+    static let endStems = ["koniec", "wysl", "koncz"]
+    static let cancelStems = ["anuluj", "odwolaj", "kasuj"]
 
     mutating func consume(_ fragment: String) -> Decision {
-        let words = Self.normalize(fragment).split(separator: " ").map(String.init)
+        let normalized = Self.normalize(fragment)
+        let words = normalized.split(separator: " ").map(String.init)
         guard !words.isEmpty else { return currentCollectingDecision() }
 
         // KONIEC ma pierwszeństwo przed STARTEM: „koniec terminal pierwszy"
         // zawiera nazwę celu, więc kolejność sprawdzania decyduje o tym, czy
         // wypowiedź kończy prompt, czy zaczyna nowy.
         if let target = collectingTarget {
-            if Self.contains(words, anyOf: Self.cancelWords) {
+            if Self.containsStem(normalized, anyOf: Self.cancelStems) {
                 collectingTarget = nil
                 collected.removeAll()
                 return .cancelled(target: target)
             }
-            if Self.contains(words, anyOf: Self.endWords) {
+            if Self.containsStem(normalized, anyOf: Self.endStems) {
                 let text = collected.joined(separator: " ")
                 collectingTarget = nil
                 collected.removeAll()
@@ -67,12 +73,16 @@ struct VoiceCommandRouter {
                 return text.isEmpty ? .cancelled(target: target) : .commit(target: target, text: text)
             }
             // Zwykła treść promptu — dokładamy fragment TAK, JAK PADŁ
-            // (z interpunkcją i wielkością liter), nie znormalizowany.
-            collected.append(fragment.trimmingCharacters(in: .whitespacesAndNewlines))
+            // (z interpunkcją i wielkością liter), nie znormalizowany, ale bez
+            // powtórki: okna audio ZACHODZĄ na siebie o 1,5 s, więc początek
+            // fragmentu bywa końcem poprzedniego.
+            let fresh = Self.dropOverlap(of: fragment.trimmingCharacters(in: .whitespacesAndNewlines),
+                                         after: collected.last ?? "")
+            if !fresh.isEmpty { collected.append(fresh) }
             return .collecting(target: target, text: collected.joined(separator: " "))
         }
 
-        if Self.contains(words, anyOf: Self.startWords), let target = matchTarget(in: words) {
+        if Self.containsStem(normalized, anyOf: Self.startStems), let target = matchTarget(in: words) {
             collectingTarget = target
             collected.removeAll()
             return .startedCollecting(target: target)
@@ -101,7 +111,30 @@ struct VoiceCommandRouter {
         return .collecting(target: target, text: collected.joined(separator: " "))
     }
 
+    /// Whisper po polsku myli liczebniki porządkowe z głównymi („terminal
+    /// pierwszy" → „terminal jeden", zmierzone na żywo), więc każdy porządkowy
+    /// ma alias liczbowy i cyfrę.
+    static let ordinalAliases: [String: [String]] = [
+        "pierwszy": ["jeden", "1", "pierwsze", "pierwsza"],
+        "drugi": ["dwa", "2", "drugie", "druga"],
+        "trzeci": ["trzy", "3", "trzecie", "trzecia"],
+        "czwarty": ["cztery", "4", "czwarte", "czwarta"],
+        "piaty": ["piec", "5", "piate", "piata"],
+        "szosty": ["szesc", "6", "szoste", "szosta"],
+        "siodmy": ["siedem", "7", "siodme", "siodma"],
+        "osmy": ["osiem", "8", "osme", "osma"],
+        "dziewiaty": ["dziewiec", "9", "dziewiate", "dziewiata"],
+        "dziesiaty": ["dziesiec", "10", "dziesiate", "dziesiata"],
+    ]
+
     private func matchTarget(in words: [String]) -> String? {
+        // Najpierw aliasy liczbowe — „jeden" nie może przegrać z rozmytym
+        // dopasowaniem do innej nazwy.
+        for target in targets {
+            for alias in Self.ordinalAliases[target] ?? [] where words.contains(where: { Self.similar($0, alias) }) {
+                return target
+            }
+        }
         for target in targets {
             let targetWords = target.split(separator: " ").map(String.init)
             // Cel wielowyrazowy („claude backend") musi wystąpić w całości.
@@ -129,6 +162,31 @@ struct VoiceCommandRouter {
         let folded = deStroked.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "pl_PL"))
         let cleaned = folded.map { $0.isLetter || $0.isNumber || $0.isWhitespace ? $0 : " " }
         return String(cleaned).split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+
+    /// Ucina z początku `fragment` słowa, które powtarzają koniec `previous`
+    /// — skutek nakładania się okien audio.
+    static func dropOverlap(of fragment: String, after previous: String) -> String {
+        let previousWords = normalize(previous).split(separator: " ").map(String.init)
+        let fragmentWords = fragment.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        let normalizedFragment = normalize(fragment).split(separator: " ").map(String.init)
+        guard !previousWords.isEmpty, !normalizedFragment.isEmpty else { return fragment }
+        let maxOverlap = min(previousWords.count, normalizedFragment.count)
+        for n in stride(from: maxOverlap, through: 1, by: -1) {
+            let tail = previousWords.suffix(n)
+            let head = normalizedFragment.prefix(n)
+            if zip(tail, head).allSatisfy({ similar($0, $1) }) {
+                return fragmentWords.dropFirst(n).joined(separator: " ")
+            }
+        }
+        return fragment
+    }
+
+    /// Rdzeń szukany w CAŁYM znormalizowanym tekście — łapie też komendę
+    /// rozbitą przez whispera na dwa słowa („na słuchanie" → „na sluchanie").
+    static func containsStem(_ normalizedText: String, anyOf stems: [String]) -> Bool {
+        let compact = normalizedText.replacingOccurrences(of: " ", with: "")
+        return stems.contains { normalizedText.contains($0) || compact.contains($0) }
     }
 
     static func contains(_ words: [String], anyOf patterns: [String]) -> Bool {

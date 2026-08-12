@@ -314,6 +314,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .terminals(from: snapshot, snapshotter: ambientSnapshotter)
                 .map(\.name)
         }
+        ambient.onTargetLocated = { [weak self] targetName in
+            guard let self, let terminal = terminal(named: targetName) else { return }
+            pillController.moveOverWindow(
+                x: terminal.window.x, y: terminal.window.y,
+                width: terminal.window.w, height: terminal.window.h
+            )
+        }
         ambient.onCommit = { [weak self] targetName, text in
             self?.injectAmbient(text: text, into: targetName)
         }
@@ -347,12 +354,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Wklejenie promptu do nazwanego terminala — tą samą drogą co telefon:
     /// podnieś okno, POTWIERDŹ fokus, dopiero potem wklej. Bez potwierdzenia
     /// prompt trafiłby tam, gdzie akurat stoi kursor.
-    private func injectAmbient(text: String, into targetName: String) {
+    /// Terminal o tej nazwie w BIEŻĄCEJ migawce, razem z jego prostokątem.
+    private func terminal(named name: String) -> (terminal: TerminalRegistry.Terminal, window: WireWindow)? {
         let snapshot = ambientSnapshotter.snapshot()
         let terminals = TerminalRegistry.terminals(from: snapshot, snapshotter: ambientSnapshotter)
-        guard let terminal = terminals.first(where: { VoiceCommandRouter.similar(
-            VoiceCommandRouter.normalize($0.name), VoiceCommandRouter.normalize(targetName)
-        ) }) else {
+        guard let match = terminals.first(where: { VoiceCommandRouter.similar(
+            VoiceCommandRouter.normalize($0.name), VoiceCommandRouter.normalize(name)
+        ) }), let window = snapshot.windows.first(where: { $0.id == match.id }) else { return nil }
+        return (match, window)
+    }
+
+    private func injectAmbient(text: String, into targetName: String) {
+        guard let terminal = terminal(named: targetName)?.terminal else {
             DebugLog.write("Ambient", "nie znalazłem terminala „\(targetName)” — nic nie wklejam")
             return
         }

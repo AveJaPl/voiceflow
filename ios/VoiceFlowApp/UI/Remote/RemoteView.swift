@@ -13,13 +13,19 @@ struct RemoteView: View {
     /// Tryb „naciśnij / naciśnij" włączany dwuklikiem — dla długich promptów,
     /// przy których trzymanie palca przez pół minuty jest męczące.
     @State private var latchedTarget: String?
+    /// Skaner QR parowania — dostępny WPROST z tej zakładki, nie z ustawień:
+    /// parowanie to pierwsza rzecz, którą się tu robi, i pierwsza, którą
+    /// trzeba naprawić, gdy połączenie nie działa.
+    @State private var showPairing = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header
 
-                if session.windows.isEmpty {
+                if !session.isPaired {
+                    pairingCard
+                } else if session.windows.isEmpty {
                     emptyState
                 } else {
                     DesktopMapView(
@@ -51,6 +57,47 @@ struct RemoteView: View {
         .safeAreaInset(edge: .bottom) { speakBar }
         .navigationTitle("Mac")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button {
+                        showPairing = true
+                    } label: {
+                        Label("Sparuj z Makiem", systemImage: "qrcode.viewfinder")
+                    }
+                    if session.isPaired {
+                        Button(role: .destructive) {
+                            // Reset = zapomnij poświadczenia i od razu otwórz
+                            // skaner — po resecie nie ma stanu pośredniego,
+                            // w którym trzeba zgadywać, co dalej.
+                            session.updateCredentials(nil)
+                            latchedTarget = nil
+                            showPairing = true
+                        } label: {
+                            Label("Zresetuj parowanie", systemImage: "arrow.counterclockwise")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "qrcode.viewfinder")
+                }
+            }
+        }
+        .sheet(isPresented: $showPairing) {
+            NavigationStack {
+                PairingView(session: session)
+                    .navigationTitle("Parowanie")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Anuluj") { showPairing = false }
+                        }
+                    }
+            }
+        }
+        .onChange(of: session.isPaired) { _, paired in
+            // Udany skan zamyka arkusz sam — użytkownik od razu widzi okna.
+            if paired { showPairing = false }
+        }
         .refreshable {
             session.requestScreenshot()
         }
@@ -103,6 +150,36 @@ struct RemoteView: View {
         case .failed(let why): why
         case .idle: "rozłączony"
         }
+    }
+
+    /// Stan „brak sparowanego Maca" — z przyciskiem, nie z odsyłaczem do
+    /// ustawień.
+    private var pairingCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Brak sparowanego Maca")
+                .font(VFFont.body(15, weight: .semibold))
+                .foregroundStyle(VFColor.text)
+            Text("Otwórz kod QR parowania na Macu i zeskanuj go tutaj. Telefon i Mac muszą być w tej samej sieci Wi-Fi.")
+                .font(VFFont.body(13))
+                .foregroundStyle(VFColor.muted)
+            Button {
+                showPairing = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "qrcode.viewfinder")
+                    Text("Sparuj z Makiem")
+                        .font(VFFont.body(15, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+            }
+            .foregroundStyle(VFColor.background)
+            .background(VFColor.text)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(VFColor.surfaceSolid)
+        .overlay(Rectangle().stroke(VFColor.border, lineWidth: 1))
     }
 
     private var emptyState: some View {

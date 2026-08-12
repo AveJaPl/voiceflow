@@ -40,25 +40,6 @@ struct SettingsView: View {
                     .background(VFColor.surface)
                     .overlay(RoundedRectangle(cornerRadius: 2).stroke(VFColor.border, lineWidth: 1))
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("ZDALNE STEROWANIE MAKIEM").vfEyebrow()
-                        Text(remote.isPaired
-                             ? "Sparowano. Zakładka „Mac” pokazuje okna i pozwala dyktować do wybranego."
-                             : "Sparuj z Makiem, żeby widzieć jego okna i dyktować do nich z telefonu.")
-                            .font(VFFont.body(12.5))
-                            .foregroundStyle(VFColor.faint)
-                        NavigationLink {
-                            PairingView(session: remote)
-                        } label: {
-                            HStack {
-                                Text(remote.isPaired ? "Zmień parowanie" : "Sparuj z Makiem")
-                                Spacer()
-                                Image(systemName: "qrcode")
-                            }
-                        }
-                        .buttonStyle(VFOutlineButtonStyle(solid: !remote.isPaired))
-                    }
-
                     Button {
                         if let url = URL(string: UIApplication.openSettingsURLString) {
                             UIApplication.shared.open(url)

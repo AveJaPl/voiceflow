@@ -13,10 +13,21 @@ struct RemoteView: View {
     /// Tryb „naciśnij / naciśnij" włączany dwuklikiem — dla długich promptów,
     /// przy których trzymanie palca przez pół minuty jest męczące.
     @State private var latchedTarget: String?
-    /// Skaner QR parowania — dostępny WPROST z tej zakładki, nie z ustawień:
-    /// parowanie to pierwsza rzecz, którą się tu robi, i pierwsza, którą
-    /// trzeba naprawić, gdy połączenie nie działa.
-    @State private var showPairing = false
+    /// Jednolinijkowe potwierdzenie ostatniej akcji, znika samo po 2 s.
+    @State private var toast: String?
+    @State private var toastToken = 0
+
+    private func flash(_ message: String) {
+        toastToken += 1
+        let token = toastToken
+        withAnimation(.easeOut(duration: 0.15)) { toast = message }
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            // Nowszy komunikat już wygrał — nie kasuj go starym timerem.
+            guard token == toastToken else { return }
+            withAnimation(.easeIn(duration: 0.2)) { toast = nil }
+        }
+    }
 
     var body: some View {
         ScrollView {
@@ -24,7 +35,7 @@ struct RemoteView: View {
                 header
 
                 if !session.isPaired {
-                    pairingCard
+                    signInCard
                 } else if terminals.isEmpty {
                     emptyState
                 } else {
@@ -49,47 +60,6 @@ struct RemoteView: View {
         .safeAreaInset(edge: .bottom) { speakBar }
         .navigationTitle("Mac")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        showPairing = true
-                    } label: {
-                        Label("Sparuj z Makiem", systemImage: "qrcode.viewfinder")
-                    }
-                    if session.isPaired {
-                        Button(role: .destructive) {
-                            // Reset = zapomnij poświadczenia i od razu otwórz
-                            // skaner — po resecie nie ma stanu pośredniego,
-                            // w którym trzeba zgadywać, co dalej.
-                            session.updateCredentials(nil)
-                            latchedTarget = nil
-                            showPairing = true
-                        } label: {
-                            Label("Zresetuj parowanie", systemImage: "arrow.counterclockwise")
-                        }
-                    }
-                } label: {
-                    Image(systemName: "qrcode.viewfinder")
-                }
-            }
-        }
-        .sheet(isPresented: $showPairing) {
-            NavigationStack {
-                PairingView(session: session)
-                    .navigationTitle("Parowanie")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button("Anuluj") { showPairing = false }
-                        }
-                    }
-            }
-        }
-        .onChange(of: session.isPaired) { _, paired in
-            // Udany skan zamyka arkusz sam — użytkownik od razu widzi okna.
-            if paired { showPairing = false }
-        }
         .onChange(of: session.windows) { _, windows in
             // Pierwszy terminal zaznacza się sam — przycisk „Mów" ma działać
             // od razu, bez obowiązkowego tapnięcia w listę.
@@ -111,6 +81,22 @@ struct RemoteView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { session.enterBackground(); latchedTarget = nil }
+        }
+        .onChange(of: session.lastInjected) { _, injected in
+            guard let injected else { return }
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            flash("Wklejono na Macu: \(injected.text.prefix(40))\(injected.text.count > 40 ? "…" : "")")
+        }
+        .onChange(of: session.phase) { _, phase in
+            switch phase {
+            case .streaming:
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            case .failed(let failure):
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                flash(failure.message)
+            default:
+                break
+            }
         }
     }
 
@@ -151,29 +137,17 @@ struct RemoteView: View {
         }
     }
 
-    /// Stan „brak sparowanego Maca" — z przyciskiem, nie z odsyłaczem do
-    /// ustawień.
-    private var pairingCard: some View {
+    /// Stan „bez konta". Parowanie po sieci lokalnej wyleciało (decyzja Wojtka
+    /// 2026-08-12): wszystko idzie przez konto, więc jedyne, co tu można
+    /// zrobić, to zalogować się w Ustawieniach.
+    private var signInCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Brak sparowanego Maca")
+            Text("Zaloguj się kontem w Ustawieniach")
                 .font(VFFont.body(15, weight: .semibold))
                 .foregroundStyle(VFColor.text)
-            Text("Otwórz kod QR parowania na Macu i zeskanuj go tutaj. Telefon i Mac muszą być w tej samej sieci Wi-Fi.")
+            Text("Telefon łączy się z Makiem przez to samo konto. Zaloguj się w zakładce Ustawienia — okna Maca pojawią się tutaj same.")
                 .font(VFFont.body(13))
                 .foregroundStyle(VFColor.muted)
-            Button {
-                showPairing = true
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "qrcode.viewfinder")
-                    Text("Sparuj z Makiem")
-                        .font(VFFont.body(15, weight: .semibold))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-            }
-            .foregroundStyle(VFColor.background)
-            .background(VFColor.text)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
@@ -305,10 +279,23 @@ struct RemoteView: View {
                     // Prompt w terminalu bez Entera zostaje w linii i nic się nie
                     // dzieje — dlatego zatwierdzenie jest osobnym, ŚWIADOMYM
                     // ruchem, a nie automatem po dyktowaniu.
-                    Button("Wyślij ⏎") { session.sendKey(.return_) }
-                        .buttonStyle(VFOutlineButtonStyle())
-                        .disabled(session.phase.isBusy)
+                    Button("Wyślij ⏎") {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        session.sendKey(.return_)
+                        flash("Wysłano ⏎ do \(session.selectedWindow?.app ?? "okna")")
+                    }
+                    .buttonStyle(VFOutlineButtonStyle())
+                    .disabled(session.phase.isBusy)
                 }
+            }
+
+            // Każda akcja MUSI zostawić ślad na ekranie — bez tego nie widać,
+            // czy stuknięcie w ogóle doszło (zgłoszone wprost: „chuj widać").
+            if let toast {
+                Text(toast)
+                    .font(VFFont.mono(11))
+                    .foregroundStyle(VFColor.muted)
+                    .transition(.opacity)
             }
         }
         .padding(16)
@@ -349,7 +336,7 @@ struct RemoteView: View {
         case .streaming: latchedTarget == nil ? "mówisz — puść, aby wysłać" : "mówisz — stuknij 2 razy, aby zakończyć"
         case .finishing: "przetwarzam…"
         case .connecting: "łączę z Makiem…"
-        case .offline: "brak sparowanego Maca"
+        case .offline: "zaloguj się kontem w Ustawieniach"
         case .ready: session.selectedWindow == nil ? "zaznacz terminal na liście" : "Mów — przytrzymaj albo stuknij 2 razy"
         }
     }

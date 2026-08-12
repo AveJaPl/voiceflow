@@ -1,13 +1,11 @@
 import SwiftUI
 
-/// Logowanie kontem — JEDEN komponent używany w dwóch miejscach: na górze
-/// Ustawień (główna droga) i w ekranie parowania obok kodu QR. Wcześniej ta
-/// logika mieszkała w `PairingView`; siedzi tu, żeby nie było dwóch kopii
-/// `POST /login` rozjeżdżających się w czasie.
+/// Logowanie kontem — JEDYNA droga do Maca (decyzja Wojtka 2026-08-12:
+/// wszystko idzie przez konto, parowanie kodem QR po sieci lokalnej zniknęło
+/// z UI razem z `PairingView`).
 ///
-/// Zalogowanie = te same `RemoteCredentials`, które dawał kod QR, więc
-/// „wyloguj" jest tym samym co „usuń sparowanie" — token konta JEST tokenem
-/// parowania i apka nie ma stanu „zalogowany, ale niesparowany".
+/// Token konta JEST tokenem połączenia, więc „wyloguj" rozłącza też telefon od
+/// Maca — apka nie ma stanu „zalogowany, ale nierozłączony".
 struct AccountSection: View {
     @ObservedObject var remote: RemoteSession
     /// Wołane po udanym logowaniu — np. żeby zamknąć ekran parowania.

@@ -58,10 +58,10 @@ struct RootView: View {
     }
 }
 
-/// Cztery zakładki (redesign 2026-08-12, decyzja Wojtka): Pulpit z podsumowaniem
-/// konta, Mac, Historia z serwera i Ustawienia. Ekran „Dyktuj” zniknął — na
-/// telefonie dyktuje się z klawiatury (patrz `RootView`), a nie z osobnej karty
-/// w apce.
+/// Zakładki (redesign 2026-08-12, decyzja Wojtka): Pulpit z podsumowaniem
+/// konta, Mac, Historia z serwera, Pokoje i Ustawienia. Ekran „Dyktuj” zniknął
+/// — na telefonie dyktuje się z klawiatury (patrz `RootView`), a nie z osobnej
+/// karty w apce.
 struct MainTabView: View {
     /// Jedna sesja na całą apkę, trzymana tutaj, a nie w `RemoteView` — inaczej
     /// każde wejście w zakładkę zaczynałoby połączenie od zera. Pulpit i
@@ -72,15 +72,17 @@ struct MainTabView: View {
         TabView {
             NavigationStack { DashboardView(remote: remote) }
                 .tabItem { Label("Pulpit", systemImage: "square.grid.2x2") }
-            // Zakładka pojawia się DOPIERO po sparowaniu. Pokazywanie jej
+            // Zakładka pojawia się DOPIERO po zalogowaniu. Pokazywanie jej
             // wcześniej znaczyłoby pokazywanie ekranu, który umie tylko
-            // powiedzieć „najpierw sparuj" — a od tego są Ustawienia.
+            // powiedzieć „najpierw się zaloguj" — a od tego są Ustawienia.
             if remote.isPaired {
                 NavigationStack { RemoteView(session: remote) }
                     .tabItem { Label("Mac", systemImage: "macbook.and.iphone") }
             }
             NavigationStack { HistoryView(remote: remote) }
                 .tabItem { Label("Historia", systemImage: "clock") }
+            NavigationStack { RoomsView() }
+                .tabItem { Label("Pokoje", systemImage: "person.2") }
             NavigationStack { SettingsView(remote: remote) }
                 .tabItem { Label("Ustawienia", systemImage: "gearshape") }
         }
@@ -91,6 +93,11 @@ struct MainTabView: View {
             appearance.backgroundColor = UIColor(VFColor.surfaceSolid)
             UITabBar.appearance().standardAppearance = appearance
             UITabBar.appearance().scrollEdgeAppearance = appearance
+
+            // Łączymy się PRZY STARCIE APKI, nie dopiero po wejściu w zakładkę
+            // Mac — inaczej pierwsze wejście płaci pełny czas uściśnięcia dłoni
+            // i pobrania listy okien, i przycisk „Mów" długo jest martwy.
+            remote.connect()
         }
     }
 }

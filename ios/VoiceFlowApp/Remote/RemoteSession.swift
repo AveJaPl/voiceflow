@@ -344,6 +344,9 @@ final class RemoteSession: ObservableObject {
                 log.error("Mac mówi protokołem \(hello.protocol), telefon \(Wire.protocolVersion)")
             }
             syncSubscription()
+            // Lista okien od razu po powitaniu, nie dopiero po wejściu w
+            // zakładkę: gdy Wojtek tam wchodzi, terminale mają już być.
+            send(.requestWindows)
 
         case .windows(let payload):
             apply(payload)

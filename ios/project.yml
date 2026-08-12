@@ -25,11 +25,14 @@ targets:
       # Fixture'y są tylko dla testów — nie ma powodu, żeby ważyły w apce.
       - path: ../shared/wire
         excludes: ["fixtures/**"]
+      # Tablica pokoju liczona TYM SAMYM kodem co na Macu — zakładka „Pokoje”
+      # i strona „Pokój” na Macu patrzą na tę samą sesję.
+      - path: ../shared/board
     info:
       path: VoiceFlowApp/Info.plist
       properties:
         CFBundleDisplayName: VoiceFlow
-        CFBundleShortVersionString: "0.2.0"
+        CFBundleShortVersionString: "0.3.0"
         CFBundleVersion: "1"
         UILaunchScreen: {}
         UIRequiresFullScreen: true
@@ -39,7 +42,6 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSMicrophoneUsageDescription: "VoiceFlow potrzebuje mikrofonu, żeby transkrybować dyktowanie na żywo."
         NSSpeechRecognitionUsageDescription: "VoiceFlow potrzebuje rozpoznawania mowy Apple do transkrypcji polskiej."
-        NSCameraUsageDescription: "VoiceFlow używa aparatu wyłącznie do zeskanowania kodu QR, którym parujesz telefon z Makiem."
         # Bez tego klucza iOS PO CICHU ubija połączenia do adresów w sieci
         # lokalnej (relay na Macu, np. ws://192.168.x.x) — system nie może
         # pokazać pytania o zgodę, więc nie pyta i odmawia. Objaw: wieczne
@@ -82,7 +84,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.avejapl.voiceflow.ios
         PRODUCT_NAME: VoiceFlow
         GENERATE_INFOPLIST_FILE: NO
-        MARKETING_VERSION: "0.2.0"
+        MARKETING_VERSION: "0.3.0"
         CURRENT_PROJECT_VERSION: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_PREVIEWS: YES
@@ -100,7 +102,7 @@ targets:
       path: VoiceFlowKeyboard/Info.plist
       properties:
         CFBundleDisplayName: VoiceFlow
-        CFBundleShortVersionString: "0.2.0"
+        CFBundleShortVersionString: "0.3.0"
         CFBundleVersion: "1"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.keyboard-service
@@ -133,7 +135,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.avejapl.voiceflow.ios.keyboard
         PRODUCT_NAME: VoiceFlowKeyboard
         GENERATE_INFOPLIST_FILE: NO
-        MARKETING_VERSION: "0.2.0"
+        MARKETING_VERSION: "0.3.0"
         CURRENT_PROJECT_VERSION: "1"
         SKIP_INSTALL: YES
 

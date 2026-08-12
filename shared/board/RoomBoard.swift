@@ -2,6 +2,10 @@ import Foundation
 
 /// Liczby stojące za tablicą pokoju, trzymane osobno od widoków, które je rysują.
 ///
+/// JEDEN plik źródłowy dla macOS i iOS (kompilowany przez oba `project.yml`) —
+/// obie platformy patrzą na tę samą sesję, więc nie mogą pokazywać różnych
+/// wyników. Nie kopiować do katalogu platformy: kopia rozjeżdża się po cichu.
+///
 /// Odpowiednik `app/voiceflow_app/roomdata.py` z Linuksa, wzór w wzór. Udział i
 /// dystans do lidera liczymy TUTAJ, a nie w widoku, bo to są dwie liczby, które
 /// robią z tablicy rywalizację — a błędna liczba wygląda dokładnie tak samo jak
@@ -106,17 +110,38 @@ struct RoomSnapshot: Equatable {
 
 enum RoomBoardClient {
 
+    enum BoardError: LocalizedError {
+        case badServer
+
+        var errorDescription: String? { "Nie udało się odczytać tablicy pokoju." }
+    }
+
+    /// REST i WebSocket dzielą ten sam adres, więc `wss://` zamieniamy na
+    /// `https://`. Kopia `RoomJoiner.httpBase` z macOS — świadoma, bo ten plik
+    /// kompiluje się też na iOS, gdzie `RoomJoiner` (rejestracja urządzenia
+    /// i dołączanie do pokoju) w ogóle nie istnieje.
+    static func httpBase(_ server: String) throws -> String {
+        var base = server.trimmingCharacters(in: .whitespaces)
+        while base.hasSuffix("/") { base.removeLast() }
+        if base.hasPrefix("wss://") { base = "https://" + base.dropFirst("wss://".count) }
+        else if base.hasPrefix("ws://") { base = "http://" + base.dropFirst("ws://".count) }
+        guard base.hasPrefix("http://") || base.hasPrefix("https://"), URL(string: base) != nil else {
+            throw BoardError.badServer
+        }
+        return base
+    }
+
     static func fetchRanking(server: String, code: String) async throws -> RoomSnapshot {
-        let base = try RoomJoiner.httpBase(server)
+        let base = try httpBase(server)
         guard let url = URL(string: "\(base)/api/rooms/\(code)/ranking") else {
-            throw RoomJoiner.JoinError.badServer
+            throw BoardError.badServer
         }
         let (data, response) = try await URLSession.shared.data(from: url)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw RoomJoiner.JoinError.badServer
+            throw BoardError.badServer
         }
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw RoomJoiner.JoinError.badServer
+            throw BoardError.badServer
         }
         let session = object["session"] as? [String: Any]
         let ranking = object["ranking"] as? [[String: Any]] ?? []
@@ -137,9 +162,9 @@ enum RoomBoardClient {
     /// Serwer zamyka poprzednią w ramach tej samej operacji (dwie otwarte sesje
     /// rozjechałyby ranking), więc tu nie ma osobnego kroku zamykania.
     static func startSession(server: String, code: String, name: String?, token: String) async throws {
-        let base = try RoomJoiner.httpBase(server)
+        let base = try httpBase(server)
         guard let url = URL(string: "\(base)/api/rooms/\(code)/session") else {
-            throw RoomJoiner.JoinError.badServer
+            throw BoardError.badServer
         }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -149,21 +174,21 @@ enum RoomBoardClient {
 
         let (_, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw RoomJoiner.JoinError.badServer
+            throw BoardError.badServer
         }
     }
 
     static func endSession(server: String, code: String, token: String) async throws {
-        let base = try RoomJoiner.httpBase(server)
+        let base = try httpBase(server)
         guard let url = URL(string: "\(base)/api/rooms/\(code)/session/end") else {
-            throw RoomJoiner.JoinError.badServer
+            throw BoardError.badServer
         }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let (_, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw RoomJoiner.JoinError.badServer
+            throw BoardError.badServer
         }
     }
 }

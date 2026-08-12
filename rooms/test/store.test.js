@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { rankingRows, generateCode, hashToken, historyRows, summaryRows, historyTotals } from '../src/store.js';
+import { rankingRows, generateCode, hashToken, historyRows, summaryRows, historyTotals, withSilentMembers } from '../src/store.js';
 
 test('ranking sumuje słowa i sekundy per urządzenie i sortuje malejąco', () => {
   const rows = [
@@ -131,4 +131,40 @@ test('sumy nie mylą strony wyników z całym pokojem', () => {
   ]);
 
   assert.equal(historyTotals(100, people).sessions, 100);
+});
+
+test('kto jest w pokoju, ten jest na tablicy — nawet nic nie mówiąc', () => {
+  const ranking = rankingRows([
+    { device_id: 'a', name: 'Filip', words: '90', seconds: '30', dictations: '2' },
+  ]);
+  const members = [{ id: 'a', name: 'Filip' }, { id: 'b', name: 'Wojtek' }];
+
+  const merged = withSilentMembers(ranking, members);
+
+  assert.deepEqual(merged.map((e) => e.name), ['Filip', 'Wojtek']);
+  assert.equal(merged[1].words, 0);
+  assert.equal(merged[1].dictations, 0);
+});
+
+test('osoba z dyktowaniami nie dubluje się jako milcząca', () => {
+  const ranking = rankingRows([
+    { device_id: 'a', name: 'Filip', words: '90', seconds: '30', dictations: '2' },
+  ]);
+
+  assert.equal(withSilentMembers(ranking, [{ id: 'a', name: 'Filip' }]).length, 1);
+});
+
+test('pusta sesja pokazuje wszystkich obecnych z zerami', () => {
+  const merged = withSilentMembers([], [{ id: 'a', name: 'Filip' }, { id: 'b', name: 'Wojtek' }]);
+
+  assert.equal(merged.length, 2);
+  assert.deepEqual(merged.map((e) => e.words), [0, 0]);
+});
+
+test('brak listy obecnych nie wywraca rankingu', () => {
+  const ranking = rankingRows([
+    { device_id: 'a', name: 'Filip', words: '5', seconds: '1', dictations: '1' },
+  ]);
+
+  assert.equal(withSilentMembers(ranking, undefined).length, 1);
 });

@@ -45,6 +45,31 @@ export function rankingRows(rows) {
 }
 
 /**
+ * Dokłada do rankingu osoby, które są w pokoju, ale jeszcze nic nie powiedziały.
+ *
+ * `ranking` liczy się z dyktowań, więc ktoś, kto właśnie dołączył — albo kogo
+ * zastała nowa sesja — nie miałby tam ani jednego wiersza i zniknąłby z ekranu.
+ * Dla osoby patrzącej na tablicę to wygląda, jakby jej tam nie było, choć
+ * blokada mikrofonu jak najbardziej jej dotyczy.
+ *
+ * Zera lądują na końcu, bo sortowanie po słowach i tak je tam stawia.
+ */
+export function withSilentMembers(ranking, members) {
+  const present = new Set(ranking.map((entry) => entry.deviceId));
+  const silent = (members ?? [])
+    .filter((member) => !present.has(member.id))
+    .map((member) => ({
+      deviceId: member.id,
+      name: member.name,
+      words: 0,
+      seconds: 0,
+      dictations: 0,
+      averageWords: 0,
+    }));
+  return [...ranking, ...silent];
+}
+
+/**
  * Zamknięte i trwające sesje pokoju, z sumami każdej z nich.
  *
  * Sesja bez ani jednego dyktowania też tu jest: „zaczęliśmy i nic z tego nie

@@ -6,7 +6,7 @@
  * tylko tym, co która trasa robi.
  */
 
-import { historyTotals } from './store.js';
+import { historyTotals, withSilentMembers } from './store.js';
 
 // `/session/end` stoi przed `/session`, bo alternatywa jest uporządkowana —
 // odwrotna kolejność zjadałaby dłuższą trasę krótszym wariantem.
@@ -146,7 +146,13 @@ export function createHttpApi({ store }) {
         active ? store.ranking(active.id) : Promise.resolve([]),
         store.members(room.id),
       ]);
-      return sendJson(res, 200, { room, session: active, members, ranking });
+      // Kto jest w pokoju, ten jest na tablicy — także zanim cokolwiek powie.
+      return sendJson(res, 200, {
+        room,
+        session: active,
+        members,
+        ranking: withSilentMembers(ranking, members),
+      });
     }
 
     return sendJson(res, 404, { error: 'not_found' });

@@ -144,9 +144,17 @@ struct MainView: View {
             .padding(.horizontal, VF.Space.x12)
             .padding(.bottom, VF.Space.x8)
 
-            // Wersja z Info.plist — podbija się sama przy publikacji
-            // (`tools/release-mac.sh`), a `UpdateChecker` instaluje nowsze
-            // wydania automatycznie.
+            // Konto + wersja w lewym dolnym rogu. E-mail pojawia się po
+            // zalogowaniu w Ustawieniach; wersja z Info.plist podbija się
+            // sama przy publikacji (`tools/release-mac.sh`).
+            if let email = UserDefaults.standard.string(forKey: SettingsKeys.accountEmail), !email.isEmpty {
+                Text(email)
+                    .font(VF.Font.mono(10))
+                    .foregroundStyle(VF.Color.muted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.horizontal, VF.Space.x12)
+            }
             Text("v\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")")
                 .font(VF.Font.mono(10))
                 .foregroundStyle(VF.Color.faint)
@@ -298,9 +306,20 @@ struct DashboardPage: View {
 
 // MARK: - Słownik
 
+/// Układ jeden do jednego z aplikacją linuksową (`pages/vocabulary.py`):
+/// karta dodawania na górze, licznik terminów jako etykieta sekcji, a pod nim
+/// siatka pięciu kafelków w wierszu. Terminu nie usuwa się z listy, tylko
+/// krzyżykiem na samym kafelku — pojawia się dopiero pod kursorem, żeby siatka
+/// w spoczynku była czystym zbiorem słów.
 struct VocabularyPage: View {
     @State private var terms: [String] = []
     @State private var draft: String = ""
+    @State private var hovered: String?
+
+    private static let columns = Array(
+        repeating: GridItem(.flexible(), spacing: VF.Space.x8),
+        count: 5
+    )
 
     var body: some View {
         VFPageHeader(
@@ -308,13 +327,9 @@ struct VocabularyPage: View {
             subtitle: "Dodaj nazwy własne i terminy, które Whisper ma rozpoznawać dokładniej."
         )
 
-        VFSection(
-            title: "Twoje terminy",
-            subtitle: "Trafiają wprost do promptu dekodera whisper.cpp — działają od razu, "
-                + "bez restartu. Trzymaj listę krótką: zbyt długa pogarsza rozpoznawanie."
-        ) {
-            HStack(spacing: VF.Space.x8) {
-                TextField("np. Supabase", text: $draft)
+        VStack(alignment: .leading, spacing: VF.Space.x8) {
+            HStack(spacing: VF.Space.x12) {
+                TextField("Dodaj termin…", text: $draft)
                     .textFieldStyle(.plain)
                     .font(VF.Font.body(13))
                     .foregroundStyle(VF.Color.text)
@@ -329,32 +344,82 @@ struct VocabularyPage: View {
                     .buttonStyle(VFButtonStyle(prominent: true))
                     .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
             }
+            .vfCard()
+
+            Text("Terminy trafiają wprost do promptu dekodera whisper.cpp — działają od razu, "
+                + "bez restartu. Trzymaj listę krótką: zbyt długa pogarsza rozpoznawanie.")
+                .font(VF.Font.body(12))
+                .foregroundStyle(VF.Color.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+
+        VStack(alignment: .leading, spacing: VF.Space.x16) {
+            Text(counter).vfSectionLabel()
 
             if terms.isEmpty {
-                Text("Lista jest pusta.")
-                    .font(VF.Font.body(12))
-                    .foregroundStyle(VF.Color.faint)
-            } else {
-                ForEach(terms, id: \.self) { term in
-                    HStack {
-                        Text(term)
-                            .font(VF.Font.body(13))
-                            .foregroundStyle(VF.Color.text)
-                        Spacer()
-                        Button {
-                            terms.removeAll { $0 == term }
-                            persist()
-                        } label: {
-                            Image(systemName: "trash")
-                        }
-                        .buttonStyle(.plain)
+                VStack(spacing: VF.Space.x8) {
+                    Image(systemName: "character.book.closed")
+                        .font(.system(size: 24))
                         .foregroundStyle(VF.Color.faint)
+                    Text("Słownik jest pusty. Dodaj pierwszy termin w polu powyżej.")
+                        .font(VF.Font.body(13))
+                        .foregroundStyle(VF.Color.muted)
+                }
+                .frame(maxWidth: .infinity, minHeight: 96)
+            } else {
+                LazyVGrid(columns: Self.columns, spacing: VF.Space.x8) {
+                    ForEach(terms, id: \.self) { term in
+                        tile(term)
                     }
-                    .padding(.vertical, 2)
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear(perform: load)
+    }
+
+    private var counter: String {
+        terms.count == 1 ? "1 TERMIN" : "\(terms.count) TERMINÓW"
+    }
+
+    private func tile(_ term: String) -> some View {
+        Text(term)
+            .font(VF.Font.body(13).weight(.medium))
+            .foregroundStyle(VF.Color.text)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, VF.Space.x16)
+            .padding(.vertical, VF.Space.x12)
+            .frame(maxWidth: .infinity, minHeight: 56)
+            .background(
+                RoundedRectangle(cornerRadius: VF.Radius.control, style: .continuous)
+                    .fill(VF.Color.surfaceRaised)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: VF.Radius.control, style: .continuous)
+                    .strokeBorder(VF.Color.border, lineWidth: 1)
+            )
+            .overlay(alignment: .topTrailing) {
+                Button {
+                    remove(term)
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(VF.Color.text)
+                        .frame(width: 20, height: 20)
+                        .background(Circle().fill(VF.Color.background.opacity(0.82)))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .padding(VF.Space.x4)
+                .opacity(hovered == term ? 1 : 0)
+                .help("Usuń termin \(term)")
+            }
+            .onHover { inside in
+                hovered = inside ? term : (hovered == term ? nil : hovered)
+            }
+            .animation(VF.Motion.quick, value: hovered)
     }
 
     private func load() {
@@ -363,9 +428,17 @@ struct VocabularyPage: View {
 
     private func add() {
         let value = draft.trimmingCharacters(in: .whitespaces)
-        guard !value.isEmpty, !terms.contains(value) else { return }
+        guard !value.isEmpty,
+              !terms.contains(where: { $0.caseInsensitiveCompare(value) == .orderedSame })
+        else { return }
         terms.append(value)
         draft = ""
+        persist()
+    }
+
+    private func remove(_ term: String) {
+        terms.removeAll { $0 == term }
+        hovered = nil
         persist()
     }
 

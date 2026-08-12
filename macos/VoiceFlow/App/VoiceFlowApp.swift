@@ -84,6 +84,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sessionController?.onNoteSaved = { [weak self] note in
             self?.historyUploader.upload(note)
         }
+        // Jednorazowo: cała dotychczasowa lokalna historia na konto (dedup po
+        // stronie klienta, flaga po komplecie).
+        historyUploader.backfillIfNeeded(notes: notesStore.notes)
 
         Task { [weak self] in
             await self?.sessionController?.prewarm()

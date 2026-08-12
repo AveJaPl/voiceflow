@@ -37,6 +37,9 @@ enum SettingsKeys {
     static let roomToken = "voiceflow.roomToken"
     static let roomDuckForOthers = "voiceflow.roomDuckForOthers"
     static let roomDisplayName = "voiceflow.roomDisplayName"
+    /// E-mail zalogowanego konta — czysto informacyjny (token mieszka w
+    /// Keychainie); sidebar pokazuje go w lewym dolnym rogu.
+    static let accountEmail = "voiceflow.accountEmail"
 }
 
 /// Modyfikator do przytrzymania jako główny skrót dyktowania. TYLKO klawisze
@@ -662,6 +665,10 @@ struct SettingsView: View {
                     return
                 }
                 KeychainPairingTokenStore().saveToken(token)
+                UserDefaults.standard.set(
+                    accountEmail.trimmingCharacters(in: .whitespaces),
+                    forKey: SettingsKeys.accountEmail
+                )
                 accountPassword = ""
                 if model.remoteMicHost.isEmpty { model.remoteMicHost = host }
                 model.remoteMicEnabled = true

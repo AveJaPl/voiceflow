@@ -170,9 +170,17 @@ final class RemoteMicClient: ObservableObject {
                 DebugLog.write("RemoteMic", "połączenie WS przerwane: \(error.localizedDescription)")
             }
 
-            currentSocket = nil
-            cancelStrandedUtteranceIfNeeded()
-            connectionState = .disconnected
+            // Sprzątamy TYLKO jeśli to wciąż nasz socket. Przy `restart()`
+            // (np. po zalogowaniu kontem) stara, anulowana pętla budzi się z
+            // błędu `receive()` już PO tym, jak nowa pętla zdążyła się
+            // połączyć — i zerowała jej `currentSocket`. Efekt zaobserwowany
+            // na żywo: Mac odbierał `requestWindows`, ale nie miał czym
+            // odpowiedzieć; telefon widział „połączony · 0 okien".
+            if currentSocket === socket {
+                currentSocket = nil
+                cancelStrandedUtteranceIfNeeded()
+                connectionState = .disconnected
+            }
 
             guard !Task.isCancelled else { break }
             try? await Task.sleep(nanoseconds: UInt64(backoff * 1_000_000_000))

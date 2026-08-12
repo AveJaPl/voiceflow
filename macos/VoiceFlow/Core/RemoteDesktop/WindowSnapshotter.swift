@@ -50,8 +50,17 @@ final class WindowSnapshotter {
             )
         }
 
-        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
-        let rawList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
+        // CELOWO bez `.optionOnScreenOnly`: ta opcja ogranicza listę do
+        // BIEŻĄCEGO biurka (Space), a terminale Wojtka żyją na innych —
+        // zaobserwowane na żywo: „połączony · 0 terminali" przy ośmiu
+        // otwartych oknach Terminala. Bierzemy wszystkie okna i odsiewamy
+        // sami: warstwa 0, sensowny rozmiar, nieprzezroczyste.
+        let options: CGWindowListOption = [.excludeDesktopElements]
+        let rawList = (CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? [])
+            .filter { info in
+                // Okna z alpha 0 to niewidoczne pomocnicze powierzchnie.
+                ((info[kCGWindowAlpha as String] as? Double) ?? 1) > 0.1
+            }
         let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
 
         var runningApps: [pid_t: NSRunningApplication] = [:]

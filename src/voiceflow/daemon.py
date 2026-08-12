@@ -317,6 +317,12 @@ class VoiceflowDaemon:
         if self._preview is not None:
             self._preview.request_stop()
         try:
+            # Karta idzie na „transkrypcję" PRZED oddaniem pracy do wątku.
+            # Odwrotna kolejność była wyścigiem: przy ciszy wątek zdążał
+            # pokazać „Nie wykryto mowy", a główny nadpisywał to zaraz potem
+            # napisem o trwającej transkrypcji — i karta zostawała tak na stałe,
+            # co wygląda jak zawieszenie.
+            self.overlay.update("transcribing")
             self._executor.submit(self._finish_recording_and_process)
         except RuntimeError as exc:
             with self._lock:
@@ -324,7 +330,6 @@ class VoiceflowDaemon:
             LOGGER.exception("Nie można uruchomić wątku przetwarzania")
             self._fail(str(exc))
             return {"ok": False, "message": str(exc), "state": self.state.value}
-        self.overlay.update("transcribing")
         return {"ok": True, "message": "Zakończono nagrywanie; trwa transkrypcja", "state": self.state.value}
 
     def _fail(self, message: str) -> None:

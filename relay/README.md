@@ -32,6 +32,18 @@ przypadkiem wdrożyć z otwartym `/pair` (patrz sekcja Bezpieczeństwo w planie,
 - `POST /login` — `{"email", "password"}` → `{"pairToken": "..."}` (ten sam
   token co przy rejestracji, żeby telefon i Mac mogły go zapisać raz na zawsze).
   `401` przy złym mailu/haśle.
+- `POST /history` — dopisuje wpis historii dyktowania do konta. Auth:
+  `Authorization: Bearer <pairToken konta>` (**nie** `ADMIN_SECRET`, i **nie**
+  token z `POST /pair` — historia istnieje tylko w kontekście konta, więc token
+  bez konta dostaje `401`). Body `{"text", "createdAt" (ISO), "durationSeconds",
+  "target"?, "source"?}` → `201 {"id": ...}`. Pusty `text` = `400`, tekst ponad
+  20 kB = `413`. Brak/niepoprawny `createdAt` = czas serwera, `source` domyślnie
+  `mac`.
+- `GET /history?limit=100&before=<ISO>` — wpisy **tego** konta, malejąco po
+  `createdAt` (`limit` 1–500, domyślnie 100; `before` przewija na starsze).
+  Zwraca `{"entries":[{"id","createdAt","text","durationSeconds","target","source"}]}`.
+- `DELETE /history/:id` — `204`. Wpis innego konta i nieistniejący dają tak samo
+  `404` (nie zdradzamy istnienia cudzych wpisów).
 - `GET /sessions?limit=50` — ostatnie wpisy logu sesji (`limit` 1–500, domyślnie
   50), wymaga `Authorization: Bearer <ADMIN_SECRET>`.
 - `wss://.../ws?role=mac&token=<token>` — trwałe połączenie Maca.
@@ -68,6 +80,11 @@ Schemat tworzy się sam przy starcie (`CREATE TABLE IF NOT EXISTS`):
 - `session_log` — `id`, `account_id` → `accounts(id)`, `role` (`mac`/`phone`),
   `device` (nazwa z ramki `hello`, NULL dopóki nie doszła), `event`
   (`connected`/`disconnected`), `at`.
+- `history` — `id`, `account_id` → `accounts(id)`, `created_at` (ISO-8601 UTC,
+  znormalizowany po stronie serwera, żeby paginacja `before` porównywała
+  tekstowo zgodnie z chronologią), `text`, `duration_seconds`, `target`
+  (aplikacja docelowa, może być NULL), `source` (`mac`/`phone`, domyślnie
+  `mac`). Indeks `(account_id, created_at DESC)` pod listę i paginację.
 
 ## Testy
 
@@ -75,7 +92,7 @@ Schemat tworzy się sam przy starcie (`CREATE TABLE IF NOT EXISTS`):
 npm test
 ```
 
-33 testy (`node --test`): pass-through phone→mac 1:1, wielokrotne ramki bez
+40 testów (`node --test`): pass-through phone→mac 1:1, wielokrotne ramki bez
 buforowania, błąd `mac_offline` (przy rejestracji i przy próbie wysyłki),
 zamiana starego połączenia przez nowe pod tą samą rolą, generacja/unieważnianie
 tokenu (w tym przetrwanie restartu procesu), odrzucenie WS bez ważnego tokenu /
@@ -83,7 +100,10 @@ bez tokenu / z nieznaną rolą, `/health`, `/pair` z i bez poprawnego sekretu,
 oraz konta: rejestracja i logowanie zwracają ten sam stały token, złe hasło =
 401, duplikat maila = 409, para mac↔phone łączy się tokenem konta i przekazuje
 ramki, wpisy connect/disconnect z nazwą urządzenia lądują w `session_log`,
-`GET /sessions` gated sekretem admina, hasła trzymane jako hash bcrypt.
+`GET /sessions` gated sekretem admina, hasła trzymane jako hash bcrypt, oraz
+historia: roundtrip POST→GET, paginacja `before`, izolacja kont (cudzych wpisów
+nie widać i nie da się ich skasować — `404`), stary token `/pair` i sekret
+admina odbite `401`, pusty tekst `400`, tekst ponad 20 kB `413`.
 Zero prawdziwej sieci poza testami integracyjnymi w `test/server.test.js`,
 które celowo używają realnego `http.Server` + klienta `ws`, ale wyłącznie na
 loopbacku (`127.0.0.1`, port efemeryczny) — bez internetu, deterministyczne.

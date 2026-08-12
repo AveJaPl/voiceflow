@@ -4,7 +4,9 @@ import { RelayHub } from './relayHub.js';
 
 const WS_PATH = '/ws';
 const ROLES = new Set(['mac', 'phone']);
-const MAX_BODY_BYTES = 8 * 1024;
+// Największe ciało to wpis historii: 20 kB tekstu + narzut JSON/escapowania.
+const MAX_BODY_BYTES = 64 * 1024;
+const MAX_HISTORY_TEXT_BYTES = 20 * 1024;
 
 function sendJson(res, status, body) {
   res.writeHead(status, { 'content-type': 'application/json' });
@@ -33,10 +35,26 @@ function readJsonBody(req) {
   });
 }
 
+/** `?limit=` przycięty do 1–500; brak/śmieć = `fallback`. */
+function clampLimit(url, fallback) {
+  const requested = Number(url.searchParams.get('limit') || fallback);
+  return Number.isFinite(requested) ? Math.min(Math.max(Math.trunc(requested), 1), 500) : fallback;
+}
+
 function isAdmin(req, adminSecret) {
   const auth = req.headers['authorization'] || '';
   const provided = auth.startsWith('Bearer ') ? auth.slice(7) : '';
   return provided === adminSecret;
+}
+
+/**
+ * Konto z nagłówka `Authorization: Bearer <pair_token>`. Historia jest zawsze
+ * per konto, więc token z ręcznego `/pair` (bez konta) nie daje tu dostępu.
+ */
+function accountFromBearer(req, accountStore) {
+  const auth = req.headers['authorization'] || '';
+  if (!auth.startsWith('Bearer ')) return null;
+  return accountStore.findByPairToken(auth.slice(7));
 }
 
 /** Wyciąga nazwę urządzenia z ramki `hello` (phone: `device`, mac: `mac`). */
@@ -126,9 +144,73 @@ export function createRelayServer({ adminSecret, pairingStore, accountStore, rel
         sendJson(res, 401, { error: 'unauthorized' });
         return;
       }
-      const requested = Number(url.searchParams.get('limit') || 50);
-      const limit = Number.isFinite(requested) ? Math.min(Math.max(Math.trunc(requested), 1), 500) : 50;
-      sendJson(res, 200, { sessions: accountStore.recentSessions(limit) });
+      sendJson(res, 200, { sessions: accountStore.recentSessions(clampLimit(url, 50)) });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/history') {
+      const account = accountFromBearer(req, accountStore);
+      if (!account) {
+        sendJson(res, 401, { error: 'unauthorized' });
+        return;
+      }
+      const body = await readJsonBody(req);
+      const text = typeof body?.text === 'string' ? body.text : '';
+      if (!text.trim()) {
+        sendJson(res, 400, { error: 'invalid_body' });
+        return;
+      }
+      if (Buffer.byteLength(text, 'utf8') > MAX_HISTORY_TEXT_BYTES) {
+        sendJson(res, 413, { error: 'text_too_long' });
+        return;
+      }
+      const parsedAt = Date.parse(body?.createdAt ?? '');
+      const durationSeconds = Number(body?.durationSeconds);
+      const id = accountStore.addHistoryEntry({
+        accountId: account.id,
+        text,
+        createdAt: new Date(Number.isFinite(parsedAt) ? parsedAt : Date.now()).toISOString(),
+        durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : 0,
+        target: typeof body?.target === 'string' ? body.target : null,
+        source: typeof body?.source === 'string' && body.source ? body.source : 'mac',
+      });
+      sendJson(res, 201, { id });
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/history') {
+      const account = accountFromBearer(req, accountStore);
+      if (!account) {
+        sendJson(res, 401, { error: 'unauthorized' });
+        return;
+      }
+      const beforeAt = Date.parse(url.searchParams.get('before') ?? '');
+      const entries = accountStore.historyEntries({
+        accountId: account.id,
+        limit: clampLimit(url, 100),
+        before: Number.isFinite(beforeAt) ? new Date(beforeAt).toISOString() : null,
+      });
+      sendJson(res, 200, { entries });
+      return;
+    }
+
+    const historyDelete = req.method === 'DELETE' && url.pathname.match(/^\/history\/(\d+)$/);
+    if (historyDelete) {
+      const account = accountFromBearer(req, accountStore);
+      if (!account) {
+        sendJson(res, 401, { error: 'unauthorized' });
+        return;
+      }
+      const removed = accountStore.deleteHistoryEntry({
+        accountId: account.id,
+        id: Number(historyDelete[1]),
+      });
+      if (!removed) {
+        sendJson(res, 404, { error: 'not_found' });
+        return;
+      }
+      res.writeHead(204);
+      res.end();
       return;
     }
 

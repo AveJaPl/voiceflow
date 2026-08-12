@@ -71,9 +71,16 @@ function waitUntil(predicate, timeoutMs = 2000) {
   });
 }
 
+/**
+ * Otwiera socket i od razu kolejkuje ramki. Kolejka jest konieczna: serwer
+ * potrafi wysłać ramkę (np. `mac_offline`) w tym samym odczycie TCP co
+ * odpowiedź handshake'u, czyli zanim kod testu zdąży podpiąć `on('message')`.
+ */
 function openSocket(url) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
+    ws.inbox = [];
+    ws.on('message', (data, isBinary) => ws.inbox.push({ data, isBinary }));
     ws.once('open', () => resolve(ws));
     ws.once('error', reject);
   });
@@ -86,10 +93,10 @@ function waitForClose(ws) {
   });
 }
 
-function waitForMessage(ws) {
-  return new Promise((resolve) => {
-    ws.once('message', (data, isBinary) => resolve({ data, isBinary }));
-  });
+/** Najstarsza nieodebrana ramka — z kolejki, a jeśli pusta, to gdy dojdzie. */
+async function waitForMessage(ws) {
+  await waitUntil(() => ws.inbox.length > 0);
+  return ws.inbox.shift();
 }
 
 test('GET /health odpowiada 200 z statusem ok', async () => {
@@ -323,6 +330,182 @@ test('połączenia po koncie trafiają do session_log wraz z nazwą urządzenia'
     assert.equal(connected.email, 'wojtek@programo.pl');
     assert.equal(connected.device, 'iPhone Wojtka');
     assert.equal(disconnected.device, 'iPhone Wojtka');
+  });
+});
+
+/** Dopisuje wpis historii tokenem konta i zwraca odpowiedź. */
+function postHistory(baseUrl, pairToken, entry) {
+  return postJson(`${baseUrl}/history`, entry, { authorization: `Bearer ${pairToken}` });
+}
+
+function getHistory(baseUrl, pairToken, query = '') {
+  return fetch(`${baseUrl}/history${query}`, { headers: { authorization: `Bearer ${pairToken}` } });
+}
+
+test('historia: POST zapisuje wpis, GET zwraca go od najnowszego', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const pairToken = await registerAccount(baseUrl);
+
+    const first = await postHistory(baseUrl, pairToken, {
+      text: 'pierwsze dyktowanie',
+      createdAt: '2026-08-11T10:00:00.000Z',
+      durationSeconds: 3.5,
+      target: 'Xcode',
+    });
+    assert.equal(first.status, 201);
+    assert.ok(Number.isInteger((await first.json()).id));
+
+    await postHistory(baseUrl, pairToken, {
+      text: 'drugie dyktowanie',
+      createdAt: '2026-08-11T11:00:00.000Z',
+      durationSeconds: 1,
+      source: 'phone',
+    });
+
+    const res = await getHistory(baseUrl, pairToken);
+    assert.equal(res.status, 200);
+    const { entries } = await res.json();
+    assert.equal(entries.length, 2);
+    assert.equal(entries[0].text, 'drugie dyktowanie');
+    assert.equal(entries[0].source, 'phone');
+    assert.equal(entries[1].text, 'pierwsze dyktowanie');
+    assert.equal(entries[1].durationSeconds, 3.5);
+    assert.equal(entries[1].target, 'Xcode');
+    assert.equal(entries[1].source, 'mac', 'brak source w body = domyślnie mac');
+  });
+});
+
+test('historia: paginacja `before` przewija na starsze wpisy, limit tnie liczbę', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const pairToken = await registerAccount(baseUrl);
+    for (const hour of ['10', '11', '12']) {
+      await postHistory(baseUrl, pairToken, {
+        text: `wpis ${hour}`,
+        createdAt: `2026-08-11T${hour}:00:00.000Z`,
+        durationSeconds: 1,
+      });
+    }
+
+    const page1 = await (await getHistory(baseUrl, pairToken, '?limit=2')).json();
+    assert.deepEqual(
+      page1.entries.map((e) => e.text),
+      ['wpis 12', 'wpis 11']
+    );
+
+    const page2 = await (
+      await getHistory(baseUrl, pairToken, `?before=${encodeURIComponent(page1.entries.at(-1).createdAt)}`)
+    ).json();
+    assert.deepEqual(
+      page2.entries.map((e) => e.text),
+      ['wpis 10']
+    );
+  });
+});
+
+test('historia: konto nie widzi wpisów cudzego konta', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const mine = await registerAccount(baseUrl);
+    const other = await registerAccount(baseUrl, 'bartosz@programo.pl', 'inne-haslo');
+
+    await postHistory(baseUrl, mine, {
+      text: 'moje dyktowanie',
+      createdAt: '2026-08-11T10:00:00.000Z',
+      durationSeconds: 1,
+    });
+
+    const { entries } = await (await getHistory(baseUrl, other)).json();
+    assert.deepEqual(entries, []);
+  });
+});
+
+test('historia: DELETE kasuje własny wpis, a cudzy/nieistniejący daje 404', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const mine = await registerAccount(baseUrl);
+    const other = await registerAccount(baseUrl, 'bartosz@programo.pl', 'inne-haslo');
+
+    const created = await postHistory(baseUrl, mine, {
+      text: 'do skasowania',
+      createdAt: '2026-08-11T10:00:00.000Z',
+      durationSeconds: 1,
+    });
+    const { id } = await created.json();
+
+    const foreign = await fetch(`${baseUrl}/history/${id}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${other}` },
+    });
+    assert.equal(foreign.status, 404, 'cudzy wpis musi wyglądać jak nieistniejący');
+
+    const missing = await fetch(`${baseUrl}/history/999999`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${mine}` },
+    });
+    assert.equal(missing.status, 404);
+
+    const own = await fetch(`${baseUrl}/history/${id}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${mine}` },
+    });
+    assert.equal(own.status, 204);
+    assert.deepEqual((await (await getHistory(baseUrl, mine)).json()).entries, []);
+  });
+});
+
+test('historia: token z ręcznego /pair i brak tokenu dają 401', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const pairRes = await fetch(`${baseUrl}/pair`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ADMIN_SECRET}` },
+    });
+    const { token } = await pairRes.json();
+
+    const legacyPost = await postHistory(baseUrl, token, {
+      text: 'bez konta',
+      createdAt: '2026-08-11T10:00:00.000Z',
+      durationSeconds: 1,
+    });
+    assert.equal(legacyPost.status, 401, 'historia wymaga konta, stary token nie wystarcza');
+    assert.equal((await getHistory(baseUrl, token)).status, 401);
+    assert.equal((await fetch(`${baseUrl}/history`)).status, 401);
+    assert.equal((await getHistory(baseUrl, ADMIN_SECRET)).status, 401, 'sekret admina to nie konto');
+  });
+});
+
+test('historia: pusty tekst daje 400 i nic nie zapisuje', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const pairToken = await registerAccount(baseUrl);
+
+    const empty = await postHistory(baseUrl, pairToken, {
+      text: '   ',
+      createdAt: '2026-08-11T10:00:00.000Z',
+      durationSeconds: 1,
+    });
+    assert.equal(empty.status, 400);
+
+    const missing = await postHistory(baseUrl, pairToken, { createdAt: '2026-08-11T10:00:00.000Z' });
+    assert.equal(missing.status, 400);
+
+    assert.deepEqual((await (await getHistory(baseUrl, pairToken)).json()).entries, []);
+  });
+});
+
+test('historia: tekst powyżej 20 kB jest odrzucany', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const pairToken = await registerAccount(baseUrl);
+
+    const ok = await postHistory(baseUrl, pairToken, {
+      text: 'a'.repeat(20 * 1024),
+      createdAt: '2026-08-11T10:00:00.000Z',
+      durationSeconds: 1,
+    });
+    assert.equal(ok.status, 201);
+
+    const tooLong = await postHistory(baseUrl, pairToken, {
+      text: 'a'.repeat(20 * 1024 + 1),
+      createdAt: '2026-08-11T10:00:00.000Z',
+      durationSeconds: 1,
+    });
+    assert.equal(tooLong.status, 413);
   });
 });
 

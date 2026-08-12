@@ -38,6 +38,17 @@ export class AccountStore {
         at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
       CREATE INDEX IF NOT EXISTS idx_session_log_at ON session_log(at DESC);
+      CREATE TABLE IF NOT EXISTS history (
+        id INTEGER PRIMARY KEY,
+        account_id INTEGER NOT NULL REFERENCES accounts(id),
+        created_at DATETIME NOT NULL,
+        text TEXT NOT NULL,
+        duration_seconds REAL NOT NULL DEFAULT 0,
+        target TEXT,
+        source TEXT NOT NULL DEFAULT 'mac'
+      );
+      CREATE INDEX IF NOT EXISTS idx_history_account_created
+        ON history(account_id, created_at DESC);
     `);
   }
 
@@ -92,6 +103,54 @@ export class AccountStore {
          ORDER BY s.id DESC LIMIT ?`
       )
       .all(limit);
+  }
+
+  /**
+   * Dopisuje wpis historii dyktowania. `createdAt` trzymamy jako znormalizowany
+   * ISO-8601 UTC, żeby porównanie tekstowe (paginacja `before`) było zgodne
+   * z porządkiem chronologicznym.
+   */
+  addHistoryEntry({ accountId, text, createdAt, durationSeconds = 0, target = null, source = 'mac' }) {
+    const info = this.db
+      .prepare(
+        `INSERT INTO history (account_id, created_at, text, duration_seconds, target, source)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run(accountId, createdAt, text, durationSeconds, target, source);
+    return info.lastInsertRowid;
+  }
+
+  /** Wpisy konta od najnowszego; `before` (ISO) przewija na starsze. */
+  historyEntries({ accountId, limit = 100, before = null }) {
+    const rows = before
+      ? this.db
+          .prepare(
+            `SELECT id, created_at, text, duration_seconds, target, source FROM history
+             WHERE account_id = ? AND created_at < ?
+             ORDER BY created_at DESC, id DESC LIMIT ?`
+          )
+          .all(accountId, before, limit)
+      : this.db
+          .prepare(
+            `SELECT id, created_at, text, duration_seconds, target, source FROM history
+             WHERE account_id = ?
+             ORDER BY created_at DESC, id DESC LIMIT ?`
+          )
+          .all(accountId, limit);
+    return rows.map((row) => ({
+      id: row.id,
+      createdAt: row.created_at,
+      text: row.text,
+      durationSeconds: row.duration_seconds,
+      target: row.target,
+      source: row.source,
+    }));
+  }
+
+  /** Kasuje wpis wyłącznie z własnego konta; false = nie ma takiego wpisu u tego konta. */
+  deleteHistoryEntry({ accountId, id }) {
+    const info = this.db.prepare('DELETE FROM history WHERE id = ? AND account_id = ?').run(id, accountId);
+    return info.changes > 0;
   }
 
   close() {

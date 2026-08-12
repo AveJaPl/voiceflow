@@ -89,6 +89,53 @@ final class StatsLibParityTests: XCTestCase {
         XCTAssertEqual(series.map { $0.words }, [2, 0, 1], "dzień bez dyktowania zostaje jako zero")
     }
 
+    func testNajdluzszaSeriaZnajdujePrzeszlyRekord() {
+        // Dziś + wczoraj (seria 2) oraz starsza seria 3 dni pod rząd.
+        let notes = [
+            note("a", daysAgo: 0), note("a", daysAgo: 1),
+            note("a", daysAgo: 10), note("a", daysAgo: 11), note("a", daysAgo: 12),
+        ]
+        XCTAssertEqual(StatsLib.currentStreak(notes), 2)
+        XCTAssertEqual(StatsLib.longestStreak(notes), 3)
+    }
+
+    func testTempoSlowNaMinute() {
+        // 30 słów w 15 sekund mówienia = 120 słów na minutę.
+        let text = Array(repeating: "słowo", count: 30).joined(separator: " ")
+        XCTAssertEqual(StatsLib.wordsPerMinute([note(text, daysAgo: 0, duration: 15)]), 120, accuracy: 0.01)
+        XCTAssertEqual(StatsLib.wordsPerMinute([]), 0)
+    }
+
+    func testPoprawkiLiczaSlowaSpozaWspolnegoPodciagu() {
+        // Formatter dodał przecinek do „dobry" i zamienił „w" na nic: 1 token inny.
+        XCTAssertEqual(StatsLib.fixCount(raw: "dzień dobry chciałbym", final: "Dzień dobry, chciałbym"), 2)
+        XCTAssertEqual(StatsLib.fixCount(raw: "bez zmian", final: "bez zmian"), 0)
+        // Stara historia bez tekstu surowego = zero poprawek, nie sto procent.
+        XCTAssertEqual(StatsLib.fixCount(raw: "", final: "cokolwiek tutaj"), 0)
+    }
+
+    func testUdzialyAplikacjiSumujaSieISortuja() {
+        let notes = [
+            Note(finalText: "raz dwa trzy", rawText: "", targetBundleID: "com.apple.Terminal", duration: 1),
+            Note(finalText: "raz", rawText: "", targetBundleID: nil, duration: 1),
+        ]
+        let shares = StatsLib.appWordShares(notes)
+        XCTAssertEqual(shares.map { $0.bundleID }, ["com.apple.Terminal", StatsLib.unknownAppBundleID])
+        XCTAssertEqual(shares.map { $0.words }, [3, 1])
+        XCTAssertEqual(shares.map { $0.share }, [75, 25])
+    }
+
+    func testSzeregiTygodnioweIMiesieczneSaGesteIKonczaSieTeraz() {
+        let notes = [note("jedno słowo tu", daysAgo: 0)]
+        let weekly = StatsLib.weeklySeries(notes, weeks: 4)
+        XCTAssertEqual(weekly.count, 4)
+        XCTAssertEqual(weekly.last?.words, 3)
+        XCTAssertEqual(weekly.dropLast().map { $0.words }, [0, 0, 0])
+        let monthly = StatsLib.monthlySeries(notes, months: 3)
+        XCTAssertEqual(monthly.count, 3)
+        XCTAssertEqual(monthly.last?.words, 3)
+    }
+
     func testSeriaLiczyTylkoDniPodRzad() {
         let ciagle = [note("a", daysAgo: 0), note("b", daysAgo: 1), note("c", daysAgo: 2)]
         XCTAssertEqual(StatsLib.currentStreak(ciagle), 3)

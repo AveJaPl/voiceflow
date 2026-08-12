@@ -10,6 +10,9 @@ final class PillViewModel: ObservableObject {
     /// Tekst BIEŻĄCEJ wypowiedzi (od ostatniego wciśnięcia skrótu) — nie cała
     /// narastająca sesja. SessionController sam odcina starą część.
     @Published var liveText: String = ""
+    /// Nazwa terminala, dla którego tryb nasłuchu zbiera teraz prompt
+    /// („terminal pierwszy nasłuchuj…"). `nil` = nasłuch nie zbiera.
+    @Published var ambientTarget: String?
     /// Pełny tekst po zakończeniu dyktowania — pokazywany w `.result` z
     /// przyciskiem kopiowania.
     @Published var resultText: String = ""

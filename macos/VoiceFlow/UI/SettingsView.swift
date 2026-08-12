@@ -40,6 +40,9 @@ enum SettingsKeys {
     /// E-mail zalogowanego konta — czysto informacyjny (token mieszka w
     /// Keychainie); sidebar pokazuje go w lewym dolnym rogu.
     static let accountEmail = "voiceflow.accountEmail"
+    /// Tryb nasłuchu: mikrofon chodzi ciągle i słucha komend głosowych
+    /// („terminal pierwszy nasłuchuj"). Domyślnie WYŁĄCZONY.
+    static let ambientEnabled = "voiceflow.ambientEnabled"
 }
 
 /// Modyfikator do przytrzymania jako główny skrót dyktowania. TYLKO klawisze
@@ -144,6 +147,9 @@ final class SettingsModel: ObservableObject {
     @Published var livePreview: Bool {
         didSet { defaults.set(livePreview, forKey: SettingsKeys.livePreview) }
     }
+    @Published var ambientEnabled: Bool {
+        didSet { defaults.set(ambientEnabled, forKey: SettingsKeys.ambientEnabled) }
+    }
 
     @Published var insertionMode: InsertionMode {
         didSet { defaults.set(insertionMode.rawValue, forKey: SettingsKeys.insertionMode) }
@@ -234,6 +240,7 @@ final class SettingsModel: ObservableObject {
             // nagrany przez użytkownika.
             self.discordHotkey = nil
         }
+        self.ambientEnabled = defaults.bool(forKey: SettingsKeys.ambientEnabled)
         self.livePreview = defaults.object(forKey: SettingsKeys.livePreview) == nil
             ? true
             : defaults.bool(forKey: SettingsKeys.livePreview)
@@ -459,6 +466,15 @@ struct SettingsView: View {
                 isOn: $model.livePreview
             )
             VFHint("Wyłączona: w trakcie mówienia pill pokazuje tylko falę dźwięku, a whisper liczy RAZ, po puszczeniu skrótu — zamiast dekodować co 300 ms przez całe dyktowanie. Mniej obciążenia, zero różnicy w tekście końcowym. Działa od następnej wypowiedzi, bez restartu.")
+        }
+
+        VFSection(title: "Tryb nasłuchu", subtitle: "Sterowanie terminalami samym głosem, bez dotykania klawiatury.") {
+            VFSettingToggle(
+                title: "Nasłuchuj komend głosowych",
+                subtitle: "Powiedz „terminal pierwszy nasłuchuj”, podyktuj prompt, powiedz „koniec”.",
+                isOn: $model.ambientEnabled
+            )
+            VFHint("Mikrofon chodzi wtedy CIĄGLE i whisper rozpoznaje mowę w tle (model base, po cichu, na GPU). Nazwy terminali to „pierwszy”, „drugi”, „trzeci”… liczone od lewego górnego rogu ekranu; własne nazwy nadasz na stronie Terminale. Dyktowanie skrótem ma pierwszeństwo — na jego czas nasłuch milczy.")
         }
 
         VFSection(title: "Model whisper.cpp") {

@@ -26,6 +26,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var dictationLatch: DictationLatch?
     private var updateChecker: UpdateChecker?
     private let historyUploader = HistoryUploader()
+    private let ambient = AmbientListener()
+    /// Migawki okien dla trybu nasłuchu — własna instancja, żeby nasłuch nie
+    /// podbijał generacji, na której opiera się telefon.
+    private let ambientSnapshotter = WindowSnapshotter()
     /// Dzielona z `RemoteMicClient` (docs/plans/remote-mic-relay.md) — ten sam
     /// `AudioCapture`, który używa `SessionController` skrótu lokalnego.
     /// Trzymana tutaj jawnie (nie tylko wewnątrz `SessionController`), żeby
@@ -87,6 +91,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Jednorazowo: cała dotychczasowa lokalna historia na konto (dedup po
         // stronie klienta, flaga po komplecie).
         historyUploader.backfillIfNeeded(notes: notesStore.notes)
+
+        setupAmbientListening()
 
         Task { [weak self] in
             await self?.sessionController?.prewarm()
@@ -228,6 +234,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             sharedAudioCapture = audioCapture
             let controller = SessionController(audioCapture: audioCapture, engine: engine, formatter: formatter, notesStore: notesStore)
             controller.onStateChange = { [weak self] state in
+                // Dyktowanie skrótem przejmuje mikrofon — nasłuch na ten czas
+                // milczy, żeby nie liczyć tego samego audio dwa razy i nie
+                // złapać komendy w środku promptu.
+                self?.ambient.setMuted(state != .idle && state != .done)
                 self?.updateIcon(for: state)
                 self?.updatePill(for: state)
                 self?.updateEscapeMonitor(for: state)
@@ -290,6 +300,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return WhisperSpeechEngine(language: "pl")
         case .apple:
             return try AppleSpeechEngine(locale: Locale(identifier: "pl-PL"))
+        }
+    }
+
+    /// Tryb nasłuchu: „terminal pierwszy nasłuchuj" → prompt → „koniec".
+    /// Wyłączony domyślnie — mikrofon chodzący bez przerwy to świadoma decyzja
+    /// użytkownika, nie domyślne zachowanie.
+    private func setupAmbientListening() {
+        ambient.targetsProvider = { [weak self] in
+            guard let self else { return [] }
+            let snapshot = ambientSnapshotter.snapshot()
+            return TerminalRegistry
+                .terminals(from: snapshot, snapshotter: ambientSnapshotter)
+                .map(\.name)
+        }
+        ambient.onCommit = { [weak self] targetName, text in
+            self?.injectAmbient(text: text, into: targetName)
+        }
+        ambient.onStateChange = { [weak self] target, collected in
+            // Pill pokazuje, do którego terminala leci prompt — inaczej nie
+            // widać, czy komenda w ogóle została usłyszana.
+            guard let self else { return }
+            if let target {
+                pillController.model.ambientTarget = target
+                pillController.model.liveText = collected
+                pillController.show()
+            } else {
+                pillController.model.ambientTarget = nil
+                if sessionController?.state == .idle || sessionController?.state == .done {
+                    pillController.hide()
+                }
+            }
+        }
+        if settingsModel.ambientEnabled {
+            Task { await ambient.start() }
+        }
+        settingsModel.$ambientEnabled
+            .dropFirst()
+            .sink { [weak self] enabled in
+                guard let self else { return }
+                if enabled { Task { await self.ambient.start() } } else { ambient.stop() }
+            }
+            .store(in: &settingsCancellables)
+    }
+
+    /// Wklejenie promptu do nazwanego terminala — tą samą drogą co telefon:
+    /// podnieś okno, POTWIERDŹ fokus, dopiero potem wklej. Bez potwierdzenia
+    /// prompt trafiłby tam, gdzie akurat stoi kursor.
+    private func injectAmbient(text: String, into targetName: String) {
+        let snapshot = ambientSnapshotter.snapshot()
+        let terminals = TerminalRegistry.terminals(from: snapshot, snapshotter: ambientSnapshotter)
+        guard let terminal = terminals.first(where: { VoiceCommandRouter.similar(
+            VoiceCommandRouter.normalize($0.name), VoiceCommandRouter.normalize(targetName)
+        ) }) else {
+            DebugLog.write("Ambient", "nie znalazłem terminala „\(targetName)” — nic nie wklejam")
+            return
+        }
+        Task { @MainActor in
+            guard let windowID = UInt32(terminal.id),
+                  await WindowFocuser.focus(windowID: windowID, pid: terminal.pid) else {
+                DebugLog.write("Ambient", "nie udało się podnieść terminala „\(targetName)” — prompt zostaje w logu: \(text)")
+                return
+            }
+            do {
+                try TextInjector().insertViaClipboard(text)
+                DebugLog.write("Ambient", "wklejono do „\(terminal.name)”: \(text)")
+            } catch {
+                DebugLog.write("Ambient", "wklejanie nie powiodło się: \(error.localizedDescription)")
+            }
         }
     }
 

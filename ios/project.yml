@@ -38,6 +38,12 @@ targets:
         NSMicrophoneUsageDescription: "VoiceFlow potrzebuje mikrofonu, żeby transkrybować dyktowanie na żywo."
         NSSpeechRecognitionUsageDescription: "VoiceFlow potrzebuje rozpoznawania mowy Apple do transkrypcji polskiej."
         NSCameraUsageDescription: "VoiceFlow używa aparatu wyłącznie do zeskanowania kodu QR, którym parujesz telefon z Makiem."
+        # Bez tego klucza iOS PO CICHU ubija połączenia do adresów w sieci
+        # lokalnej (relay na Macu, np. ws://192.168.x.x) — system nie może
+        # pokazać pytania o zgodę, więc nie pyta i odmawia. Objaw: wieczne
+        # „łączę z Makiem" bez żadnego błędu. Znalezione na żywym telefonie
+        # 2026-08-12.
+        NSLocalNetworkUsageDescription: "VoiceFlow łączy się z Twoim Makiem w sieci lokalnej, żeby przesyłać dyktowanie i podgląd okien."
         # ATS: produkcyjny relay chodzi po `wss://` i tego NIE ruszamy. Wyjątek
         # dotyczy WYŁĄCZNIE sieci lokalnej i loopbacku — bez niego nie da się
         # przetestować apki przeciw relayowi na `ws://127.0.0.1` (iOS odrzuca

@@ -304,6 +304,14 @@ struct SettingsView: View {
     var embedded: Bool = false
 
     @State private var adminSecretInput = ""
+    // Logowanie kontem — ta sama para (email+hasło) co w apce na telefonie;
+    // zwrócony stały token konta ląduje w Keychainie jak token z QR/parowania.
+    @State private var accountEmail = ""
+    @State private var accountPassword = ""
+    @State private var accountStatus: String?
+    @State private var isLoggingIn = false
+    /// Publiczny relay na serwerze Wojtka — domyślny dom logowania kontem.
+    static let defaultAccountHost = "wss://o35lo8pceb0fmc10ziul6llo.161.97.135.88.sslip.io"
     @State private var pairingStatus: String?
     @State private var isPairing = false
     @State private var category: SettingsCategory = .dictation
@@ -546,6 +554,22 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var remoteSections: some View {
+        VFSection(title: "Konto", subtitle: "Zaloguj tym samym kontem co telefon — historia i sesje spinają się same.") {
+            VFTextField(placeholder: "E-mail", text: $accountEmail)
+            VFTextField(placeholder: "Hasło", text: $accountPassword, secure: true)
+            HStack(spacing: VF.Space.x12) {
+                Button(isLoggingIn ? "Loguję…" : "Zaloguj i połącz") { logInWithAccount() }
+                    .buttonStyle(VFButtonStyle(prominent: true))
+                    .disabled(isLoggingIn || accountEmail.isEmpty || accountPassword.isEmpty)
+                if let accountStatus {
+                    Text(accountStatus)
+                        .font(VF.Font.body(11))
+                        .foregroundStyle(VF.Color.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+
         VFSection(title: "Połączenie") {
             VFSettingToggle(title: "Włącz zdalny mikrofon", isOn: $model.remoteMicEnabled)
                 .onChange(of: model.remoteMicEnabled) { _, _ in remoteMic.restart() }
@@ -601,6 +625,52 @@ struct SettingsView: View {
         case .connected: VF.Color.text
         case .connecting: VF.Color.muted
         case .disconnected, .disabled: VF.Color.faint
+        }
+    }
+
+    /// `POST /login` → stały token konta → Keychain + restart klienta.
+    /// Ta sama semantyka co logowanie w apce iOS; Mac i telefon na jednym
+    /// koncie łączą się przez ten sam relay bez żadnego QR.
+    private func logInWithAccount() {
+        isLoggingIn = true
+        accountStatus = nil
+        let host = model.remoteMicHost.isEmpty ? Self.defaultAccountHost : model.remoteMicHost
+        let httpBase = host
+            .replacingOccurrences(of: "wss://", with: "https://")
+            .replacingOccurrences(of: "ws://", with: "http://")
+        guard let url = URL(string: "\(httpBase)/login") else {
+            accountStatus = "Nieprawidłowy adres relaya."
+            isLoggingIn = false
+            return
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "email": accountEmail.trimmingCharacters(in: .whitespaces),
+            "password": accountPassword,
+        ])
+        Task { @MainActor in
+            defer { isLoggingIn = false }
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                guard status == 200,
+                      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let token = object["pairToken"] as? String, !token.isEmpty else {
+                    accountStatus = status == 401 ? "Zły e-mail albo hasło." : "Serwer zwrócił błąd \(status)."
+                    return
+                }
+                KeychainPairingTokenStore().saveToken(token)
+                accountPassword = ""
+                if model.remoteMicHost.isEmpty { model.remoteMicHost = host }
+                model.remoteMicEnabled = true
+                remoteMic.restart()
+                accountStatus = "Zalogowano — połączenie przez konto aktywne."
+                DebugLog.write("RemoteMic", "zalogowano kontem \(accountEmail) — token konta w Keychainie")
+            } catch {
+                accountStatus = "Nie mogę połączyć się z serwerem: \(error.localizedDescription)"
+            }
         }
     }
 

@@ -143,6 +143,14 @@ struct MainView: View {
             }
             .padding(.horizontal, VF.Space.x12)
             .padding(.bottom, VF.Space.x8)
+
+            // Wersja z Info.plist — podbija się sama przy publikacji
+            // (`tools/release-mac.sh`), a `UpdateChecker` instaluje nowsze
+            // wydania automatycznie.
+            Text("v\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")")
+                .font(VF.Font.mono(10))
+                .foregroundStyle(VF.Color.faint)
+                .padding(.horizontal, VF.Space.x12)
         }
         .padding(.vertical, VF.Space.x20)
         .frame(width: 248, alignment: .topLeading)

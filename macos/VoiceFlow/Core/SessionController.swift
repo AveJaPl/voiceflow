@@ -57,6 +57,11 @@ final class SessionController {
     var onAudioLevel: ((Float) -> Void)?
     /// Log latencji: onset mowy → pierwszy widoczny tekst w polu (kryterium 4 z kontraktu).
     var onFirstTextLatency: ((TimeInterval) -> Void)?
+    /// Notatka zapisana w lokalnej historii — do wysyłki kopii na konto
+    /// (`HistoryUploader`). Osobny hak od `onUtteranceFinished`, bo tamten
+    /// jest zajęty przez `RemoteMicClient` (ramka `injected` dla telefonu).
+    var onNoteSaved: ((Note) -> Void)?
+
     /// Wypowiedź domknięta: tekst końcowy + czy trafił do aplikacji docelowej.
     /// Pusta wypowiedź woła z pustym tekstem. Używane przez `RemoteMicClient`
     /// do ramki `injected` dla telefonu — telefon czeka na to potwierdzenie
@@ -376,6 +381,7 @@ final class SessionController {
                 injected: lastInjectionSucceeded
             )
             notesStore.upsert(note)
+            onNoteSaved?(note)
             // Ścieżka z podglądem raportuje do pokoju już w `endUtterance()`
             // (w chwili fizycznego końca mówienia). Bez podglądu liczba słów
             // jest znana dopiero tutaj — raportujemy raz, nigdy dwa razy.

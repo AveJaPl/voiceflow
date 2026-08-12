@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkeyMonitor: HotkeyMonitor?
     private var dictationLatch: DictationLatch?
     private var updateChecker: UpdateChecker?
+    private let historyUploader = HistoryUploader()
     /// Dzielona z `RemoteMicClient` (docs/plans/remote-mic-relay.md) — ten sam
     /// `AudioCapture`, który używa `SessionController` skrótu lokalnego.
     /// Trzymana tutaj jawnie (nie tylko wewnątrz `SessionController`), żeby
@@ -78,6 +79,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         })
         updateChecker = updater
         updater.start()
+
+        // Kopia każdego dyktowania do historii konta — z niej czyta telefon.
+        sessionController?.onNoteSaved = { [weak self] note in
+            self?.historyUploader.upload(note)
+        }
 
         Task { [weak self] in
             await self?.sessionController?.prewarm()

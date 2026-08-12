@@ -2,15 +2,18 @@ import SwiftUI
 import AppKit
 
 /// Główne okno aplikacji, odwzorowanie okna z Linuksa: boczne menu i pięć
-/// stron — Przegląd, Historia, Statystyki, Słownik, Ustawienia.
+/// stron — Przegląd, Historia, Pokój, Słownik, Ustawienia.
 ///
 /// Do tej pory Mac był wyłącznie aplikacją paska menu z jednym oknem ustawień
 /// i osobnym oknem notatek; statystyk nie było wcale. Nazwy stron, ich podtytuły
 /// i układ (nagłówek → sekcje w kartach) są przepisane z
 /// `app/voiceflow_app/`, bo to aplikacja linuksowa jest wzorcem dla całości.
+///
+/// Statystyki nie mają własnej pozycji w menu: stan dyktowania i liczby opisują
+/// to samo, więc mieszkają razem w Przeglądzie jako jeden panel.
 
 enum VFPage: String, CaseIterable, Identifiable {
-    case dashboard, history, stats, room, vocabulary, settings
+    case dashboard, history, room, vocabulary, settings
 
     var id: String { rawValue }
 
@@ -18,7 +21,6 @@ enum VFPage: String, CaseIterable, Identifiable {
         switch self {
         case .dashboard: "Przegląd"
         case .history: "Historia"
-        case .stats: "Statystyki"
         case .room: "Pokój"
         case .vocabulary: "Słownik"
         case .settings: "Ustawienia"
@@ -29,7 +31,6 @@ enum VFPage: String, CaseIterable, Identifiable {
         switch self {
         case .dashboard: "mic"
         case .history: "clock.arrow.circlepath"
-        case .stats: "square.grid.2x2"
         case .room: "person.2"
         case .vocabulary: "character.book.closed"
         case .settings: "gearshape"
@@ -155,8 +156,6 @@ struct MainView: View {
             DashboardPage(model: model)
         case .history:
             HistoryPage(model: model)
-        case .stats:
-            StatsPage(model: model)
         case .room:
             VFPageHeader(
                 title: "Pokój",
@@ -178,20 +177,24 @@ struct MainView: View {
 
 // MARK: - Przegląd
 
+/// Jedna strona zamiast dwóch: na górze stan dyktowania i ostatni wynik, pod
+/// spodem pełny panel statystyk (`StatsInsights`). Liczby, które Przegląd
+/// pokazywał wcześniej sam — łącznie słów, seria, wykres tygodnia — zniknęły
+/// stąd, bo panel statystyk podaje je dokładniej i w szerszym zakresie.
 struct DashboardPage: View {
     @ObservedObject var model: AppUIModel
 
     private var todayWords: Int {
         StatsLib.dailySeries(model.notes, days: 1).first?.words ?? 0
     }
-    private var totals: StatsLib.Totals { StatsLib.totals(model.notes) }
-    private var streak: Int { StatsLib.currentStreak(model.notes) }
-    private var week: [Int] { StatsLib.dailySeries(model.notes, days: 7).map { $0.words } }
 
     var body: some View {
-        VFPageHeader(title: "Przegląd", subtitle: "Twoje lokalne centrum dyktowania.")
+        VFPageHeader(
+            title: "Przegląd",
+            subtitle: "Stan dyktowania i twój rytm pracy, liczony wyłącznie z lokalnej historii."
+        )
 
-        VStack(alignment: .leading, spacing: VF.Space.x12) {
+        HStack(alignment: .center, spacing: VF.Space.x16) {
             HStack(spacing: VF.Space.x12) {
                 Circle()
                     .fill(model.isRecording ? VF.Color.recording : VF.Color.faint)
@@ -204,32 +207,21 @@ struct DashboardPage: View {
                         .font(VF.Font.body(12))
                         .foregroundStyle(VF.Color.muted)
                 }
-                Spacer()
+            }
+            Spacer(minLength: VF.Space.x16)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("Dzisiaj").vfSectionLabel()
+                HStack(alignment: .firstTextBaseline, spacing: VF.Space.x4) {
+                    Text(StatsLib.compactNumber(todayWords))
+                        .font(VF.Font.display(22))
+                        .foregroundStyle(VF.Color.text)
+                    Text("słów")
+                        .font(VF.Font.body(12))
+                        .foregroundStyle(VF.Color.faint)
+                }
             }
         }
         .vfCard(padding: VF.Space.x20)
-
-        HStack(alignment: .top, spacing: VF.Space.x12) {
-            VFStatCard(
-                label: "Dzisiaj",
-                value: StatsLib.compactNumber(todayWords),
-                suffix: "słów"
-            )
-            VFStatCard(
-                label: "Łącznie",
-                value: StatsLib.compactNumber(totals.words),
-                suffix: "słów"
-            )
-            VFStatCard(
-                label: "Seria",
-                value: "\(streak)",
-                suffix: streak == 1 ? "dzień" : "dni"
-            )
-        }
-
-        VFSection(title: "Ten tydzień") {
-            VFBarChart(values: week, height: 96, emptyMessage: "Jeszcze nic w tym tygodniu")
-        }
 
         VFSection(title: "Ostatnie dyktowanie") {
             if let latest = model.notes.first {
@@ -259,6 +251,8 @@ struct DashboardPage: View {
                     .foregroundStyle(VF.Color.faint)
             }
         }
+
+        StatsInsights(model: model)
     }
 
     private func copy(_ text: String) {

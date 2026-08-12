@@ -1,8 +1,9 @@
 import SwiftUI
 import AppKit
 
-/// Historia i Statystyki — dwie strony, których Mac dotąd nie miał w tej formie.
+/// Historia oraz panel statystyk, których Mac dotąd nie miał w tej formie.
 /// Układ i teksty przepisane z `app/voiceflow_app/pages/history.py` i `stats.py`.
+/// Statystyki nie są osobną stroną — `StatsInsights` jest dolną częścią Przeglądu.
 
 // MARK: - Historia
 
@@ -161,7 +162,10 @@ enum StatsRange: String, CaseIterable, Identifiable {
     }
 }
 
-struct StatsPage: View {
+/// Dolna część Przeglądu: liczby, wykresy i kalendarz aktywności. Osobny widok,
+/// bo trzyma własny stan (zakres wykresu, przeliczone podsumowanie) i nie ma
+/// nagłówka strony — tytuł nosi Przegląd.
+struct StatsInsights: View {
     @ObservedObject var model: AppUIModel
     @State private var range: StatsRange = .daily
 
@@ -199,22 +203,21 @@ struct StatsPage: View {
     private var activity: [(day: Date, words: Int)] { StatsLib.dailySeries(model.notes, days: 182) }
 
     var body: some View {
-        VFPageHeader(
-            title: "Statystyki",
-            subtitle: "Twój rytm dyktowania, liczony wyłącznie z lokalnej historii."
-        )
-
-        if model.notes.isEmpty {
-            Text("Brak statystyk. Pierwsze dyktowanie uruchomi podsumowania i wykresy.")
-                .font(VF.Font.body(13))
-                .foregroundStyle(VF.Color.muted)
-                .vfCard()
-                .onAppear { summary = Summary(model.notes) }
-        } else {
-            content
-                .onAppear { summary = Summary(model.notes) }
-                .onChange(of: model.notes) { summary = Summary(model.notes) }
+        // Odstęp taki sam jak między sekcjami Przeglądu — panel ma wyglądać jak
+        // dalszy ciąg strony, nie jak wklejony blok.
+        VStack(alignment: .leading, spacing: VF.Space.x24) {
+            if model.notes.isEmpty {
+                Text("Brak statystyk. Pierwsze dyktowanie uruchomi podsumowania i wykresy.")
+                    .font(VF.Font.body(13))
+                    .foregroundStyle(VF.Color.muted)
+                    .vfCard()
+            } else {
+                content
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onAppear { summary = Summary(model.notes) }
+        .onChange(of: model.notes) { summary = Summary(model.notes) }
     }
 
     @ViewBuilder private var content: some View {

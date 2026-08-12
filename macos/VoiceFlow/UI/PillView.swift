@@ -260,6 +260,11 @@ private struct WaveformView: View {
             let wobble = sin((CGFloat(index) * 0.7) + pulsePhase * .pi * 2) * height * 0.15
             return max(3, base + wobble)
         }
-        return max(3, CGFloat(level) * height)
+        // Surowy RMS mowy siedzi w paśmie ~0,02–0,15 — liniowo dawało słupki
+        // po 3 px, czyli równą kreskę zamiast wykresu („nie widać pasków").
+        // Wzmocnienie ×6 rozciąga pasmo mowy na pełną skalę, a wykładnik 0,7
+        // spłaszcza szczyty, żeby głośne sylaby nie przyklejały się do sufitu.
+        let boosted = min(1, pow(CGFloat(level) * 6, 0.7))
+        return max(2, boosted * height)
     }
 }

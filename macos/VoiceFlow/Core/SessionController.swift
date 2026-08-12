@@ -212,7 +212,18 @@ final class SessionController {
     }
 
     /// Skrót wciśnięty — tylko odkręca kurek audio, sesja ASR już istnieje.
+    /// Wciśnięcie w trakcie domykania poprzedniej wypowiedzi — start rusza sam,
+    /// gdy tylko domykanie się skończy. Bez tego drugi klik szybkiego dwukliku
+    /// (dyktowanie bez trzymania) trafiał w `.finalizing` pierwszego kliku
+    /// i po cichu przepadał.
+    private var beginPendingAfterFinish = false
+
     func beginUtterance() {
+        if state == .finalizing {
+            DebugLog.write("Session", "beginUtterance w trakcie domykania — zakolejkowany, ruszy po finiszu")
+            beginPendingAfterFinish = true
+            return
+        }
         guard state == .idle || state == .done else {
             // Kiedyś ta ścieżka była niema, a stan potrafił utknąć w `.error` na
             // zawsze — skrót przestawał cokolwiek robić i nie było jak zobaczyć
@@ -387,6 +398,10 @@ final class SessionController {
         onUtteranceFinished?(formatted, !formatted.isEmpty && lastInjectionSucceeded)
         state = .done
         state = .idle
+        if beginPendingAfterFinish {
+            beginPendingAfterFinish = false
+            beginUtterance()
+        }
     }
 
     /// Escape podczas `.listening` (§Zadanie 2 audytu — Linux ma `voiceflow
@@ -401,6 +416,7 @@ final class SessionController {
             return
         }
         DebugLog.write("Session", "cancelUtterance: Escape — przerywam dyktowanie bez wstrzykiwania")
+        beginPendingAfterFinish = false
         // `cancelUtterance`, NIE `endUtterance`: to drugie wymuszało jeszcze jedno
         // dekodowanie, którego wynik wpadał do strumienia już po anulowaniu i
         // doklejał się do następnej wypowiedzi. Escape ma znaczyć „zapomnij".

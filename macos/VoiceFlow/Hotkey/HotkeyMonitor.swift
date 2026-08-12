@@ -53,7 +53,16 @@ final class HotkeyMonitor {
     /// użycia klawisza modyfikującego gdzie indziej w systemie. Krótsze niż to
     /// przełączenie stanu jest szumem, nie zamierzonym wciśnięciem — nikt nie
     /// puszcza i wciska ten sam klawisz świadomie w mniej niż 100ms.
-    private var lastTransitionAt: CFTimeInterval = 0
+    /// Czas OSTATNIEGO WCIŚNIĘCIA — filtr szumu porównuje wciśnięcie z
+    /// poprzednim WCIŚNIĘCIEM, nie z dowolnym przejściem. Wersja licząca od
+    /// puszczenia zjadała drugi klik szybkiego podwójnego kliknięcia
+    /// (puszczenie→wciśnięcie przy dwukliku to często < 100 ms) — czyli
+    /// dokładnie gest, na którym stoi dyktowanie bez trzymania. Zaobserwowane
+    /// w logu 2026-08-12: „wciśnięcie odrzucone jako szum" przy każdej próbie
+    /// dwukliku F5. Drgania styków (bounce), przed którymi ten filtr broni,
+    /// to wciśnięcia w odstępie pojedynczych milisekund — 100 ms od
+    /// poprzedniego WCIŚNIĘCIA łapie je nadal.
+    private var lastPressAt: CFTimeInterval = 0
     private let debounceInterval: CFTimeInterval = 0.1
     /// Bezpiecznik: jeśli klawisz "trzyma się" wciśnięty dłużej niż to, sam się
     /// puszcza. Zaobserwowane 2026-08-09: prawdziwa sesja dyktowania zostawiła
@@ -240,13 +249,13 @@ final class HotkeyMonitor {
         // Kierunek "puszczam" jest krytyczny dla bezpieczeństwa (kończy sesję,
         // przywraca mikrofon i głośność) — nigdy go nie filtrujemy.
         if down {
-            guard now - lastTransitionAt >= debounceInterval else {
-                log.debug("Ignoruję wciśnięcie skrótu — za szybko po poprzednim (szum)")
-                DebugLog.write("Hotkey", "wciśnięcie odrzucone jako szum (< \(debounceInterval)s od poprzedniego)")
+            guard now - lastPressAt >= debounceInterval else {
+                log.debug("Ignoruję wciśnięcie skrótu — za szybko po poprzednim wciśnięciu (drganie styków)")
+                DebugLog.write("Hotkey", "wciśnięcie odrzucone jako drganie styków (< \(debounceInterval)s od poprzedniego wciśnięcia)")
                 return
             }
+            lastPressAt = now
         }
-        lastTransitionAt = now
         isDown = down
         watchdogTimer?.invalidate()
 

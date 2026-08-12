@@ -79,6 +79,30 @@ enum AccountAPI {
         return payload.entries
     }
 
+    /// Wysyła jedno dyktowanie do historii konta (telefon = source "phone").
+    static func postHistory(
+        credentials: RemoteCredentials,
+        text: String,
+        createdAt: Date,
+        durationSeconds: Double,
+        source: String
+    ) async throws {
+        var request = URLRequest(url: try endpoint(host: credentials.host, path: "/history"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(credentials.token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "text": text,
+            "createdAt": ISO8601DateFormatter().string(from: createdAt),
+            "durationSeconds": durationSeconds,
+            "source": source,
+        ])
+        let (_, status) = try await send(request)
+        guard (200...299).contains(status) else {
+            throw status == 401 ? Failure.unauthorized : Failure.http(status)
+        }
+    }
+
     static func deleteHistoryEntry(id: Int, credentials: RemoteCredentials) async throws {
         var request = URLRequest(url: try endpoint(host: credentials.host, path: "/history/\(id)"))
         request.httpMethod = "DELETE"

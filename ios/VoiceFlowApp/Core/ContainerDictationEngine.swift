@@ -141,7 +141,22 @@ final class ContainerDictationEngine: NSObject, ObservableObject {
 
         if recordToHistory, !liveText.isEmpty {
             DictationHistoryStore.append(DictationEntry(text: liveText, source: .containerApp))
+            // Kopia do historii KONTA — z niej czyta Pulpit i zakładka
+            // Historia (i Mac, przez to samo konto). Best-effort: brak sieci
+            // albo brak zalogowania nie może zepsuć dyktowania, wpis lokalny
+            // już jest.
+            uploadToAccountHistory(text: liveText)
         }
         state = .idle
+    }
+
+    private func uploadToAccountHistory(text: String) {
+        guard let credentials = KeychainCredentialStore().load() else { return }
+        Task {
+            try? await AccountAPI.postHistory(
+                credentials: credentials, text: text,
+                createdAt: Date(), durationSeconds: 0, source: "phone"
+            )
+        }
     }
 }

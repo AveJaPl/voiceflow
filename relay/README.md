@@ -25,9 +25,24 @@ przypadkiem wdrożyć z otwartym `/pair` (patrz sekcja Bezpieczeństwo w planie,
   (to jest osobny sekret administracyjny, NIE token parowania — bez niego
   ktokolwiek mógłby wygenerować sobie token i podpiąć się jako "phone" zamiast
   Wojtka). Zwraca `{"token": "...", "createdAt": "..."}`.
+- `POST /register` — zakłada konto. Body `{"email": "...", "password": "..."}`,
+  wymaga `Authorization: Bearer <ADMIN_SECRET>` (to prywatna usługa Wojtka, nie
+  otwarta rejestracja). Zwraca `{"pairToken": "..."}` — **stały** token
+  parowania konta, nigdy nie rotowany. `409` przy zajętym mailu.
+- `POST /login` — `{"email", "password"}` → `{"pairToken": "..."}` (ten sam
+  token co przy rejestracji, żeby telefon i Mac mogły go zapisać raz na zawsze).
+  `401` przy złym mailu/haśle.
+- `GET /sessions?limit=50` — ostatnie wpisy logu sesji (`limit` 1–500, domyślnie
+  50), wymaga `Authorization: Bearer <ADMIN_SECRET>`.
 - `wss://.../ws?role=mac&token=<token>` — trwałe połączenie Maca.
 - `wss://.../ws?role=phone&token=<token>` — połączenie telefonu, wysyła binarne
   ramki audio.
+
+`token` w `/ws` to **albo** token z `POST /pair` (stary, ręczny mechanizm —
+działa dalej bez zmian), **albo** `pairToken` konta. Połączenia po koncie są
+logowane do `session_log` (connect/disconnect, rola, nazwa urządzenia z ramki
+`hello`); ręczne parowanie nie ma konta, do którego można by je przypisać, więc
+nie trafia do logu.
 
 Token jest wspólny dla obu ról (jedna para urządzeń, zgodnie z planem — YAGNI).
 Nowe połączenie pod daną rolą zamyka poprzednie (reconnect/restart apki).
@@ -41,6 +56,18 @@ Jeśli "mac" nie jest połączony, "phone" dostaje natychmiast wiadomość
 | `ADMIN_SECRET` | tak | — (start przerywa się bez niej) | Sekret do `POST /pair`. Wygeneruj losowy string, np. `openssl rand -base64 32`. |
 | `PORT` | nie | `8080` | Port HTTP/WS. |
 | `PAIRING_STORE_PATH` | nie | `./data/pairing.json` | Gdzie trzymany jest aktywny token. Musi być na trwałym wolumenie (patrz niżej), inaczej token parowania ginie przy każdym redeployu. |
+| `DB_PATH` | nie | `./data/relay.db` | Baza SQLite z kontami i logiem sesji. Trwały wolumen jest tu **obowiązkowy** — bez niego konta znikają przy redeployu. |
+
+## Baza (SQLite, `better-sqlite3`)
+
+Schemat tworzy się sam przy starcie (`CREATE TABLE IF NOT EXISTS`):
+
+- `accounts` — `id`, `email` (UNIQUE, lowercase), `password_hash` (bcrypt,
+  `bcryptjs`, 10 rund), `pair_token` (UNIQUE, 32 losowe bajty base64url),
+  `created_at`.
+- `session_log` — `id`, `account_id` → `accounts(id)`, `role` (`mac`/`phone`),
+  `device` (nazwa z ramki `hello`, NULL dopóki nie doszła), `event`
+  (`connected`/`disconnected`), `at`.
 
 ## Testy
 
@@ -48,11 +75,15 @@ Jeśli "mac" nie jest połączony, "phone" dostaje natychmiast wiadomość
 npm test
 ```
 
-20 testów (`node --test`): pass-through phone→mac 1:1, wielokrotne ramki bez
+33 testy (`node --test`): pass-through phone→mac 1:1, wielokrotne ramki bez
 buforowania, błąd `mac_offline` (przy rejestracji i przy próbie wysyłki),
 zamiana starego połączenia przez nowe pod tą samą rolą, generacja/unieważnianie
 tokenu (w tym przetrwanie restartu procesu), odrzucenie WS bez ważnego tokenu /
-bez tokenu / z nieznaną rolą, `/health`, `/pair` z i bez poprawnego sekretu.
+bez tokenu / z nieznaną rolą, `/health`, `/pair` z i bez poprawnego sekretu,
+oraz konta: rejestracja i logowanie zwracają ten sam stały token, złe hasło =
+401, duplikat maila = 409, para mac↔phone łączy się tokenem konta i przekazuje
+ramki, wpisy connect/disconnect z nazwą urządzenia lądują w `session_log`,
+`GET /sessions` gated sekretem admina, hasła trzymane jako hash bcrypt.
 Zero prawdziwej sieci poza testami integracyjnymi w `test/server.test.js`,
 które celowo używają realnego `http.Server` + klienta `ws`, ale wyłącznie na
 loopbacku (`127.0.0.1`, port efemeryczny) — bez internetu, deterministyczne.
@@ -72,12 +103,13 @@ session / Wojtka:
    - `ADMIN_SECRET` — wygeneruj raz (`openssl rand -base64 32`), zapisz też
      lokalnie u siebie (potrzebny do każdego wywołania `POST /pair`, czyli do
      sparowania telefonu z Makiem).
-   - opcjonalnie `PAIRING_STORE_PATH=/data/pairing.json`, jeśli wolumen
-     zamontowany pod `/data`.
-5. **Trwały wolumen pod `PAIRING_STORE_PATH`** (domyślnie `/app/data`) —
+   - opcjonalnie `PAIRING_STORE_PATH=/data/pairing.json` i `DB_PATH=/data/relay.db`,
+     jeśli wolumen zamontowany pod `/data`.
+5. **Trwały wolumen pod `PAIRING_STORE_PATH` i `DB_PATH`** (oba domyślnie w `/app/data`) —
    Coolify → Storage → dodaj persistent volume zamontowany np. na `/app/data`.
-   Bez tego token parowania znika po każdym redeployu (kontener wraca do stanu
-   "brak aktywnego tokenu", trzeba by parować od nowa — nieszkodliwe, ale
+   Dla `DB_PATH` to warunek konieczny — bez wolumenu konta i log sesji giną przy
+   każdym redeployu. Bez tego token parowania znika po każdym redeployu
+   (kontener wraca do stanu "brak aktywnego tokenu", trzeba by parować od nowa — nieszkodliwe, ale
    niewygodne). Nie jest to krytyczne dla bezpieczeństwa (bez tokenu WS i tak
    nikt się nie połączy), tylko dla wygody.
 6. Domena/TLS: Traefik w Coolify ogarnia `wss://` automatycznie tak samo jak

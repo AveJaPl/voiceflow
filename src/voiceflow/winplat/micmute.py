@@ -29,6 +29,16 @@ than building the obvious ``{s.pid: s for s in capture_sessions()}`` lookup
 table — enumerating twice is cheap, and a machine with more than a handful of
 audio sessions does not exist.
 
+Ducking is not a single pass over the sessions that happened to exist when the
+hotkey was pressed. A session is born loud: when Spotify moves to the next
+track, or a video starts mid-sentence, Windows hands that stream the
+application's own volume, not the one we ducked it to — so the music comes back
+at full blast in the middle of a dictation. A watcher thread therefore re-walks
+the sessions every :data:`_SWEEP_INTERVAL` while the recording runs, pushing
+anything that came back up back down and ducking applications that started
+playing since. It also means a volume the user raises by hand mid-dictation is
+pushed down again, which is the right trade for a few seconds of speech.
+
 One trap shaped the restore path, the same one the Linux module carries.
 Windows persists an application's mixer state *per application*, so if a session
 dies while we hold it ducked or muted, the ducked volume is what Windows
@@ -53,6 +63,16 @@ LOGGER = logging.getLogger(__name__)
 #: EDataFlow.eCapture, and the device-state mask for "plugged in and enabled".
 _E_CAPTURE = 1
 _DEVICE_ACTIVE = 1
+
+#: How often the ducked applications are re-checked while a recording runs.
+#: Enumerating sessions is a handful of local COM calls, and half a second of
+#: full-volume music at a track change reads as a glitch rather than as the
+#: feature being broken.
+_SWEEP_INTERVAL = 0.5
+#: How far above its target a session may sit before the sweep pushes it back.
+#: Master volume is a float32 round-trip, so an exact comparison would fight
+#: the last bit of every value we ourselves wrote.
+_DUCK_TOLERANCE = 0.01
 
 
 class _AudioThread:
@@ -127,6 +147,19 @@ def run_with_audio(function: Callable[[], object], timeout: float = _CALL_TIMEOU
             _AUDIO_THREAD = _AudioThread()
         thread = _AUDIO_THREAD
     return thread.call(function, timeout)
+
+
+@dataclass(slots=True)
+class _Ducked:
+    """One application we turned down, and the two levels that describes."""
+
+    #: Executable name, used to find a replacement session if this one dies.
+    app: str
+    #: What the application played at before we touched it — restored verbatim.
+    original: float
+    #: What we set it to. Kept so the sweep can tell a session that drifted back
+    #: up from one that is already where we want it.
+    target: float
 
 
 @dataclass(slots=True)
@@ -229,11 +262,14 @@ class WinMicMuter:
         #: we muted is unmuted later: a user who muted themselves in Discord by
         #: hand owns that state and it must survive a dictation.
         self._muted: dict[int, str] = {}
-        #: process id -> (executable, volume it had before we ducked it).
-        self._ducked: dict[int, tuple[str, float]] = {}
+        #: process id -> what we did to that application's playback.
+        self._ducked: dict[int, _Ducked] = {}
         #: Apps whose restore found no live session, retried on the next mute.
         self._pending_unmutes: dict[str, str] = {}
         self._pending_restores: dict[str, tuple[str, float]] = {}
+        #: The thread re-ducking sessions born loud mid-recording, if running.
+        self._watcher: threading.Thread | None = None
+        self._stop_watching_now = threading.Event()
         self._ready = False
         if config.enabled:
             try:  # lazy, optional
@@ -255,6 +291,10 @@ class WinMicMuter:
         """Mute configured microphones and duck playback for one recording."""
         if not self.available:
             return
+        # Whatever the previous recording left running, this one owns the audio
+        # state now — including a watcher that ducked nothing and so would not
+        # be stopped by the restore below.
+        self._stop_watcher()
         if self._muted or self._ducked:
             # A leftover entry means a previous unmute never ran; better to
             # restore those sessions now than to lose track of them entirely.
@@ -264,6 +304,9 @@ class WinMicMuter:
             run_with_audio(self._mute_now)
         except Exception:
             LOGGER.exception("Wyciszanie nie powiodło się; kontynuuję nagrywanie")
+            return
+        if self.config.duck_enabled:
+            self._start_watcher()
 
     def _mute_now(self) -> None:
         # An app that vanished before its restore may be back by now. Fix it
@@ -275,6 +318,9 @@ class WinMicMuter:
 
     def unmute(self) -> None:
         """Restore everything :meth:`mute` touched. Never raises."""
+        # Before anything else, or a sweep still in flight lands after the
+        # restore and leaves the music quiet for good.
+        self._stop_watcher()
         if not self._muted and not self._ducked:
             return
         muted, self._muted = self._muted, {}
@@ -284,7 +330,7 @@ class WinMicMuter:
         except Exception:
             LOGGER.exception("Nie można przywrócić stanu audio")
 
-    def _unmute_now(self, muted: dict[int, str], ducked: dict[int, tuple[str, float]]) -> None:
+    def _unmute_now(self, muted: dict[int, str], ducked: dict[int, _Ducked]) -> None:
         self._unmute_capture(muted)
         self._restore(ducked)
 
@@ -346,12 +392,15 @@ class WinMicMuter:
     # -- playback ------------------------------------------------------------
 
     def _duck(self) -> None:
-        """Turn each session down to a fraction of its own level.
+        """Turn every playing session down to a fraction of its own level.
 
         The configured numbers multiply the app's current volume rather than
         naming a target, matching the Linux backend. An absolute target is a
         different effect depending on how loud the user already was: a light
         dip at full volume, silence for someone playing music quietly.
+
+        Runs once when the recording starts and then on every sweep, which is
+        what catches applications that only start playing mid-dictation.
         """
         # Clamp: a multiplier above 1.0 would make audio LOUDER while dictating.
         default = min(self.config.duck_to, 1.0)
@@ -366,25 +415,48 @@ class WinMicMuter:
             if factor >= 1.0:
                 # An explicit "never duck this app" rule.
                 continue
-            original = float(session.volume.GetMasterVolume())
-            if original <= 0.0:
+            current = float(session.volume.GetMasterVolume())
+            known = self._ducked.get(session.pid)
+            if known is not None:
+                self._hold_down(session, known, current)
+                continue
+            if current <= 0.0:
                 # Already silent; nothing to take away and nothing to restore.
                 continue
-            target = round(original * factor, 2)
-            if target >= original:
+            target = round(current * factor, 2)
+            if target >= current:
                 # Rounding swallowed the whole reduction.
                 continue
             session.volume.SetMasterVolume(target, None)
-            self._ducked[session.pid] = (session.app, original)
+            self._ducked[session.pid] = _Ducked(session.app, current, target)
             LOGGER.info(
                 "Ściszono %s z %.0f%% do %.0f%% (mnożnik %.2f)",
                 session.app,
-                original * 100,
+                current * 100,
                 target * 100,
                 factor,
             )
 
-    def _restore(self, ducked: dict[int, tuple[str, float]]) -> None:
+    @staticmethod
+    def _hold_down(session: _Session, ducked: _Ducked, current: float) -> None:
+        """Push an already-ducked application back down if it climbed back up.
+
+        This is the track change: the stream we ducked ended, and the one
+        Windows created for the next song was born at the application's own
+        volume. The remembered original stays untouched — it is still what the
+        user gets back — and only the new session is pulled down to the level
+        the rest of the dictation is already playing at.
+        """
+        if current <= ducked.target + _DUCK_TOLERANCE:
+            return
+        session.volume.SetMasterVolume(ducked.target, None)
+        LOGGER.info(
+            "Ponownie ściszono %s do %.0f%% (nowy dźwięk w trakcie dyktowania)",
+            ducked.app,
+            ducked.target * 100,
+        )
+
+    def _restore(self, ducked: dict[int, _Ducked]) -> None:
         if not ducked:
             return
         restored: set[int] = set()
@@ -392,20 +464,19 @@ class WinMicMuter:
             entry = ducked.get(session.pid)
             if entry is None:
                 continue
-            app, original = entry
-            session.volume.SetMasterVolume(original, None)
+            session.volume.SetMasterVolume(entry.original, None)
             restored.add(session.pid)
-            LOGGER.info("Przywrócono głośność %s do %.0f%%", app, original * 100)
-        for pid, (app, original) in ducked.items():
+            LOGGER.info("Przywrócono głośność %s do %.0f%%", entry.app, entry.original * 100)
+        for pid, entry in ducked.items():
             if pid in restored:
                 continue
-            if not self._restore_by_app(app, original):
+            if not self._restore_by_app(entry.app, entry.original):
                 LOGGER.warning(
                     "Sesja %s zniknęła przed przywróceniem głośności; "
                     "spróbuję ponownie, gdy się pojawi",
-                    app,
+                    entry.app,
                 )
-                self._pending_restores[app.casefold()] = (app, original)
+                self._pending_restores[entry.app.casefold()] = (entry.app, entry.original)
 
     @staticmethod
     def _restore_by_app(app: str, original: float) -> bool:
@@ -423,6 +494,41 @@ class WinMicMuter:
                 )
                 restored = True
         return restored
+
+    # -- keeping the duck down -----------------------------------------------
+
+    def _start_watcher(self) -> None:
+        """Re-duck in the background for as long as the recording lasts."""
+        if self._watcher is not None:
+            return
+        self._stop_watching_now.clear()
+        self._watcher = threading.Thread(
+            target=self._watch, name="voiceflow-duck", daemon=True
+        )
+        self._watcher.start()
+
+    def _stop_watcher(self) -> None:
+        """Stop the sweep and wait for the one in flight. Idempotent."""
+        watcher, self._watcher = self._watcher, None
+        if watcher is None:
+            return
+        self._stop_watching_now.set()
+        # Joined, not just signalled: a sweep queued behind us on the Core Audio
+        # thread would otherwise re-duck the sessions the restore just gave
+        # back, and nothing would ever put them right again. The wait covers one
+        # Core Audio call; past that the service is wedged and the restore, sent
+        # after this returns, still runs after the sweep because the queue is
+        # ordered.
+        watcher.join(timeout=_CALL_TIMEOUT + _SWEEP_INTERVAL)
+
+    def _watch(self) -> None:
+        while not self._stop_watching_now.wait(_SWEEP_INTERVAL):
+            try:
+                run_with_audio(self._duck)
+            except Exception:  # noqa: BLE001 - one bad sweep is not fatal
+                # Whatever went wrong may be over by the next tick, and the
+                # recording's own restore path is unaffected either way.
+                LOGGER.debug("Nie udało się odświeżyć ściszenia", exc_info=True)
 
     # -- deferred repairs ----------------------------------------------------
 

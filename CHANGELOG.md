@@ -4,6 +4,15 @@ Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[
 
 ## Unreleased
 
+- **[Windows]** Music stays quiet for the whole dictation. Ducking used to be a
+  single pass over the audio sessions that existed when the hotkey was pressed,
+  and a session is born at the application's own volume — so when Spotify moved
+  to the next track mid-sentence, the new song came back at full blast, and
+  anything that only started playing after the hotkey was never turned down at
+  all. The ducked applications are now re-checked every half second until the
+  recording ends: a stream found above its target is pushed back down, a new
+  application is ducked like any other, and the level restored afterwards is
+  still the one the user had set before dictating.
 - **[All]** Shared dictation rooms. Two people in one room stop talking over each
   other: whoever is speaking blocks the others, and their speaking quietens audio
   on every machine in the room, not just their own. Sessions are measured — who

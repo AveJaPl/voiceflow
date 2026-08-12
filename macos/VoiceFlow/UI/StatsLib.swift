@@ -258,13 +258,19 @@ enum StatsLib {
         return rendered.replacingOccurrences(of: ".", with: ",")
     }
 
-    /// „2 godz. 5 min" / „5 min" — jak `format_duration` w Pythonie.
+    /// „42 s" / „1 min 12 s" / „2 godz. 5 min" — ŚWIADOME odejście od parytetu
+    /// z Pythonem (`format_duration` zaokrągla do minut): pojedyncze dyktowanie
+    /// trwa sekundy, więc „0 min" i „1 min" mówiły dokładnie nic. Sekundy
+    /// znikają dopiero od godziny w górę, gdzie już naprawdę nie mają znaczenia.
     static func formatDuration(_ seconds: Double) -> String {
-        let totalMinutes = max(0, Int((seconds / 60).rounded()))
-        let hours = totalMinutes / 60
-        let minutes = totalMinutes % 60
+        let total = max(0, Int(seconds.rounded()))
+        if total < 60 { return "\(total) s" }
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let rest = total % 60
         if hours > 0, minutes > 0 { return "\(hours) godz. \(minutes) min" }
         if hours > 0 { return "\(hours) godz." }
+        if rest > 0 { return "\(minutes) min \(rest) s" }
         return "\(minutes) min"
     }
 }

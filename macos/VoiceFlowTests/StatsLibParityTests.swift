@@ -24,10 +24,17 @@ final class StatsLibParityTests: XCTestCase {
         XCTAssertEqual(StatsLib.compactNumber(-1_500), "−1,5 k", "minus typograficzny, nie łącznik")
     }
 
-    func testFormatDurationJakWPythonie() {
-        XCTAssertEqual(StatsLib.formatDuration(0), "0 min")
-        XCTAssertEqual(StatsLib.formatDuration(59), "1 min")
+    /// ŚWIADOMY brak parytetu z Pythonem (patrz doc-comment `formatDuration`):
+    /// poniżej godziny pokazujemy sekundy, bo pojedyncze dyktowanie trwa
+    /// sekundy i „0 min"/„1 min" nie mówiło nic.
+    func testFormatDurationPokazujeSekundy() {
+        XCTAssertEqual(StatsLib.formatDuration(0), "0 s")
+        XCTAssertEqual(StatsLib.formatDuration(7.4), "7 s")
+        XCTAssertEqual(StatsLib.formatDuration(59), "59 s")
         XCTAssertEqual(StatsLib.formatDuration(60), "1 min")
+        XCTAssertEqual(StatsLib.formatDuration(72), "1 min 12 s")
+        XCTAssertEqual(StatsLib.formatDuration(125), "2 min 5 s")
+        XCTAssertEqual(StatsLib.formatDuration(600), "10 min")
         XCTAssertEqual(StatsLib.formatDuration(3_600), "1 godz.")
         XCTAssertEqual(StatsLib.formatDuration(3_660), "1 godz. 1 min")
         XCTAssertEqual(StatsLib.formatDuration(7_325), "2 godz. 2 min")

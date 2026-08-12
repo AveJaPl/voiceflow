@@ -24,44 +24,55 @@ struct RoomSettingsSection: View {
     }
 
     var body: some View {
-        Section("Wspólny pokój dyktowania") {
+        VFSection(title: "Wspólny pokój dyktowania") {
             if enabled, !code.isEmpty {
-                LabeledContent("Jesteś w pokoju", value: code)
+                VFRow(title: "Jesteś w pokoju") {
+                    Text(code)
+                        .font(VF.Font.mono(13))
+                        .foregroundStyle(VF.Color.text)
+                }
                 Link("Ranking na żywo",
                      destination: URL(string: "\(httpServer)/room/\(code)") ?? URL(string: "https://voiceflow.pbdevs.com")!)
-                Toggle("Pozwól, by cudze dyktowanie ściszało dźwięk tutaj", isOn: $duckForOthers)
-                Text("Kiedy ktoś inny w pokoju mówi, Twój skrót nie zacznie nagrywać — dwa mikrofony naraz psują obie transkrypcje. Zmiana wymaga restartu VoiceFlow.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .font(VF.Font.body(12))
+                    .foregroundStyle(VF.Color.muted)
+                VFSettingToggle(
+                    title: "Pozwól, by cudze dyktowanie ściszało dźwięk tutaj",
+                    isOn: $duckForOthers
+                )
+                VFHint("Kiedy ktoś inny w pokoju mówi, Twój skrót nie zacznie nagrywać — dwa mikrofony naraz psują obie transkrypcje. Zmiana wymaga restartu VoiceFlow.")
                 Button("Wyjdź z pokoju") {
                     RoomJoiner.leave()
                     enabled = false
                     message = "Wyszedłeś z pokoju. Dyktowanie działa dalej, lokalnie. Zrestartuj VoiceFlow."
                     failed = false
                 }
+                .buttonStyle(VFButtonStyle())
             } else {
-                TextField("Twoja nazwa w rankingu", text: $displayName)
-                TextField("Serwer", text: $server)
-                HStack {
-                    TextField("Kod pokoju", text: $joinCode)
+                VFTextField(placeholder: "Twoja nazwa w rankingu", text: $displayName)
+                VFTextField(placeholder: "Serwer", text: $server)
+                HStack(spacing: VF.Space.x8) {
+                    VFTextField(placeholder: "Kod pokoju", text: $joinCode)
                         .textCase(.uppercase)
                     Button("Dołącz") { Task { await join() } }
+                        .buttonStyle(VFButtonStyle())
                         .disabled(!canAct || joinCode.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
                 Button("Utwórz nowy pokój") { Task { await create() } }
+                    .buttonStyle(VFButtonStyle(prominent: true))
                     .disabled(!canAct)
-                Text("Bez pokoju VoiceFlow działa dokładnie jak dziś, w pełni lokalnie. Po dołączeniu na serwer trafiają wyłącznie zdarzenia „zaczynam/kończę mówić\" oraz liczba słów i sekund — nagranie i tekst nigdy.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                VFHint("Bez pokoju VoiceFlow działa dokładnie jak dziś, w pełni lokalnie. Po dołączeniu na serwer trafiają wyłącznie zdarzenia „zaczynam/kończę mówić” oraz liczba słów i sekund — nagranie i tekst nigdy.")
             }
 
             if busy {
                 ProgressView().controlSize(.small)
             }
             if let message {
+                // Czerwień niesie w tym interfejsie jedno znaczenie (nagrywanie),
+                // więc błąd wyróżnia się jasnością tekstu, nie kolorem.
                 Text(message)
-                    .font(.system(size: 11))
-                    .foregroundStyle(failed ? .red : .secondary)
+                    .font(VF.Font.body(11))
+                    .foregroundStyle(failed ? VF.Color.text : VF.Color.muted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

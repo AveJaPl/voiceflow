@@ -169,7 +169,9 @@ struct MainView: View {
                 title: "Ustawienia",
                 subtitle: "Dopasuj model i zachowanie lokalnego dyktowania."
             )
-            SettingsView(model: settingsModel, remoteMic: remoteMic)
+            // `embedded` — nagłówek, przewijanie i szerokość daje ta strona,
+            // więc widok ustawień nie może narzucać własnego rozmiaru okna.
+            SettingsView(model: settingsModel, remoteMic: remoteMic, embedded: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -188,17 +190,36 @@ struct DashboardPage: View {
         StatsLib.dailySeries(model.notes, days: 1).first?.words ?? 0
     }
 
+    /// Średnia z dni, w których cokolwiek podyktowano — sama liczba słów z
+    /// dzisiaj nic nie mówi, dopóki nie ma jej z czym porównać.
+    private var averageActiveDay: Double {
+        StatsLib.averageWordsPerActiveDay(model.notes)
+    }
+
+    private var todayComparison: String {
+        guard averageActiveDay > 0 else { return "przytrzymaj skrót i mów" }
+        let average = Int(averageActiveDay.rounded())
+        guard todayWords > 0 else { return "średnia dnia: \(StatsLib.compactNumber(average)) słów" }
+        let ratio = Int((Double(todayWords) * 100 / averageActiveDay).rounded()) - 100
+        // Minus typograficzny, tak samo jak w `StatsLib.compactNumber`.
+        let direction = ratio >= 0 ? "+\(ratio)%" : "−\(abs(ratio))%"
+        return "\(direction) względem średniej \(StatsLib.compactNumber(average)) słów"
+    }
+
     var body: some View {
         VFPageHeader(
             title: "Przegląd",
             subtitle: "Stan dyktowania i twój rytm pracy, liczony wyłącznie z lokalnej historii."
         )
 
-        HStack(alignment: .center, spacing: VF.Space.x16) {
-            HStack(spacing: VF.Space.x12) {
+        HStack(alignment: .top, spacing: VF.Space.x16) {
+            HStack(alignment: .top, spacing: VF.Space.x12) {
                 Circle()
                     .fill(model.isRecording ? VF.Color.recording : VF.Color.faint)
                     .frame(width: 10, height: 10)
+                    // Kropka trafia w linię pisma tytułu, a nie w środek całej
+                    // kolumny tekstu — inaczej wisi za nisko przy dwóch liniach.
+                    .padding(.top, 8)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.stateTitle)
                         .font(VF.Font.display(22))
@@ -206,6 +227,7 @@ struct DashboardPage: View {
                     Text(model.stateDetail.isEmpty ? "Przytrzymaj skrót i mów" : model.stateDetail)
                         .font(VF.Font.body(12))
                         .foregroundStyle(VF.Color.muted)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: VF.Space.x16)
@@ -219,7 +241,12 @@ struct DashboardPage: View {
                         .font(VF.Font.body(12))
                         .foregroundStyle(VF.Color.faint)
                 }
+                Text(todayComparison)
+                    .font(VF.Font.body(11).monospacedDigit())
+                    .foregroundStyle(VF.Color.muted)
+                    .lineLimit(1)
             }
+            .fixedSize(horizontal: true, vertical: false)
         }
         .vfCard(padding: VF.Space.x20)
 

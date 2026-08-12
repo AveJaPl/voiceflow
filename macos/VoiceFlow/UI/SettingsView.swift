@@ -85,7 +85,7 @@ enum MainHotkey: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .fn: "Fn / 🌐 (zalecane — jak Wispr Flow i Dyktowanie Apple)"
+        case .fn: "Fn / klawisz kuli ziemskiej (zalecane — jak Wispr Flow i Dyktowanie Apple)"
         case .f5: "F5 / klawisz mikrofonu — wymaga „F1, F2… jako standardowe” i wyłączenia skrótu Dyktowania Apple"
         case .rightOption: "Prawy ⌥ — u Ciebie odpalał się samoistnie"
         case .rightControl: "Prawy ⌃ — może nie istnieć na Twojej klawiaturze"
@@ -249,8 +249,6 @@ final class SettingsModel: ObservableObject {
     }
 }
 
-/// Ustawienia: skrót, język, tryb wstawiania, przyciszanie audio, wyciszanie
-/// Discorda. Formularz systemowy — bez ozdobnych fontów, bez emotek.
 /// Kategorie ustawień — jedna lista po lewej zamiast jednego długiego zwoju.
 enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
     case dictation, insertion, audio, vocabulary, room, remote
@@ -268,6 +266,17 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    var subtitle: String {
+        switch self {
+        case .dictation: "Skrót, silnik rozpoznawania, model i język."
+        case .insertion: "Jak podyktowany tekst trafia do aktywnego okna."
+        case .audio: "Przyciszanie tła, izolacja mikrofonu i Discord."
+        case .vocabulary: "Nazwy własne, których silnik ma nie przekręcać."
+        case .room: "Wspólna sesja dyktowania z innym komputerem."
+        case .remote: "Dyktowanie z telefonu przez relay."
+        }
+    }
+
     var icon: String {
         switch self {
         case .dictation: "mic"
@@ -280,212 +289,300 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
+/// Ustawienia w tym samym języku wizualnym co reszta okna: karty `vfCard`,
+/// wersalikowe etykiety sekcji, kontrolki na ciemnej powierzchni. Wcześniej był
+/// tu systemowy `Form(.grouped)` — jedyny ekran aplikacji wyglądający jak
+/// panel z innego programu.
+///
+/// Widok żyje w dwóch miejscach naraz: jako osobne okno (`VoiceFlowApp
+/// .showSettings`) i jako strona okna głównego. `embedded` rozstrzyga różnicę —
+/// osadzony nie narzuca rozmiaru, nie rysuje tła i zamiast bocznej kolumny
+/// pokazuje poziomy pasek kategorii, bo boczne menu ma już okno główne.
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
     @ObservedObject var remoteMic: RemoteMicClient
+    var embedded: Bool = false
+
     @State private var adminSecretInput = ""
     @State private var pairingStatus: String?
     @State private var isPairing = false
     @State private var category: SettingsCategory = .dictation
 
     var body: some View {
-        HStack(spacing: 0) {
-            categorySidebar
-            Divider()
-            Form {
-                switch category {
-                case .dictation: dictationSections
-                case .insertion: insertionSections
-                case .audio: audioSections
-                case .vocabulary: vocabularySections
-                case .room: roomSections
-                case .remote: remoteSections
-                }
+        if embedded {
+            VStack(alignment: .leading, spacing: VF.Space.x24) {
+                categoryChips
+                sections
             }
-            .formStyle(.grouped)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            HStack(spacing: 0) {
+                categorySidebar
+                Divider().overlay(VF.Color.border)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: VF.Space.x24) {
+                        VFPageHeader(title: category.title, subtitle: category.subtitle)
+                        sections
+                    }
+                    .padding(VF.Space.x24)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .background(VF.Color.background)
+            }
+            .frame(width: 860, height: 640)
+            .background(VF.Color.background)
         }
-        .frame(width: 720, height: 620)
     }
 
-    /// Lewa kolumna z kategoriami. Powód przebudowy: wcześniej wszystkie
-    /// jedenaście sekcji leżało w jednej kolumnie, jedna pod drugą, w oknie
-    /// wysokim na 900 punktów — żeby zmienić model, trzeba było przewinąć obok
-    /// Discorda, izolacji mikrofonu i słownika. Kategorie po lewej pokazują naraz
-    /// tylko to, czego user szuka, i dają nazwom sekcji hierarchię, której płaska
-    /// lista nie miała.
-    private var categorySidebar: some View {
-        List(SettingsCategory.allCases, selection: $category) { item in
-            Label(item.title, systemImage: item.icon)
-                .tag(item)
+    @ViewBuilder
+    private var sections: some View {
+        switch category {
+        case .dictation: dictationSections
+        case .insertion: insertionSections
+        case .audio: audioSections
+        case .vocabulary: vocabularySections
+        case .room: RoomSettingsSection()
+        case .remote: remoteSections
         }
-        .listStyle(.sidebar)
-        .frame(width: 190)
     }
+
+    /// Lewa kolumna z kategoriami. Powód podziału: wcześniej wszystkie sekcje
+    /// leżały jedna pod drugą w oknie wysokim na 900 punktów — żeby zmienić
+    /// model, trzeba było przewinąć obok Discorda, izolacji mikrofonu i
+    /// słownika. Kształt pozycji taki sam jak w bocznym menu okna głównego.
+    private var categorySidebar: some View {
+        VStack(alignment: .leading, spacing: VF.Space.x4) {
+            Text("ustawienia")
+                .font(VF.Font.display(15))
+                .foregroundStyle(VF.Color.text)
+                .padding(.horizontal, VF.Space.x12)
+                .padding(.bottom, VF.Space.x16)
+
+            ForEach(SettingsCategory.allCases) { item in
+                Button {
+                    category = item
+                } label: {
+                    HStack(spacing: VF.Space.x12) {
+                        Image(systemName: item.icon)
+                            .frame(width: 16)
+                        Text(item.title)
+                            .font(VF.Font.body(13))
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, VF.Space.x12)
+                    .padding(.vertical, VF.Space.x8)
+                    .foregroundStyle(category == item ? VF.Color.text : VF.Color.muted)
+                    .background(
+                        RoundedRectangle(cornerRadius: VF.Radius.control, style: .continuous)
+                            .fill(category == item ? VF.Color.surfaceRaised : Color.clear)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, VF.Space.x20)
+        .frame(width: 220, alignment: .topLeading)
+        .background(VF.Color.surface)
+    }
+
+    /// Wersja pozioma na potrzeby strony w oknie głównym — druga kolumna z
+    /// kategoriami obok istniejącego menu bocznego byłaby jedną nawigacją za dużo.
+    private var categoryChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: VF.Space.x8) {
+                ForEach(SettingsCategory.allCases) { item in
+                    Button {
+                        category = item
+                    } label: {
+                        HStack(spacing: VF.Space.x8) {
+                            Image(systemName: item.icon)
+                            Text(item.title)
+                                .font(VF.Font.body(12))
+                        }
+                        .padding(.horizontal, VF.Space.x12)
+                        .padding(.vertical, VF.Space.x8)
+                        .foregroundStyle(category == item ? VF.Color.background : VF.Color.muted)
+                        .background(
+                            RoundedRectangle(cornerRadius: VF.Radius.control, style: .continuous)
+                                .fill(category == item ? VF.Color.text : VF.Color.surfaceRaised)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VF.Radius.control, style: .continuous)
+                                .strokeBorder(category == item ? Color.clear : VF.Color.border, lineWidth: 1)
+                        )
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.bottom, 2)
+        }
+    }
+
+    // MARK: - Dyktowanie
 
     @ViewBuilder
     private var dictationSections: some View {
-            Section("Skrót") {
-                Picker("Przytrzymaj, aby dyktować", selection: $model.mainHotkey) {
-                    ForEach(MainHotkey.allCases) { hotkey in
-                        Text(hotkey.label).tag(hotkey)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-                Text("Zmiana działa od razu, bez restartu aplikacji. Prawy ⌘ bywa tym samym klawiszem, którego prawa ręka używa do ⌘+Enter (np. wysyłka wiadomości w czatach) — stąd zalecany prawy ⌥.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-            Section("Silnik i język") {
-                Picker("Silnik rozpoznawania (polski)", selection: $model.speechEngine) {
-                    ForEach(SpeechEngineChoice.allCases) { choice in
-                        Text(choice.label).tag(choice)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-                Text("Dotyczy TYLKO polskiego — angielski zawsze idzie przez Apple. Zmiana wymaga restartu VoiceFlow, silnik tworzy się raz przy starcie. whisper.cpp działa w pełni lokalnie i offline (zero zależności od serwera Apple); zalecane po awarii serwera Apple 2026-08-10.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+        VFSection(title: "Skrót", subtitle: "Przytrzymaj wybrany klawisz i mów.") {
+            VFChoiceList(
+                options: MainHotkey.allCases.map { (value: $0, label: $0.label) },
+                selection: $model.mainHotkey
+            )
+            VFHint("Zmiana działa od razu, bez restartu aplikacji. Prawy ⌘ bywa tym samym klawiszem, którego prawa ręka używa do ⌘+Enter (np. wysyłka wiadomości w czatach) — stąd zalecany Fn.")
+        }
 
-                Toggle("Transkrypcja na żywo w pillu", isOn: $model.livePreview)
-                Text("Wyłączona: w trakcie mówienia pill pokazuje tylko falę dźwięku, a whisper liczy RAZ, po puszczeniu skrótu — zamiast dekodować co 300 ms przez całe dyktowanie. Mniej obciążenia, zero różnicy w tekście końcowym (on zawsze powstaje z pełnego przebiegu). Działa od następnej wypowiedzi, bez restartu.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+        VFSection(title: "Silnik rozpoznawania", subtitle: "Dotyczy wyłącznie polskiego.") {
+            VFChoiceList(
+                options: SpeechEngineChoice.allCases.map { (value: $0, label: $0.label) },
+                selection: $model.speechEngine
+            )
+            VFHint("Angielski zawsze idzie przez Apple. Zmiana wymaga restartu VoiceFlow, silnik tworzy się raz przy starcie. whisper.cpp działa w pełni lokalnie i offline — zalecane po awarii serwera Apple 2026-08-10.")
+        }
 
-                Picker("Model whisper.cpp", selection: $model.whisperModel) {
-                    ForEach(WhisperModelChoice.allCases) { choice in
-                        Text(choice.displayName).tag(choice)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-                Text("Pomiar na nagraniu 4,3 s (ten Mac, bez GPU — Homebrew'owy whisper.cpp nie ma backendu Metal): base 1,2 s, large-v3-turbo 6,4 s, oba z tym samym, poprawnym tekstem. Większy model bierz na żargon, akcent i hałas. Pierwsze użycie pobiera model (574 MB); zmiana wymaga restartu VoiceFlow.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+        VFSection(title: "Podgląd na żywo") {
+            VFSettingToggle(
+                title: "Transkrypcja na żywo w pillu",
+                subtitle: "Pill pokazuje tekst w trakcie mówienia.",
+                isOn: $model.livePreview
+            )
+            VFHint("Wyłączona: w trakcie mówienia pill pokazuje tylko falę dźwięku, a whisper liczy RAZ, po puszczeniu skrótu — zamiast dekodować co 300 ms przez całe dyktowanie. Mniej obciążenia, zero różnicy w tekście końcowym. Działa od następnej wypowiedzi, bez restartu.")
+        }
 
-                Picker("Język dyktowania", selection: $model.language) {
-                    ForEach(DictationLanguage.allCases) { language in
-                        Text(language.label).tag(language)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-                Text("Zmiana języka wymaga restartu aplikacji — silnik rozpoznawania tworzy się raz, przy starcie.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
+        VFSection(title: "Model whisper.cpp") {
+            VFChoiceList(
+                options: WhisperModelChoice.allCases.map { (value: $0, label: $0.displayName) },
+                selection: $model.whisperModel
+            )
+            VFHint("Pomiar na nagraniu 4,3 s (ten Mac, bez GPU — Homebrew'owy whisper.cpp nie ma backendu Metal): base 1,2 s, large-v3-turbo 6,4 s, oba z tym samym, poprawnym tekstem. Większy model bierz na żargon, akcent i hałas. Pierwsze użycie pobiera model; zmiana wymaga restartu VoiceFlow.")
+        }
+
+        VFSection(title: "Język dyktowania") {
+            VFChoiceList(
+                options: DictationLanguage.allCases.map { (value: $0, label: $0.label) },
+                selection: $model.language
+            )
+            VFHint("Zmiana języka wymaga restartu aplikacji — silnik rozpoznawania tworzy się raz, przy starcie.")
+        }
     }
+
+    // MARK: - Wstawianie tekstu
 
     @ViewBuilder
     private var insertionSections: some View {
-            Section("Wstawianie tekstu") {
-                Picker("Tryb", selection: $model.insertionMode) {
-                    ForEach(InsertionMode.allCases) { mode in
-                        Text(mode.label).tag(mode)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-                Text(insertionModeHint)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
+        VFSection(title: "Tryb wstawiania") {
+            VFChoiceList(
+                options: InsertionMode.allCases.map { (value: $0, label: $0.label) },
+                selection: $model.insertionMode
+            )
+            VFHint(insertionModeHint)
+        }
     }
+
+    // MARK: - Dźwięk
 
     @ViewBuilder
     private var audioSections: some View {
-            Section("Przyciszanie audio w trakcie mówienia") {
-                Toggle("Przyciszaj muzykę i inne dźwięki systemowe", isOn: $model.duckingEnabled)
-                if model.duckingEnabled {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("Poziom przyciszenia")
-                            Spacer()
-                            Text("\(Int((1 - model.duckVolume) * 100))%")
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
-                        }
-                        Slider(value: $model.duckVolume, in: 0.05...0.6)
+        VFSection(title: "Przyciszanie audio w trakcie mówienia") {
+            VFSettingToggle(
+                title: "Przyciszaj muzykę i inne dźwięki systemowe",
+                isOn: $model.duckingEnabled
+            )
+            if model.duckingEnabled {
+                VStack(alignment: .leading, spacing: VF.Space.x8) {
+                    HStack {
+                        Text("Poziom przyciszenia")
+                            .font(VF.Font.body(13))
+                            .foregroundStyle(VF.Color.text)
+                        Spacer()
+                        Text("\(Int((1 - model.duckVolume) * 100))%")
+                            .font(VF.Font.body(13).monospacedDigit())
+                            .foregroundStyle(VF.Color.muted)
                     }
-                    Text("Głośność wraca do poprzedniej wartości chwilę po zakończeniu dyktowania — nie migocze między krótkimi przerwami w mówieniu.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                    Slider(value: $model.duckVolume, in: 0.05...0.6)
+                        .tint(VF.Color.text)
                 }
+                VFHint("Głośność wraca do poprzedniej wartości chwilę po zakończeniu dyktowania — nie migocze między krótkimi przerwami w mówieniu.")
             }
-            Section("Izolacja mikrofonu (Discord i inne czaty)") {
-                Toggle("Podczas dyktowania nikt na czacie mnie nie słyszy", isOn: $model.micIsolationEnabled)
-                Text("Na czas dyktowania podmienia systemowe domyślne wejście audio na ciche (BlackHole) i przywraca po. Dwa warunki: BlackHole musi być zainstalowany (zrobione, jeśli widzisz ten przełącznik) i Discord musi mieć Urządzenie wejściowe ustawione na „Domyślne” w Ustawienia → Głos i wideo — nie na nazwaną kartę na sztywno. Sprawdź to raz ręcznie w Discordzie, zanim włączysz.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+        }
+
+        VFSection(title: "Izolacja mikrofonu", subtitle: "Discord i inne czaty.") {
+            VFSettingToggle(
+                title: "Podczas dyktowania nikt na czacie mnie nie słyszy",
+                isOn: $model.micIsolationEnabled
+            )
+            VFHint("Na czas dyktowania podmienia systemowe domyślne wejście audio na ciche (BlackHole) i przywraca po. Dwa warunki: BlackHole musi być zainstalowany i Discord musi mieć Urządzenie wejściowe ustawione na „Domyślne” w Ustawienia → Głos i wideo — nie na nazwaną kartę na sztywno. Sprawdź to raz ręcznie w Discordzie, zanim włączysz.")
+        }
+
+        VFSection(title: "Discord — skrót „Wycisz”", subtitle: "Starsza alternatywa dla izolacji mikrofonu.") {
+            DiscordHotkeyRecorder(hotkey: $model.discordHotkey)
+            VFHint("Symuluje przycisk „Wycisz” w Discordzie. Mniej niezawodne niż izolacja mikrofonu wyżej (Discord czasem gubi jedno z dwóch identycznych naciśnięć). Jeśli włączyłeś izolację mikrofonu, ten skrót jest zbędny — możesz zostawić puste.")
+        }
+
+        VFSection(title: "Discord — status dyktowania", subtitle: "Rich Presence.") {
+            VFSettingToggle(
+                title: "Pokazuj w Discordzie, że właśnie dyktuję",
+                isOn: $model.discordPresenceEnabled
+            )
+            if model.discordPresenceEnabled {
+                VFTextField(placeholder: "Client ID aplikacji Discorda", text: $model.discordPresenceClientID)
             }
-            Section("Discord — skrót „Wycisz” (alternatywa)") {
-                DiscordHotkeyRecorder(hotkey: $model.discordHotkey)
-                Text("Starsza metoda — symuluje przycisk „Wycisz” w Discordzie. Mniej niezawodna niż izolacja mikrofonu wyżej (Discord czasem gubi jedno z dwóch identycznych naciśnięć). Jeśli włączyłeś izolację mikrofonu, ten skrót jest zbędny — możesz zostawić puste (przycisk „Wyczyść”).")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-            Section("Discord — status dyktowania (Rich Presence)") {
-                Toggle("Pokazuj w Discordzie, że właśnie dyktuję", isOn: $model.discordPresenceEnabled)
-                if model.discordPresenceEnabled {
-                    TextField("Client ID aplikacji Discorda", text: $model.discordPresenceClientID)
-                        .textFieldStyle(.roundedBorder)
-                }
-                Text("Wymaga własnej aplikacji założonej na discord.com/developers/applications — to samo pole co „presence.client_id” w konfiguracji Linuksa. Jeśli Discord nie jest uruchomiony albo client ID jest puste, funkcja po prostu nic nie robi.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
+            VFHint("Wymaga własnej aplikacji założonej na discord.com/developers/applications — to samo pole co „presence.client_id” w konfiguracji Linuksa. Jeśli Discord nie jest uruchomiony albo client ID jest puste, funkcja po prostu nic nie robi.")
+        }
     }
+
+    // MARK: - Słownik
 
     @ViewBuilder
     private var vocabularySections: some View {
-            Section("Słownik — słowa własne") {
-                VocabularyEditor(words: $model.customVocabulary)
-                Text("Nazwy własne, które silnik rozpoznawania mowy często myli (np. „Programo”, „Estalo”). Dla whisper.cpp trafiają wprost do promptu dekodera — działa od razu, bez restartu. Dla silnika Apple działają jak wbudowany słownik (poprawka wielkości liter) — wymaga restartu VoiceFlow.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
+        VFSection(title: "Słowa własne") {
+            VocabularyEditor(words: $model.customVocabulary)
+            VFHint("Nazwy własne, które silnik rozpoznawania mowy często myli (np. „Programo”, „Estalo”). Dla whisper.cpp trafiają wprost do promptu dekodera — działa od razu, bez restartu. Dla silnika Apple działają jak wbudowany słownik (poprawka wielkości liter) — wymaga restartu VoiceFlow.")
+        }
     }
 
-    @ViewBuilder
-    private var roomSections: some View {
-            RoomSettingsSection()
-    }
+    // MARK: - Zdalny mikrofon
 
     @ViewBuilder
     private var remoteSections: some View {
-            Section("Zdalny mikrofon (telefon)") {
-                Toggle("Włącz zdalny mikrofon", isOn: $model.remoteMicEnabled)
-                    .onChange(of: model.remoteMicEnabled) { _, _ in remoteMic.restart() }
-                TextField("Adres relaya (np. wss://voiceflow-relay.programo.pl)", text: $model.remoteMicHost)
-                    .textFieldStyle(.roundedBorder)
-                    .onChange(of: model.remoteMicHost) { _, _ in remoteMic.restart() }
-                HStack {
-                    Text("Status:")
-                    Text(connectionStatusLabel)
-                        .foregroundStyle(connectionStatusColor)
-                }
-                .font(.system(size: 12))
-
-                Divider()
-
-                Text("Parowanie — jednorazowe, generuje token w relayu i zapisuje go w Keychain.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                SecureField("ADMIN_SECRET relaya (nie zapisywany na dysku)", text: $adminSecretInput)
-                    .textFieldStyle(.roundedBorder)
-                HStack {
-                    Button(isPairing ? "Parowanie…" : "Sparuj") {
-                        pair()
-                    }
-                    .disabled(isPairing || model.remoteMicHost.isEmpty || adminSecretInput.isEmpty)
-                    if let pairingStatus {
-                        Text(pairingStatus)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Text("Telefon (osobna apka, oddzielne zadanie) łączy się przez ten sam relay tym samym tokenem. Wojtek trzyma przycisk na telefonie i mówi — tekst trafia do okna, które ma akurat focus na tym Macu, dokładnie jak przy dyktowaniu lokalnym skrótem.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+        VFSection(title: "Połączenie") {
+            VFSettingToggle(title: "Włącz zdalny mikrofon", isOn: $model.remoteMicEnabled)
+                .onChange(of: model.remoteMicEnabled) { _, _ in remoteMic.restart() }
+            VFTextField(
+                placeholder: "Adres relaya (np. wss://voiceflow-relay.programo.pl)",
+                text: $model.remoteMicHost
+            )
+            .onChange(of: model.remoteMicHost) { _, _ in remoteMic.restart() }
+            HStack(spacing: VF.Space.x8) {
+                Circle()
+                    .fill(connectionStatusColor)
+                    .frame(width: 7, height: 7)
+                Text(connectionStatusLabel)
+                    .font(VF.Font.body(12))
+                    .foregroundStyle(VF.Color.muted)
             }
+        }
+
+        VFSection(title: "Parowanie", subtitle: "Jednorazowe — generuje token w relayu i zapisuje go w Keychain.") {
+            VFTextField(
+                placeholder: "ADMIN_SECRET relaya (nie zapisywany na dysku)",
+                text: $adminSecretInput,
+                secure: true
+            )
+            HStack(spacing: VF.Space.x12) {
+                Button(isPairing ? "Parowanie…" : "Sparuj") { pair() }
+                    .buttonStyle(VFButtonStyle(prominent: true))
+                    .disabled(isPairing || model.remoteMicHost.isEmpty || adminSecretInput.isEmpty)
+                if let pairingStatus {
+                    Text(pairingStatus)
+                        .font(VF.Font.body(11))
+                        .foregroundStyle(VF.Color.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            VFHint("Telefon łączy się przez ten sam relay tym samym tokenem. Trzymasz przycisk na telefonie i mówisz — tekst trafia do okna, które ma akurat focus na tym Macu, dokładnie jak przy dyktowaniu lokalnym skrótem.")
+        }
     }
 
     private var connectionStatusLabel: String {
@@ -497,12 +594,13 @@ struct SettingsView: View {
         }
     }
 
+    /// Czerwień jest w tym interfejsie zarezerwowana dla nagrywania, więc stan
+    /// połączenia rozróżniamy jasnością kropki, nie kolorem.
     private var connectionStatusColor: Color {
         switch remoteMic.connectionState {
-        case .connected: .green
-        case .connecting: .orange
-        case .disconnected: .red
-        case .disabled: .secondary
+        case .connected: VF.Color.text
+        case .connecting: VF.Color.muted
+        case .disconnected, .disabled: VF.Color.faint
         }
     }
 
@@ -532,6 +630,136 @@ struct SettingsView: View {
         case .showThenInsert:
             "Tekst widać w pillu, wstawiany jest dopiero po zakończeniu dyktowania — przez schowek, najbardziej niezawodna droga, ale bez podglądu na żywo w polu."
         }
+    }
+}
+
+// MARK: - Kontrolki ustawień w języku VF
+
+/// Wybór jednej opcji z listy — zamiennik `Picker(.radioGroup)`, który na tle
+/// palety VoiceFlow wyglądał jak wklejony z Ustawień systemowych. Wiersz ma ten
+/// sam kształt co pozycja bocznego menu: zaznaczony dostaje jaśniejsze tło.
+struct VFChoiceList<Value: Hashable>: View {
+    let options: [(value: Value, label: String)]
+    @Binding var selection: Value
+
+    var body: some View {
+        VStack(spacing: VF.Space.x4) {
+            ForEach(options.indices, id: \.self) { index in
+                let option = options[index]
+                let isSelected = option.value == selection
+                Button {
+                    selection = option.value
+                } label: {
+                    HStack(alignment: .top, spacing: VF.Space.x12) {
+                        Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                            .foregroundStyle(isSelected ? VF.Color.text : VF.Color.faint)
+                        Text(option.label)
+                            .font(VF.Font.body(13))
+                            .foregroundStyle(isSelected ? VF.Color.text : VF.Color.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.horizontal, VF.Space.x12)
+                    .padding(.vertical, VF.Space.x8)
+                    .background(
+                        RoundedRectangle(cornerRadius: VF.Radius.control, style: .continuous)
+                            .fill(isSelected ? VF.Color.surfaceRaised : Color.clear)
+                    )
+                    // Bez tego kliknięcie między liniami opisu nie trafia w przycisk.
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Przełącznik z opisem — układ `VFRow`, żeby wiersze ustawień i wiersze
+/// statystyk trzymały tę samą siatkę.
+struct VFSettingToggle: View {
+    let title: String
+    var subtitle: String?
+    @Binding var isOn: Bool
+
+    var body: some View {
+        VFRow(title: title, subtitle: subtitle) {
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+                .toggleStyle(VFSwitchStyle())
+        }
+    }
+}
+
+/// Przełącznik rysowany od zera. Systemowy `Toggle(.switch)` maluje się
+/// akcentem systemu (u Wojtka niebieskim) i na macOS nie słucha `.tint` — a
+/// jedynym kolorem w tym interfejsie jest czerwień nagrywania.
+struct VFSwitchStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            configuration.isOn.toggle()
+        } label: {
+            ZStack(alignment: configuration.isOn ? .trailing : .leading) {
+                Capsule()
+                    .fill(configuration.isOn ? VF.Color.text : VF.Color.surfaceRaised)
+                    .overlay(Capsule().strokeBorder(VF.Color.border, lineWidth: 1))
+                Circle()
+                    .fill(configuration.isOn ? VF.Color.background : VF.Color.muted)
+                    .frame(width: 16, height: 16)
+                    .padding(3)
+            }
+            .frame(width: 40, height: 22)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .animation(VF.Motion.quick, value: configuration.isOn)
+    }
+}
+
+/// Objaśnienie pod kontrolką: te same 11 punktów i ten sam przygaszony odcień
+/// co podpisy w kartach statystyk.
+struct VFHint: View {
+    let text: String
+
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(VF.Font.body(11))
+            .foregroundStyle(VF.Color.faint)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Pole tekstowe na ciemnej powierzchni — `.roundedBorder` rysuje jasną ramkę
+/// systemową, która w tej palecie świeci jak dziura w karcie.
+struct VFTextField: View {
+    let placeholder: String
+    @Binding var text: String
+    var secure: Bool = false
+
+    var body: some View {
+        Group {
+            if secure {
+                SecureField(placeholder, text: $text)
+            } else {
+                TextField(placeholder, text: $text)
+            }
+        }
+        .textFieldStyle(.plain)
+        .font(VF.Font.body(13))
+        .foregroundStyle(VF.Color.text)
+        .padding(.horizontal, VF.Space.x12)
+        .padding(.vertical, VF.Space.x8)
+        .background(
+            RoundedRectangle(cornerRadius: VF.Radius.control, style: .continuous)
+                .fill(VF.Color.surfaceRaised)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VF.Radius.control, style: .continuous)
+                .strokeBorder(VF.Color.border, lineWidth: 1)
+        )
     }
 }
 
@@ -585,22 +813,31 @@ private struct DiscordHotkeyRecorder: View {
     @State private var monitor: Any?
 
     var body: some View {
-        HStack {
+        HStack(spacing: VF.Space.x8) {
             Text(isRecording ? "Naciśnij kombinację…" : (hotkey?.displayString ?? "Nie ustawiono"))
-                .font(.system(size: 13, design: .monospaced))
-                .foregroundStyle(isRecording ? .secondary : .primary)
+                .font(VF.Font.mono(13))
+                .foregroundStyle(isRecording ? VF.Color.faint : VF.Color.text)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlBackgroundColor)))
+                .padding(.horizontal, VF.Space.x12)
+                .padding(.vertical, VF.Space.x8)
+                .background(
+                    RoundedRectangle(cornerRadius: VF.Radius.control, style: .continuous)
+                        .fill(VF.Color.surfaceRaised)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: VF.Radius.control, style: .continuous)
+                        .strokeBorder(isRecording ? VF.Color.text.opacity(0.4) : VF.Color.border, lineWidth: 1)
+                )
 
             Button(isRecording ? "Anuluj" : "Nagraj") {
                 isRecording ? stopRecording() : startRecording()
             }
+            .buttonStyle(VFButtonStyle())
             if hotkey != nil {
                 Button("Wyczyść") {
                     hotkey = nil
                 }
+                .buttonStyle(VFButtonStyle())
             }
         }
         .onDisappear { stopRecording() }
@@ -629,28 +866,39 @@ private struct DiscordHotkeyRecorder: View {
     }
 }
 
-/// Lista edytowalna słów/fraz — dodaj, edytuj wiersz tekstowy, usuń. Formularz
-/// systemowy, bez ozdobników, spójny z resztą `SettingsView`.
+/// Lista edytowalna słów/fraz — dodaj, edytuj wiersz tekstowy, usuń. Te same
+/// pola i przyciski co reszta ustawień, żeby słownik nie wyglądał jak wyjątek.
 private struct VocabularyEditor: View {
     @Binding var words: [String]
 
     var body: some View {
-        ForEach(words.indices, id: \.self) { index in
-            HStack {
-                TextField("np. Programo", text: Binding(
-                    get: { words[index] },
-                    set: { words[index] = $0 }
-                ))
-                Button {
-                    words.remove(at: index)
-                } label: {
-                    Image(systemName: "minus.circle")
-                }
-                .buttonStyle(.borderless)
+        VStack(alignment: .leading, spacing: VF.Space.x8) {
+            if words.isEmpty {
+                Text("Lista jest pusta.")
+                    .font(VF.Font.body(12))
+                    .foregroundStyle(VF.Color.faint)
             }
+            ForEach(words.indices, id: \.self) { index in
+                HStack(spacing: VF.Space.x8) {
+                    VFTextField(placeholder: "np. Programo", text: Binding(
+                        get: { words[index] },
+                        set: { words[index] = $0 }
+                    ))
+                    Button {
+                        words.remove(at: index)
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(VF.Color.faint)
+                    .help("Usuń")
+                }
+            }
+            Button("Dodaj słowo") {
+                words.append("")
+            }
+            .buttonStyle(VFButtonStyle())
         }
-        Button("Dodaj słowo") {
-            words.append("")
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

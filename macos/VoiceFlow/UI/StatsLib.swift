@@ -112,6 +112,32 @@ enum StatsLib {
         return longest
     }
 
+    /// Dzień z największą liczbą słów w całej historii. Remis rozstrzyga
+    /// nowsza data — rekord ma być tym, co da się jeszcze pobić dziś, a nie
+    /// najstarszym wpisem o tej samej wartości.
+    static func bestDay(
+        _ notes: [Note], calendar: Calendar = .current
+    ) -> (day: Date, words: Int)? {
+        dailyWordTotals(notes, calendar: calendar)
+            .filter { $0.value > 0 }
+            .max { lhs, rhs in
+                lhs.value == rhs.value ? lhs.key < rhs.key : lhs.value < rhs.value
+            }
+            .map { (day: $0.key, words: $0.value) }
+    }
+
+    /// Średnia dzienna liczona TYLKO z dni, w których cokolwiek podyktowano.
+    /// Dzielenie przez wszystkie dni kalendarza spłaszczałoby ją po każdej
+    /// dłuższej przerwie, a porównanie „dziś vs średnia” ma mówić o rytmie
+    /// pracy, nie o tym, ile było wolnych dni.
+    static func averageWordsPerActiveDay(
+        _ notes: [Note], calendar: Calendar = .current
+    ) -> Double {
+        let active = dailyWordTotals(notes, calendar: calendar).values.filter { $0 > 0 }
+        guard !active.isEmpty else { return 0 }
+        return Double(active.reduce(0, +)) / Double(active.count)
+    }
+
     /// Tempo mówienia: wszystkie słowa przez cały czas mówienia. Zero, gdy
     /// historia nie ma ani sekundy audio — lepsze niż dzielenie przez zero
     /// przebrane za nieskończone tempo.

@@ -106,6 +106,35 @@ final class StatsLibParityTests: XCTestCase {
         XCTAssertEqual(StatsLib.longestStreak(notes), 3)
     }
 
+    func testNajdluzszyDzienBierzeSumeDniaINowszaDate() {
+        let notes = [
+            note("raz dwa", daysAgo: 5),
+            note("trzy", daysAgo: 5),
+            note("cztery pięć sześć", daysAgo: 1),
+        ]
+
+        let best = StatsLib.bestDay(notes)
+
+        XCTAssertEqual(best?.words, 3, "dwa dyktowania z jednego dnia sumują się")
+        // Remis 3:3 — wygrywa dzień nowszy.
+        XCTAssertEqual(
+            best.map { Calendar.current.startOfDay(for: $0.day) },
+            Calendar.current.startOfDay(for: Calendar.current.date(byAdding: .day, value: -1, to: Date())!)
+        )
+        XCTAssertNil(StatsLib.bestDay([]))
+    }
+
+    func testSredniaLiczySieTylkoZDniZDyktowaniem() {
+        // Dwa dni z dyktowaniem (2 i 4 słowa) rozdzielone trzema dniami przerwy.
+        let notes = [
+            note("raz dwa", daysAgo: 0),
+            note("trzy cztery pięć sześć", daysAgo: 4),
+        ]
+
+        XCTAssertEqual(StatsLib.averageWordsPerActiveDay(notes), 3, accuracy: 0.001)
+        XCTAssertEqual(StatsLib.averageWordsPerActiveDay([]), 0)
+    }
+
     func testTempoSlowNaMinute() {
         // 30 słów w 15 sekund mówienia = 120 słów na minutę.
         let text = Array(repeating: "słowo", count: 30).joined(separator: " ")

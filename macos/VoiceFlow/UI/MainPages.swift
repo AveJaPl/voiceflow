@@ -179,6 +179,7 @@ struct StatsInsights: View {
         var currentStreak = 0
         var longestStreak = 0
         var appShares: [StatsLib.AppShare] = []
+        var bestDay: (day: Date, words: Int)?
 
         init(_ notes: [Note]) {
             totals = StatsLib.totals(notes)
@@ -187,6 +188,7 @@ struct StatsInsights: View {
             currentStreak = StatsLib.currentStreak(notes)
             longestStreak = StatsLib.longestStreak(notes)
             appShares = StatsLib.appWordShares(notes)
+            bestDay = StatsLib.bestDay(notes)
         }
     }
 
@@ -220,8 +222,19 @@ struct StatsInsights: View {
         .onChange(of: model.notes) { summary = Summary(model.notes) }
     }
 
+    /// Kafelki w siatce, nie w jednym rzędzie: przy sześciu pozycjach i oknie
+    /// zwężonym do minimum rząd ściskał liczby do nieczytelnych słupków, a każda
+    /// karta łamała podpis w innym miejscu — stąd „rozjechane".
+    /// Trzy kolumny na sztywno: sześć kafelków układa się wtedy w pełne dwa
+    /// rzędy przy każdej szerokości okna, zamiast zostawiać w drugim rzędzie
+    /// dwie karty i dziurę.
+    private static let statColumns = Array(
+        repeating: GridItem(.flexible(), spacing: VF.Space.x12, alignment: .top),
+        count: 3
+    )
+
     @ViewBuilder private var content: some View {
-        HStack(alignment: .top, spacing: VF.Space.x12) {
+        LazyVGrid(columns: Self.statColumns, alignment: .leading, spacing: VF.Space.x12) {
             VFStatCard(
                 label: "Słów na minutę",
                 value: summary.wordsPerMinute > 0
@@ -230,27 +243,39 @@ struct StatsInsights: View {
                 trend: "tempo mówienia z całej historii"
             )
             VFStatCard(
+                label: "Łącznie słów",
+                value: StatsLib.compactNumber(summary.totals.words),
+                trend: "\(StatsLib.compactNumber(summary.totals.dictations)) dyktowań"
+            )
+            VFStatCard(
+                label: "Czas mówienia",
+                value: StatsLib.formatDuration(summary.totals.audioSeconds),
+                trend: "średnio \(Int(summary.totals.averageWords.rounded())) słów na dyktowanie"
+            )
+            VFStatCard(
                 label: "Poprawki VoiceFlow",
                 value: StatsLib.compactNumber(summary.fixes),
                 trend: "słowa zmienione między ASR a tekstem"
             )
-            VFStatCard(label: "Łącznie słów", value: StatsLib.compactNumber(summary.totals.words))
             VFStatCard(
-                label: "Czas mówienia",
-                value: StatsLib.formatDuration(summary.totals.audioSeconds),
-                trend: "\(StatsLib.compactNumber(summary.totals.dictations)) dyktowań"
+                label: "Najdłuższy dzień",
+                value: summary.bestDay.map { StatsLib.compactNumber($0.words) } ?? "—",
+                suffix: summary.bestDay == nil ? nil : "słów",
+                trend: summary.bestDay.map { "rekord z \(Self.dayLabel($0.day))" } ?? "brak dnia z dyktowaniem"
+            )
+            VFStatCard(
+                label: "Seria dni",
+                value: "\(summary.currentStreak)",
+                suffix: polishDays(summary.currentStreak),
+                trend: "najdłuższa: \(summary.longestStreak) \(polishDays(summary.longestStreak))"
             )
         }
 
         VFSection(title: "Słowa w czasie") {
-            Picker("Zakres", selection: $range) {
-                ForEach(StatsRange.allCases) { range in
-                    Text(range.label).tag(range)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 320)
+            VFSegmented(
+                options: StatsRange.allCases.map { (value: $0, label: $0.label) },
+                selection: $range
+            )
             VFBarChart(values: series, height: 140)
         }
 
@@ -258,22 +283,65 @@ struct StatsInsights: View {
             title: "Dokąd trafiają słowa",
             subtitle: "Udział aplikacji docelowych we wszystkich podyktowanych słowach."
         ) {
-            AppShareList(shares: summary.appShares)
+            if donutSegments.isEmpty {
+                Text("Brak danych o aplikacjach docelowych.")
+                    .font(VF.Font.body(12))
+                    .foregroundStyle(VF.Color.faint)
+            } else {
+                VFDonutChart(
+                    segments: donutSegments,
+                    centerValue: StatsLib.compactNumber(summary.totals.words),
+                    centerCaption: "słów łącznie"
+                )
+            }
         }
 
         VFSection(
             title: "Aktywność · 26 tygodni",
-            subtitle: streakSubtitle
+            subtitle: "Jaśniejsze pole to dzień z większą liczbą podyktowanych słów."
         ) {
             VFActivityGrid(series: activity)
         }
     }
 
-    private var streakSubtitle: String {
-        guard summary.currentStreak > 0 || summary.longestStreak > 0 else { return "" }
-        let current = "seria: \(summary.currentStreak) \(polishDays(summary.currentStreak))"
-        let longest = "najdłuższa: \(summary.longestStreak) \(polishDays(summary.longestStreak))"
-        return "\(current) · \(longest)"
+    /// Największe aplikacje osobno, reszta w jednym wycinku — pierścień z
+    /// kilkunastoma wąskimi paskami nie niesie już żadnej informacji.
+    private static let donutLimit = 5
+
+    private var donutSegments: [VFDonutSegment] {
+        let shares = summary.appShares
+        guard !shares.isEmpty else { return [] }
+        let top = shares.prefix(Self.donutLimit)
+        var segments = top.map {
+            VFDonutSegment(
+                id: $0.bundleID,
+                label: AppShareList.displayName(for: $0.bundleID),
+                value: $0.words,
+                share: $0.share
+            )
+        }
+        let rest = shares.dropFirst(Self.donutLimit)
+        if !rest.isEmpty {
+            let words = rest.reduce(0) { $0 + $1.words }
+            segments.append(VFDonutSegment(
+                id: "vf.pozostale",
+                label: "Pozostałe (\(rest.count))",
+                value: words,
+                share: rest.reduce(0) { $0 + $1.share }
+            ))
+        }
+        return segments
+    }
+
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "pl_PL")
+        formatter.setLocalizedDateFormatFromTemplate("d MMMM")
+        return formatter
+    }()
+
+    private static func dayLabel(_ date: Date) -> String {
+        dayFormatter.string(from: date)
     }
 
     private func polishDays(_ count: Int) -> String {
@@ -282,55 +350,9 @@ struct StatsInsights: View {
     }
 }
 
-/// Poziome paski udziału per aplikacja — odpowiednik „Desktop usage" z paneli
-/// Insights. Nazwa aplikacji z systemu (po bundle id), nie surowy identyfikator.
-private struct AppShareList: View {
-    let shares: [StatsLib.AppShare]
-    /// Więcej niż kilka pozycji to już nie insight, tylko inwentarz.
-    private static let limit = 6
-
-    var body: some View {
-        if shares.isEmpty {
-            Text("Brak danych o aplikacjach docelowych.")
-                .font(VF.Font.body(12))
-                .foregroundStyle(VF.Color.faint)
-        } else {
-            let top = Array(shares.prefix(Self.limit))
-            let maxWords = max(top.first?.words ?? 1, 1)
-            VStack(spacing: VF.Space.x8) {
-                ForEach(top) { share in
-                    HStack(spacing: VF.Space.x12) {
-                        Text(Self.displayName(for: share.bundleID))
-                            .font(VF.Font.body(12))
-                            .foregroundStyle(VF.Color.text)
-                            .frame(width: 140, alignment: .leading)
-                            .lineLimit(1)
-                        GeometryReader { geometry in
-                            ZStack(alignment: .leading) {
-                                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                    .fill(VF.Color.hairline)
-                                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                    .fill(VF.Color.text.opacity(0.72))
-                                    .frame(width: max(
-                                        4, geometry.size.width * CGFloat(share.words) / CGFloat(maxWords)
-                                    ))
-                            }
-                        }
-                        .frame(height: 10)
-                        Text("\(share.share)%")
-                            .font(VF.Font.body(11).monospacedDigit())
-                            .foregroundStyle(VF.Color.muted)
-                            .frame(width: 36, alignment: .trailing)
-                        Text("\(StatsLib.compactNumber(share.words)) słów")
-                            .font(VF.Font.body(11).monospacedDigit())
-                            .foregroundStyle(VF.Color.faint)
-                            .frame(width: 76, alignment: .trailing)
-                    }
-                }
-            }
-        }
-    }
-
+/// Nazwa aplikacji docelowej z systemu (po bundle id), nie surowy identyfikator
+/// — legenda wykresu ma mówić „Slack", a nie „com.tinyspeck.slackmacgap".
+enum AppShareList {
     static func displayName(for bundleID: String) -> String {
         guard bundleID != StatsLib.unknownAppBundleID else { return "Nieznana aplikacja" }
         if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {

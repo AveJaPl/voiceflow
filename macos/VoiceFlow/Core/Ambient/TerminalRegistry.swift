@@ -21,10 +21,19 @@ struct TerminalRegistry {
         let ordinal: Int        // 1, 2, 3…
     }
 
-    /// Liczebniki porządkowe po polsku — tyle, ile realnie mieści się okien.
+    /// NAZWY KODOWE zamiast liczebników — najważniejsza zmiana po drugiej
+    /// opinii (Codex, 2026-08-12) i po pomiarach na żywo.
+    ///
+    /// „pierwszy/drugi/trzeci" to dla polskiego ASR w hałasie najgorszy możliwy
+    /// wybór: liczebniki porządkowe mylą się ze sobą i z głównymi („pierwszy" →
+    /// „jeden"), a whisper regularnie oddawał je jako coś zupełnie innego.
+    /// Poniższe słowa dobrane są tak, żeby (a) różniły się od siebie sylabicznie
+    /// i samogłoskowo, (b) prawie nie padały w rozmowie o pracy — czyli żeby
+    /// pomyłka „lampa"/„zebra" była praktycznie niemożliwa, a przypadkowe
+    /// wyzwolenie w trakcie gadania mało prawdopodobne.
     static let ordinalNames = [
-        "pierwszy", "drugi", "trzeci", "czwarty", "piąty",
-        "szósty", "siódmy", "ósmy", "dziewiąty", "dziesiąty",
+        "lampa", "zebra", "kokos", "radio", "mewa",
+        "hotel", "wagon", "sosna", "migdał", "turban",
     ]
 
     private static let customNamesKey = "voiceflow.terminalNames"

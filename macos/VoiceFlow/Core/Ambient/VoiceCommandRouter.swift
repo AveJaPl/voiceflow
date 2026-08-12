@@ -46,7 +46,11 @@ struct VoiceCommandRouter {
     /// „terminal jeden nasłuchuj": „na słuchanie", „na słowę", „nasłuchuj",
     /// „na słuchaj". Wspólny jest tylko rdzeń „słuch". Szukamy go w całym
     /// znormalizowanym fragmencie, więc rozbicie na dwa słowa nic nie psuje.
-    static let startStems = ["sluch"]
+    /// Fraza budząca: DWA rzadkie słowa. Jedno krótkie słowo („słuchaj")
+    /// pada w normalnej rozmowie i dawało fałszywe wyzwolenia, a jego rdzeń
+    /// whisper i tak przekręcał. „Halo" + nazwa kodowa okna to zestawienie,
+    /// które w rozmowie o pracy nie występuje.
+    static let startStems = ["halo", "sluch"]
     static let endStems = ["koniec", "wysl", "koncz"]
     static let cancelStems = ["anuluj", "odwolaj", "kasuj"]
 
@@ -114,17 +118,19 @@ struct VoiceCommandRouter {
     /// Whisper po polsku myli liczebniki porządkowe z głównymi („terminal
     /// pierwszy" → „terminal jeden", zmierzone na żywo), więc każdy porządkowy
     /// ma alias liczbowy i cyfrę.
+    /// Warianty, którymi whisper potrafi oddać nazwę kodową, plus stare
+    /// liczebniki — kto przywykł do „terminal jeden", ma to dalej działać.
     static let ordinalAliases: [String: [String]] = [
-        "pierwszy": ["jeden", "1", "pierwsze", "pierwsza"],
-        "drugi": ["dwa", "2", "drugie", "druga"],
-        "trzeci": ["trzy", "3", "trzecie", "trzecia"],
-        "czwarty": ["cztery", "4", "czwarte", "czwarta"],
-        "piaty": ["piec", "5", "piate", "piata"],
-        "szosty": ["szesc", "6", "szoste", "szosta"],
-        "siodmy": ["siedem", "7", "siodme", "siodma"],
-        "osmy": ["osiem", "8", "osme", "osma"],
-        "dziewiaty": ["dziewiec", "9", "dziewiate", "dziewiata"],
-        "dziesiaty": ["dziesiec", "10", "dziesiate", "dziesiata"],
+        "lampa": ["lampe", "lampy", "jeden", "1", "pierwszy"],
+        "zebra": ["zebre", "zebry", "dwa", "2", "drugi"],
+        "kokos": ["kokosa", "kokosy", "trzy", "3", "trzeci"],
+        "radio": ["radia", "radiu", "cztery", "4", "czwarty"],
+        "mewa": ["mewe", "mewy", "piec", "5", "piaty"],
+        "hotel": ["hotelu", "hotele", "szesc", "6", "szosty"],
+        "wagon": ["wagonu", "wagony", "siedem", "7", "siodmy"],
+        "sosna": ["sosne", "sosny", "osiem", "8", "osmy"],
+        "migdal": ["migdaly", "migdala", "dziewiec", "9", "dziewiaty"],
+        "turban": ["turbana", "turbany", "dziesiec", "10", "dziesiaty"],
     ]
 
     private func matchTarget(in words: [String]) -> String? {

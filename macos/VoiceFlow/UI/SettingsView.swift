@@ -471,10 +471,10 @@ struct SettingsView: View {
         VFSection(title: "Tryb nasłuchu", subtitle: "Sterowanie terminalami samym głosem, bez dotykania klawiatury.") {
             VFSettingToggle(
                 title: "Nasłuchuj komend głosowych",
-                subtitle: "Powiedz „terminal pierwszy nasłuchuj”, podyktuj prompt, powiedz „koniec”.",
+                subtitle: "Powiedz „halo lampa”, podyktuj prompt, powiedz „koniec”.",
                 isOn: $model.ambientEnabled
             )
-            VFHint("Mikrofon chodzi wtedy CIĄGLE i whisper rozpoznaje mowę w tle (model base, po cichu, na GPU). Nazwy terminali to „pierwszy”, „drugi”, „trzeci”… liczone od lewego górnego rogu ekranu; własne nazwy nadasz na stronie Terminale. Dyktowanie skrótem ma pierwszeństwo — na jego czas nasłuch milczy.")
+            VFHint("Mikrofon chodzi wtedy CIĄGLE, a whisper rozpoznaje mowę w tle (model small, na GPU). Okna terminali mają NAZWY KODOWE: lampa, zebra, kokos, radio, mewa, hotel, wagon, sosna — liczone od lewego górnego rogu ekranu. Liczebniki („terminal jeden”) też działają, ale polski ASR myli je w hałasie, więc nazwy kodowe są znacznie pewniejsze. Dyktowanie skrótem ma pierwszeństwo — na jego czas nasłuch milczy.")
         }
 
         VFSection(title: "Model whisper.cpp") {

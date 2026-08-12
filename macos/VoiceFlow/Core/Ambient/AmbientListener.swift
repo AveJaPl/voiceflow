@@ -175,7 +175,7 @@ final class AmbientListener {
 
     private func refreshCommandPrompt() {
         let names = targetsProvider?() ?? []
-        let phrases = names.prefix(6).map { "terminal \($0) nasłuchuj" }
+        let phrases = names.prefix(8).map { "halo \($0)" }
         commandPrompt = (phrases + ["koniec", "anuluj"]).joined(separator: ", ") + "."
     }
 

@@ -70,7 +70,9 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("O APLIKACJI")
                             .vfEyebrow()
-                        Text("VoiceFlow · 0.1.0")
+                        // Wersja z Info.plist, nie z palca — po każdej publikacji
+                        // podbija się sama razem z `project.yml`.
+                        Text("VoiceFlow · \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")")
                             .font(VFFont.body(13))
                             .foregroundStyle(VFColor.muted)
                         Text("Rozpoznawanie mowy działa w całości na urządzeniu (SFSpeechRecognizer, on-device, pl-PL) — nagranie nigdy nie opuszcza telefonu.")

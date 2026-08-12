@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var sessionController: SessionController?
     private var hotkeyMonitor: HotkeyMonitor?
     private var dictationLatch: DictationLatch?
+    private var updateChecker: UpdateChecker?
     /// Dzielona z `RemoteMicClient` (docs/plans/remote-mic-relay.md) — ten sam
     /// `AudioCapture`, który używa `SessionController` skrótu lokalnego.
     /// Trzymana tutaj jawnie (nie tylko wewnątrz `SessionController`), żeby
@@ -67,6 +68,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupSessionController()
         setupHotkey()
         setupRemoteMic()
+
+        // Samo-aktualizacja z GitHub Releases (kanał mac-vX.Y.Z) — patrz
+        // UpdateChecker. Restart tylko w bezczynnej chwili, nigdy w trakcie
+        // dyktowania.
+        let updater = UpdateChecker(isBusy: { [weak self] in
+            guard let state = self?.sessionController?.state else { return false }
+            return state != .idle && state != .done
+        })
+        updateChecker = updater
+        updater.start()
 
         Task { [weak self] in
             await self?.sessionController?.prewarm()

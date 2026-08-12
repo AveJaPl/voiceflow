@@ -38,6 +38,9 @@ final class WhisperSpeechEngine: SpeechEngine {
     /// — zduplikowana tutaj, nie zaimportowana, bo Core nie zależy od UI (patrz
     /// ten sam wzorzec w `AudioDucker`/`DiscordMuteToggle`).
     private static let customVocabularyKey = "voiceflow.customVocabulary"
+    /// TA SAMA wartość co `SettingsKeys.livePreview` — duplikat z tego samego
+    /// powodu co klucz słownika wyżej (Core nie zależy od UI).
+    private static let livePreviewKey = "voiceflow.livePreviewEnabled"
 
     private var continuation: AsyncStream<TranscriptUpdate>.Continuation?
     let updates: AsyncStream<TranscriptUpdate>
@@ -49,6 +52,10 @@ final class WhisperSpeechEngine: SpeechEngine {
     // MARK: - Stan bufora (czytany/zmieniany WYŁĄCZNIE na `queue`)
 
     private var isFeeding = false
+    /// Migawka ustawienia podglądu na żywo, robiona przy KAŻDYM `beginUtterance`
+    /// — w połowie wypowiedzi tryb się nie zmienia, między wypowiedziami tak,
+    /// bez restartu aplikacji.
+    private var livePreviewEnabled = true
     private var converter: AVAudioConverter?
     private var converterSourceFormat: AVAudioFormat?
 
@@ -73,6 +80,31 @@ final class WhisperSpeechEngine: SpeechEngine {
     private var utteranceSamples: [Float] = []
     private static let maxUtteranceSeconds = 300
     private var maxUtteranceSampleCount: Int { Self.maxUtteranceSeconds * 16_000 }
+
+    /// Ścieżka do modelu Silero VAD — ustalana raz w `prewarm`. `nil` = przebieg
+    /// końcowy bez filtra ciszy (wolniej na długich nagraniach, ale działa).
+    private var vadModelPath: String?
+
+    // MARK: - Domykanie kawałkami (stan WYŁĄCZNIE na `queue`)
+    //
+    // Przy WYŁĄCZONYM podglądzie whisper stoi bezczynnie przez całe mówienie —
+    // a przy dyktowaniu dłuższym niż jedno okno (30 s) cały koszt liczenia
+    // spadałby na moment puszczenia skrótu. Zamiast tego, gdy nazbiera się
+    // `chunkSeconds` audio, dekodujemy je Z PEŁNĄ JAKOŚCIĄ już w trakcie
+    // mówienia (cięcie w najcichszym miejscu, żeby nie przepołowić słowa),
+    // a `endUtterance` domyka tylko ogon — czas oczekiwania po puszczeniu
+    // skrótu przestaje rosnąć z długością wypowiedzi.
+    //
+    // To NIE jest powrót do sklejania commitów strumienia: każdy kawałek
+    // przechodzi ten sam pełny przebieg (beam/VAD/prompt) co dotąd całość,
+    // z poprzednim kawałkiem jako kontekstem zszywającym.
+    private var finalizedChunks: [String] = []
+    /// Ile próbek z początku `utteranceSamples` jest już zdekodowanych na stałe.
+    private var finalizedSampleCount = 0
+    private static let chunkSeconds = 25
+    /// Cięcia szukamy między 15 a 25 sekundą kawałka — zawsze zostaje ogon,
+    /// żeby kolejny kawałek nie zaczynał się w pół słowa.
+    private static let chunkCutSearchStartSeconds = 15
 
     /// Rośnie przy każdym `beginUtterance`/`cancelUtterance`. Dekodowanie zlecone
     /// przed zmianą nie ma prawa dopisać niczego do nowej wypowiedzi ani odezwać
@@ -125,7 +157,30 @@ final class WhisperSpeechEngine: SpeechEngine {
         DebugLog.write("WhisperEngine", "RSS po załadowaniu modelu: \(rssAfter / 1_000_000) MB (Δ\(deltaMB) MB)")
         log.info("WhisperSpeechEngine prewarmed, model=\(modelURL.lastPathComponent, privacy: .public)")
 
-        queue.sync { self.context = loaded }
+        // Filtr ciszy dla przebiegu końcowego — porażka pobierania to wolniejsze
+        // dyktowanie, nie brak dyktowania, więc nie rzucamy.
+        let vadPath = await WhisperModelProvisioner.ensureVADModelAvailable()?.path
+
+        // Warmup jak `Transcriber._warmup` na Linuksie: pierwszy przebieg po
+        // załadowaniu modelu kompiluje kernele Metalu i alokuje bufory — bez
+        // rozgrzewki ten koszt (setki ms do sekund) spadałby na PIERWSZE
+        // dyktowanie użytkownika. Celowo BEZ VAD: filtr odrzuciłby ciszę zanim
+        // enkoder w ogóle by ruszył i warmup niczego by nie rozgrzał (ta sama
+        // pułapka, którą Linux opisuje w `_consume_warmup`).
+        let warmupStarted = Date()
+        _ = loaded.transcribeFull(
+            samples: [Float](repeating: 0, count: 8_000), language: language, beamSize: 1
+        )
+        DebugLog.write(
+            "WhisperEngine",
+            String(format: "warmup: %.2f s (kernele Metal skompilowane przed pierwszym dyktowaniem)",
+                   Date().timeIntervalSince(warmupStarted))
+        )
+
+        queue.sync {
+            self.context = loaded
+            self.vadModelPath = vadPath
+        }
     }
 
     func beginUtterance() {
@@ -145,6 +200,13 @@ final class WhisperSpeechEngine: SpeechEngine {
             // wszystko w jednej notatce". Czyszczenie stanu tutaj usuwa przyczynę
             // zamiast łatać skutek.
             self.resetTranscript()
+            // Wyłączony podgląd = zero dekodowania w trakcie mówienia. Whisper
+            // liczy wtedy RAZ, w `endUtterance` — a że tekst końcowy ZAWSZE
+            // powstaje z pełnego przebiegu, użytkownik nie traci nic poza
+            // literkami skaczącymi w pillu, których i tak nie chciał.
+            self.livePreviewEnabled = self.defaults.object(forKey: Self.livePreviewKey) == nil
+                ? true
+                : self.defaults.bool(forKey: Self.livePreviewKey)
             self.isFeeding = true
         }
     }
@@ -154,6 +216,8 @@ final class WhisperSpeechEngine: SpeechEngine {
     private func resetTranscript() {
         samples.removeAll(keepingCapacity: true)
         utteranceSamples.removeAll(keepingCapacity: true)
+        finalizedChunks.removeAll(keepingCapacity: true)
+        finalizedSampleCount = 0
         generation &+= 1
         discardedSampleCount = 0
         committedSampleCount = 0
@@ -184,20 +248,24 @@ final class WhisperSpeechEngine: SpeechEngine {
                     return continuation.resume(returning: nil)
                 }
 
-                let vocabulary = defaults.stringArray(forKey: Self.customVocabularyKey) ?? []
-                let prompt = Self.buildInitialPrompt(vocabulary: vocabulary, stitchContext: "")
+                // Kawałki domknięte w tle (patrz `finalizeChunkIfNeeded`) już są
+                // gotowe — tutaj liczymy tylko ogon od ostatniego cięcia.
                 let startedAt = Date()
-                let text = context.transcribeFull(
-                    samples: utteranceSamples, language: language,
-                    initialPrompt: prompt, beamSize: finalBeamSize
-                )
+                var pieces = finalizedChunks
+                let tail = Array(utteranceSamples[min(finalizedSampleCount, utteranceSamples.count)...])
+                if !tail.isEmpty {
+                    let tailText = decodeFinalPiece(tail, context: context)
+                    if !tailText.isEmpty { pieces.append(tailText) }
+                }
+                let text = pieces.joined(separator: " ")
                 let seconds = Date().timeIntervalSince(startedAt)
                 let audioSeconds = Double(utteranceSamples.count) / 16_000
+                let tailSeconds = Double(tail.count) / 16_000
                 DebugLog.write(
                     "WhisperEngine",
                     String(
-                        format: "przebieg końcowy: %.2f s audio → %.2f s liczenia (%.2f× czasu rzeczywistego)",
-                        audioSeconds, seconds, seconds / max(audioSeconds, 0.001)
+                        format: "przebieg końcowy: %.2f s audio (ogon %.2f s, %d kawałków z tła) → %.2f s liczenia",
+                        audioSeconds, tailSeconds, finalizedChunks.count, seconds
                     )
                 )
 
@@ -227,16 +295,93 @@ final class WhisperSpeechEngine: SpeechEngine {
         queue.async { [weak self] in
             guard let self, self.isFeeding else { return }
             guard let mono = self.resample(buffer) else { return }
-            self.samples.append(contentsOf: mono)
-            // Drugi, nieprzycinany bufor — materiał dla przebiegu końcowego.
+            // Nieprzycinany bufor całej wypowiedzi — materiał dla przebiegu
+            // końcowego. Jedyna rzecz, która MUSI się dziać zawsze.
             if self.utteranceSamples.count < self.maxUtteranceSampleCount {
                 self.utteranceSamples.append(contentsOf: mono)
             }
+            guard self.livePreviewEnabled else {
+                // Podgląd wyłączony = whisper wolny w trakcie mówienia; długie
+                // dyktowanie domykamy kawałkami, żeby po puszczeniu skrótu
+                // został do policzenia tylko ogon.
+                self.finalizeChunkIfNeeded()
+                return
+            }
+            self.samples.append(contentsOf: mono)
             self.decodeStepIfNeeded(force: false)
         }
     }
 
-    // MARK: - Dekodowanie (WOŁANE WYŁĄCZNIE na `queue`)
+    // MARK: - Przebieg końcowy i domykanie kawałkami (WOŁANE WYŁĄCZNIE na `queue`)
+
+    /// Jeden kawałek audio przez pełny przebieg — te same parametry dla kawałka
+    /// z tła i dla ogona w `endUtterance`, żeby jakość nie zależała od tego,
+    /// KIEDY fragment został policzony. Kontekst zszywający = ostatnie słowa
+    /// poprzednich kawałków, jak `stitchContext` w strumieniu.
+    private func decodeFinalPiece(_ piece: [Float], context: WhisperContext) -> String {
+        let vocabulary = defaults.stringArray(forKey: Self.customVocabularyKey) ?? []
+        let stitch = finalizedChunks.joined(separator: " ")
+            .split(whereSeparator: { $0.isWhitespace })
+            .suffix(8)
+            .joined(separator: " ")
+        let prompt = Self.buildInitialPrompt(vocabulary: vocabulary, stitchContext: stitch)
+        return context.transcribeFull(
+            samples: piece, language: language,
+            initialPrompt: prompt, beamSize: finalBeamSize,
+            vadModelPath: vadModelPath
+        )
+    }
+
+    /// Gdy od ostatniego cięcia nazbierało się `chunkSeconds` audio, domyka ten
+    /// fragment w tle. Dekodowanie trwa tu ułamek sekundy (Metal, greedy dla
+    /// dużego modelu) i BLOKUJE `queue` — bufory audio z tego czasu ustawiają
+    /// się w kolejkę i dochodzą zaraz po nim, nic nie ginie (ten sam mechanizm,
+    /// na którym od zawsze jedzie krok strumienia).
+    private func finalizeChunkIfNeeded() {
+        guard let context else { return }
+        let pending = utteranceSamples.count - finalizedSampleCount
+        guard pending >= Self.chunkSeconds * 16_000 else { return }
+
+        let searchStart = finalizedSampleCount + Self.chunkCutSearchStartSeconds * 16_000
+        let cut = Self.quietestCut(in: utteranceSamples, from: searchStart, to: utteranceSamples.count)
+        let piece = Array(utteranceSamples[finalizedSampleCount..<cut])
+
+        let startedAt = Date()
+        let text = decodeFinalPiece(piece, context: context)
+        if !text.isEmpty { finalizedChunks.append(text) }
+        finalizedSampleCount = cut
+        DebugLog.write(
+            "WhisperEngine",
+            String(
+                format: "kawałek domknięty w tle: %.1f s audio → %.2f s liczenia",
+                Double(piece.count) / 16_000, Date().timeIntervalSince(startedAt)
+            )
+        )
+    }
+
+    /// Środek najcichszego 200-milisekundowego okna w zakresie — tam tniemy
+    /// kawałek, żeby granica nie wypadła w środku słowa. `internal` (nie
+    /// `private`), bo testowana bezpośrednio jako czysta funkcja.
+    static func quietestCut(in samples: [Float], from start: Int, to end: Int) -> Int {
+        let window = 3_200 // 200 ms przy 16 kHz
+        let hop = 800      // 50 ms
+        guard start >= 0, end - start > window else { return end }
+        var bestIndex = start
+        var bestEnergy = Float.greatestFiniteMagnitude
+        var index = start
+        while index + window <= end {
+            var sum: Float = 0
+            for i in index..<(index + window) { sum += abs(samples[i]) }
+            if sum < bestEnergy {
+                bestEnergy = sum
+                bestIndex = index
+            }
+            index += hop
+        }
+        return bestIndex + window / 2
+    }
+
+    // MARK: - Dekodowanie strumienia (WOŁANE WYŁĄCZNIE na `queue`)
 
     private func decodeStepIfNeeded(force: Bool) {
         guard let context else { return }
@@ -324,13 +469,25 @@ final class WhisperSpeechEngine: SpeechEngine {
     /// (ostatnie skomitowane słowa tej sesji, patrz `decodeStepIfNeeded`).
     /// `internal`, nie `private` — testowana bezpośrednio jako czysta funkcja,
     /// bez ładowania modelu whisper.cpp.
+    /// Dekoder whispera rezerwuje na prompt połowę kontekstu 448 tokenów — zbyt
+    /// długi słownik wypycha audio i zaczyna przeciekać do transkryptu. Ten sam
+    /// limit co `MAX_PROMPT_CHARS` na Linuksie (`transcriber.py`): ~600 znaków,
+    /// terminy ponad limit są POMIJANE w całości, nie ucinane w pół słowa
+    /// (fragment słowa nachylałby dekoder ku czemuś, co nie istnieje).
+    static let maxVocabularyPromptChars = 600
+
     static func buildInitialPrompt(vocabulary: [String], stitchContext: String) -> String {
-        let cleanVocabulary = vocabulary
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+        var kept: [String] = []
+        var length = 0
+        for term in vocabulary.map({ $0.trimmingCharacters(in: .whitespaces) }) where !term.isEmpty {
+            let addition = term.count + 2 // separator ", "
+            guard length + addition <= Self.maxVocabularyPromptChars else { continue }
+            kept.append(term)
+            length += addition
+        }
         var parts: [String] = []
-        if !cleanVocabulary.isEmpty {
-            parts.append("Słownictwo: " + cleanVocabulary.joined(separator: ", ") + ".")
+        if !kept.isEmpty {
+            parts.append("Słownictwo: " + kept.joined(separator: ", ") + ".")
         }
         if !stitchContext.isEmpty {
             parts.append(stitchContext)

@@ -11,6 +11,10 @@ enum SettingsKeys {
     static let discordKeyCode = "voiceflow.discordMuteHotkeyKeyCode"
     static let discordModifierFlags = "voiceflow.discordMuteHotkeyModifierFlags"
     static let insertionMode = "voiceflow.insertionMode"
+    /// Transkrypcja na żywo w pillu. Wyłączona = whisper NIE dekoduje w trakcie
+    /// mówienia (co 300 ms), tylko raz, na końcu — mikrofon zbiera samo audio.
+    /// Na maszynie bez zapasu mocy to jest różnica między „mieli" a „nie mieli".
+    static let livePreview = "voiceflow.livePreviewEnabled"
     static let language = "voiceflow.language"
     static let mainHotkeyKeyCode = "voiceflow.mainHotkeyKeyCode"
     static let speechEngine = "voiceflow.speechEngine"
@@ -126,6 +130,10 @@ final class SettingsModel: ObservableObject {
             }
         }
     }
+    @Published var livePreview: Bool {
+        didSet { defaults.set(livePreview, forKey: SettingsKeys.livePreview) }
+    }
+
     @Published var insertionMode: InsertionMode {
         didSet { defaults.set(insertionMode.rawValue, forKey: SettingsKeys.insertionMode) }
     }
@@ -215,6 +223,9 @@ final class SettingsModel: ObservableObject {
             // nagrany przez użytkownika.
             self.discordHotkey = nil
         }
+        self.livePreview = defaults.object(forKey: SettingsKeys.livePreview) == nil
+            ? true
+            : defaults.bool(forKey: SettingsKeys.livePreview)
         self.insertionMode = defaults.string(forKey: SettingsKeys.insertionMode)
             .flatMap(InsertionMode.init(rawValue:)) ?? .liveTyping
         self.language = defaults.string(forKey: SettingsKeys.language)
@@ -325,6 +336,11 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.radioGroup)
                 Text("Dotyczy TYLKO polskiego — angielski zawsze idzie przez Apple. Zmiana wymaga restartu VoiceFlow, silnik tworzy się raz przy starcie. whisper.cpp działa w pełni lokalnie i offline (zero zależności od serwera Apple); zalecane po awarii serwera Apple 2026-08-10.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+
+                Toggle("Transkrypcja na żywo w pillu", isOn: $model.livePreview)
+                Text("Wyłączona: w trakcie mówienia pill pokazuje tylko falę dźwięku, a whisper liczy RAZ, po puszczeniu skrótu — zamiast dekodować co 300 ms przez całe dyktowanie. Mniej obciążenia, zero różnicy w tekście końcowym (on zawsze powstaje z pełnego przebiegu). Działa od następnej wypowiedzi, bez restartu.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
 

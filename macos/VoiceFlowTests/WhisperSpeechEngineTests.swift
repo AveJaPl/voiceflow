@@ -113,6 +113,33 @@ final class WhisperSpeechEngineTests: XCTestCase {
             .joined(separator: " ")
     }
 
+    func testQuietestCutLandsInsideSilentGap() {
+        // 3 s szumu, 1 s ciszy, 3 s szumu — cięcie musi wypaść w ciszy, nie w mowie.
+        var samples = [Float](repeating: 0.3, count: 3 * 16_000)
+        samples.append(contentsOf: [Float](repeating: 0.001, count: 16_000))
+        samples.append(contentsOf: [Float](repeating: 0.3, count: 3 * 16_000))
+        let cut = WhisperSpeechEngine.quietestCut(in: samples, from: 0, to: samples.count)
+        XCTAssertTrue((3 * 16_000...4 * 16_000).contains(cut), "cięcie \(cut) poza cichą sekundą")
+    }
+
+    func testQuietestCutOnTooShortRangeReturnsEnd() {
+        let samples = [Float](repeating: 0.1, count: 1_000)
+        XCTAssertEqual(WhisperSpeechEngine.quietestCut(in: samples, from: 0, to: samples.count), samples.count)
+    }
+
+    func testVocabularyPromptIsCappedWithoutTruncatingTerms() {
+        let vocabulary = (0..<200).map { "TerminSpecjalistyczny\($0)" }
+        let prompt = WhisperSpeechEngine.buildInitialPrompt(vocabulary: vocabulary, stitchContext: "")
+        XCTAssertLessThanOrEqual(
+            prompt.count, WhisperSpeechEngine.maxVocabularyPromptChars + 20,
+            "prompt ponad limit — słownik wypchnie audio z kontekstu dekodera"
+        )
+        // Żaden termin nie może być ucięty w pół słowa: każdy obecny w prompcie
+        // musi występować w całości, z separatorem albo kropką za sobą.
+        XCTAssertFalse(prompt.contains("TerminSpecjalistyczny199"), "limit nie zadziałał")
+        XCTAssertTrue(prompt.hasSuffix("."), "prompt słownika musi kończyć się kropką")
+    }
+
     func testTranscribesWavFixtureInRealTime() async throws {
         let engine = WhisperSpeechEngine(language: "pl", defaults: Self.testDefaults())
         try await engine.prewarm()

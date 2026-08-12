@@ -12,22 +12,12 @@ import os.log
 /// zamiana nazwy nigdzie w historii repo się nie wydarzyła. Patrz raport agenta.
 /// Model whisper.cpp do wyboru w Ustawieniach.
 ///
-/// Linux jedzie na `large-v3-turbo`, bo tam whisper liczy się na GPU i jest to
-/// darmowe. Homebrew'owy whisper.cpp na tym Macu **nie ma backendu Metal**
-/// (`libggml` bez jednego symbolu Metal, brak `libggml-metal`), więc wszystko idzie
-/// przez CPU i wielkość modelu przekłada się wprost na czas oczekiwania.
-///
-/// Zmierzone 2026-08-11 na `VoiceFlowTests/Fixtures/dyktowanie-pl.wav` (4,3 s mowy,
-/// pełny przebieg, beam 5, 8 wątków):
-///
-/// | model | tekst | czas |
-/// |---|---|---|
-/// | `base` (148 MB) | poprawny, z przecinkiem | **1,2 s** |
-/// | `large-v3-turbo-q5_0` (574 MB) | identyczny | 6,4 s |
-///
-/// Dlatego domyślny jest `base`: na czystym polskim daje ten sam wynik pięć razy
-/// szybciej. Większy model ma sens przy żargonie, akcencie i hałasie — i dlatego
-/// jest wyborem użytkownika, a nie decyzją podjętą za niego.
+/// Linux jedzie na `large-v3-turbo`, bo tam whisper liczy się na mocnej karcie
+/// NVIDII. Na tym Macu od 2026-08-11 też liczymy na GPU (Metal — patrz
+/// `WhisperContext.loadBackends`; wcześniejsza notka o „braku backendu Metal"
+/// była błędną diagnozą: backendy to osobne `.so`, których apka nie znajdowała).
+/// Pomiary z ery czysto-CPU są więc nieaktualne — na Metalu `large-v3-turbo-q5`
+/// greedy domyka się w ułamkach sekundy, nie w 6 s.
 enum WhisperModelChoice: String, CaseIterable, Identifiable {
     case base
     case smallQ5 = "small-q5_1"
@@ -139,6 +129,43 @@ enum WhisperModelProvisioner {
         try FileManager.default.moveItem(at: tmpLocation, to: destination)
         DebugLog.write("WhisperModel", "pobrano \(choice.fileName), \(size / 1_000_000) MB")
         return destination
+    }
+
+    /// Model Silero VAD (ggml, ~0,9 MB) — filtr ciszy dla przebiegu końcowego,
+    /// odpowiednik `vad_filter=True` z faster-whispera na Linuksie.
+    ///
+    /// Zwraca `nil` zamiast rzucać: VAD to przyspieszenie, nie warunek działania.
+    /// Apka bez sieci przy pierwszym uruchomieniu ma dyktować wolniej, a nie
+    /// wcale — dokładnie ta sama filozofia co `RoomClient.onDisconnected`.
+    static var vadModelURL: URL { modelsDirectory.appendingPathComponent(vadFileName) }
+    private static let vadFileName = "ggml-silero-v5.1.2.bin"
+    private static let vadMinimumValidSize: Int64 = 400_000
+
+    static func ensureVADModelAvailable() async -> URL? {
+        let destination = vadModelURL
+        if let size = try? FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? Int64,
+           size >= vadMinimumValidSize {
+            return destination
+        }
+        do {
+            try FileManager.default.createDirectory(at: modelsDirectory, withIntermediateDirectories: true)
+            let url = URL(string: "https://huggingface.co/ggml-org/whisper-vad/resolve/main/\(vadFileName)")!
+            DebugLog.write("WhisperModel", "pobieram model VAD (\(vadFileName), ~1 MB)")
+            let tmpLocation = try await ProgressLoggingDownloader().download(from: url)
+            let size = (try? FileManager.default.attributesOfItem(atPath: tmpLocation.path)[.size] as? Int64) ?? 0
+            guard size >= vadMinimumValidSize else {
+                try? FileManager.default.removeItem(at: tmpLocation)
+                DebugLog.write("WhisperModel", "model VAD podejrzanie mały (\(size) B) — jadę bez VAD")
+                return nil
+            }
+            _ = try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.moveItem(at: tmpLocation, to: destination)
+            DebugLog.write("WhisperModel", "pobrano model VAD, \(size / 1_000) KB")
+            return destination
+        } catch {
+            DebugLog.write("WhisperModel", "pobieranie modelu VAD nie powiodło się (\(error.localizedDescription)) — jadę bez VAD")
+            return nil
+        }
     }
 
     private static func isValid(at url: URL, choice: WhisperModelChoice) -> Bool {

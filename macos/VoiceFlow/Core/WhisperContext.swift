@@ -70,7 +70,12 @@ final class WhisperContext {
     /// §3, kolumna "model load").
     static func load(modelPath: String) throws -> WhisperContext {
         loadBackends()
-        let params = whisper_context_default_params()
+        var params = whisper_context_default_params()
+        // Flash attention na Metalu to czysty zysk czasu bez wpływu na wynik —
+        // whisper.cpp sam wycofuje się na zwykłą ścieżkę, jeśli backend jej nie
+        // wspiera, więc włączenie jest bezpieczne również na czystym CPU.
+        params.flash_attn = true
+        params.use_gpu = true
         let created = modelPath.withCString { pathPtr in
             whisper_init_from_file_with_params(pathPtr, params)
         }
@@ -120,15 +125,32 @@ final class WhisperContext {
     /// - **bez `single_segment`** — całe nagranie może mieć wiele zdań,
     /// - **bez `max_tokens`** — limit 64 tokenów obciąłby dłuższą wypowiedź w pół słowa,
     /// - **`no_context = true`** — świeży start, bez pozostałości po oknach strumienia.
+    /// - Parameter vadModelPath: ścieżka do modelu Silero VAD (ggml). Gdy podana,
+    ///   whisper NAJPIERW wycina ciszę i nie-mowę, a dopiero potem dekoduje —
+    ///   odpowiednik `vad_filter=True` z faster-whispera na Linuksie
+    ///   (`Transcriber.transcribe`). Dwie korzyści naraz: mniej 30-sekundowych
+    ///   okien do policzenia (koszt whispera jest ~stały NA OKNO, nie na sekundę
+    ///   mowy) i mniej halucynacji na fragmentach czystej ciszy. `nil` = stare
+    ///   zachowanie, używane też celowo w warmupie: VAD odrzuciłby ciszę zanim
+    ///   enkoder w ogóle by ruszył i warmup nic by nie rozgrzał (ta sama
+    ///   pułapka, którą Linux opisuje w `Transcriber._consume_warmup`).
     func transcribeFull(
         samples: [Float],
         language: String,
         initialPrompt: String = "",
-        beamSize: Int32 = 5
+        beamSize: Int32 = 5,
+        vadModelPath: String? = nil
     ) -> String {
         guard !samples.isEmpty else { return "" }
-        var params = whisper_full_default_params(WHISPER_SAMPLING_BEAM_SEARCH)
-        params.beam_search.beam_size = beamSize
+        var params: whisper_full_params
+        if beamSize <= 1 {
+            // Greedy przez właściwą strategię, nie „beam search z wiązką 1" —
+            // ta druga forma i tak liczy pełną księgowość wiązki.
+            params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY)
+        } else {
+            params = whisper_full_default_params(WHISPER_SAMPLING_BEAM_SEARCH)
+            params.beam_search.beam_size = beamSize
+        }
         params.print_progress = false
         params.print_special = false
         params.print_realtime = false
@@ -147,20 +169,29 @@ final class WhisperContext {
             params.language = languagePtr
             return initialPrompt.withCString { promptPtr -> String in
                 if !initialPrompt.isEmpty { params.initial_prompt = promptPtr }
-                let rc = samples.withUnsafeBufferPointer { buffer -> Int32 in
-                    guard let base = buffer.baseAddress else { return -1 }
-                    return whisper_full(ctx, params, base, Int32(buffer.count))
-                }
-                guard rc == 0 else { return "" }
-
-                var text = ""
-                let segmentCount = whisper_full_n_segments(ctx)
-                for i in 0..<segmentCount {
-                    if let segment = whisper_full_get_segment_text(ctx, i) {
-                        text += String(cString: segment)
+                // `withCString` musi obejmować całe `whisper_full` — wskaźnik
+                // do ścieżki VAD żyje tylko wewnątrz tego domknięcia.
+                return (vadModelPath ?? "").withCString { vadPtr -> String in
+                    if vadModelPath != nil {
+                        params.vad = true
+                        params.vad_model_path = vadPtr
+                        params.vad_params = whisper_vad_default_params()
                     }
+                    let rc = samples.withUnsafeBufferPointer { buffer -> Int32 in
+                        guard let base = buffer.baseAddress else { return -1 }
+                        return whisper_full(ctx, params, base, Int32(buffer.count))
+                    }
+                    guard rc == 0 else { return "" }
+
+                    var text = ""
+                    let segmentCount = whisper_full_n_segments(ctx)
+                    for i in 0..<segmentCount {
+                        if let segment = whisper_full_get_segment_text(ctx, i) {
+                            text += String(cString: segment)
+                        }
+                    }
+                    return text.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
-                return text.trimmingCharacters(in: .whitespacesAndNewlines)
             }
         }
     }

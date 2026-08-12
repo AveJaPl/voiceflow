@@ -75,6 +75,9 @@ final class SessionController {
     /// `id` bieżącej notatki dla ciągu kontynuowanych wypowiedzi — ta sama myśl
     /// nadpisuje jedną notatkę zamiast tworzyć nową przy każdym puszczeniu skrótu.
     private var currentNoteID: UUID?
+    /// Czy pokój dostał już raport za bieżącą wypowiedź — chroni przed drugim
+    /// raportem (serwer widziałby widmową wypowiedź) i przed jego brakiem.
+    private var roomReportedThisUtterance = false
 
     init(
         audioCapture: AudioCapture = AudioCapture(),
@@ -308,12 +311,15 @@ final class SessionController {
         let streamedText = differ.displayedText
         let streamedWords = streamedText.split(whereSeparator: { $0.isWhitespace }).count
         let duration = utteranceStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+        roomReportedThisUtterance = false
         if streamedWords > 0 {
             room.reportFinished(words: streamedWords, seconds: duration)
-        } else {
-            // Cisza też musi zwolnić pokój, inaczej reszta czeka na puls.
-            room.reportCancelled()
+            roomReportedThisUtterance = true
         }
+        // Brak tekstu strumieniowego to już NIE jest dowód ciszy: przy
+        // wyłączonym podglądzie na żywo strumień celowo nie istnieje, a liczba
+        // słów będzie znana dopiero po przebiegu końcowym. Raport idzie wtedy
+        // z `finishUtterance` — na GPU to ułamek sekundy, nie sekundy.
         ducking.end()
 
         Task { [weak self] in await self?.finishUtterance() }
@@ -354,11 +360,23 @@ final class SessionController {
                 injected: lastInjectionSucceeded
             )
             notesStore.upsert(note)
-            // Pokój dostał raport już w `endUtterance()` — w chwili, gdy mówienie
-            // fizycznie się skończyło. Tutaj NIC nie raportujemy: drugi raport
-            // wyglądałby dla serwera jak druga, zerowa wypowiedź.
+            // Ścieżka z podglądem raportuje do pokoju już w `endUtterance()`
+            // (w chwili fizycznego końca mówienia). Bez podglądu liczba słów
+            // jest znana dopiero tutaj — raportujemy raz, nigdy dwa razy.
+            if !roomReportedThisUtterance {
+                roomReportedThisUtterance = true
+                room.reportFinished(
+                    words: formatted.split(whereSeparator: { $0.isWhitespace }).count,
+                    seconds: duration
+                )
+            }
         } else {
             DebugLog.write("Inject", "applyFinal pominięty — pusty tekst (nic nie rozpoznano)")
+            // Cisza też musi zwolnić pokój, inaczej reszta czeka na puls.
+            if !roomReportedThisUtterance {
+                roomReportedThisUtterance = true
+                room.reportCancelled()
+            }
         }
         segmenter.reset()
         state = .done

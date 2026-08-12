@@ -16,7 +16,7 @@ if gh release view "$TAG" --repo AveJaPl/voiceflow >/dev/null 2>&1; then
     exit 1
 fi
 
-echo "[release-mac] buduję Release ${VERSION}…"
+echo "[release-mac] buduje Release ${VERSION}"
 xcodegen generate >/dev/null
 xcodebuild -project VoiceFlow.xcodeproj -scheme VoiceFlow -configuration Release build 2>&1 \
     | grep -E "error:|BUILD" | tail -2
@@ -26,9 +26,9 @@ ZIP="/tmp/VoiceFlow-mac.zip"
 rm -f "$ZIP"
 ditto -ck --keepParent "$APP" "$ZIP"
 
-echo "[release-mac] publikuję $TAG…"
+echo "[release-mac] publikuje ${TAG}"
 gh release create "$TAG" "$ZIP" \
     --repo AveJaPl/voiceflow \
     --title "VoiceFlow mac ${VERSION}" \
     --notes "Automatyczna publikacja kanału samo-aktualizacji macOS."
-echo "[release-mac] gotowe: $TAG"
+echo "[release-mac] gotowe: ${TAG}"

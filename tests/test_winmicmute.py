@@ -9,6 +9,8 @@ voiceflow is holding it down.
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from voiceflow.config import MuteAppsConfig
@@ -46,6 +48,10 @@ def world(monkeypatch: pytest.MonkeyPatch) -> dict[str, list]:
     # Call inline instead of hopping to the Core Audio thread; there is no COM
     # here to keep alive, and a test should not depend on a background worker.
     monkeypatch.setattr(micmute, "run_with_audio", lambda function, **_: function())
+    # Park the re-ducking watcher on its first wait: these tests drive the sweep
+    # themselves, so its timing must not decide what they see. The one test that
+    # is about the thread sets its own interval.
+    monkeypatch.setattr(micmute, "_SWEEP_INTERVAL", 3600.0)
     monkeypatch.setattr(micmute, "capture_sessions", lambda: iter(list(sessions["capture"])))
     monkeypatch.setattr(micmute, "_playback_sessions", lambda: iter(list(sessions["playback"])))
     return sessions
@@ -221,6 +227,96 @@ def test_a_lost_volume_is_repaired_before_the_next_duck(world: dict[str, list]) 
     muter.unmute()
 
     assert reborn.level == 1.0
+
+
+def test_a_new_stream_of_a_ducked_application_is_ducked_again(
+    world: dict[str, list],
+) -> None:
+    """The track changes mid-dictation and the next song is born at full volume.
+
+    Windows gives the new stream the application's own level, not the one we
+    ducked the old stream to, so a one-shot duck lets the music come back at
+    full blast in the middle of a sentence.
+    """
+    playing = _Volume(level=0.8)
+    world["playback"] = [_session(20, "Spotify.exe", playing)]
+    muter = _muter(MuteAppsConfig(apps=(), duck_to=0.5))
+    muter.mute()
+    assert playing.level == 0.4
+
+    next_track = _Volume(level=0.8)  # same process, brand new session
+    world["playback"] = [_session(20, "Spotify.exe", next_track)]
+    muter._duck()  # noqa: SLF001 - one tick of the watcher
+
+    assert next_track.level == 0.4
+    muter.unmute()
+    assert next_track.level == 0.8  # the original, not the level it was found at
+
+
+def test_an_application_that_starts_playing_mid_dictation_is_ducked(
+    world: dict[str, list],
+) -> None:
+    muter = _muter(MuteAppsConfig(apps=(), duck_to=0.5))
+    muter.mute()  # nothing is playing yet
+
+    latecomer = _Volume(level=0.6)
+    world["playback"] = [_session(20, "Spotify.exe", latecomer)]
+    muter._duck()  # noqa: SLF001
+
+    assert latecomer.level == 0.3
+    muter.unmute()
+    assert latecomer.level == 0.6
+
+
+def test_a_session_already_at_its_target_is_left_alone(world: dict[str, list]) -> None:
+    """Sweeping must not ratchet: ducking a ducked session compounds to silence."""
+    spotify = _Volume(level=0.8)
+    world["playback"] = [_session(20, "Spotify.exe", spotify)]
+    muter = _muter(MuteAppsConfig(apps=(), duck_to=0.5))
+    muter.mute()
+
+    for _ in range(5):
+        muter._duck()  # noqa: SLF001
+
+    assert spotify.level == 0.4
+
+
+def test_the_watcher_runs_only_while_a_recording_does(world: dict[str, list]) -> None:
+    muter = _muter(MuteAppsConfig(apps=(), duck_to=0.5))
+
+    muter.mute()
+    assert muter._watcher is not None  # noqa: SLF001
+
+    muter.unmute()
+    assert muter._watcher is None  # noqa: SLF001
+
+
+def test_the_watcher_re_ducks_on_its_own(
+    world: dict[str, list], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sweep the other tests drive by hand really is driven by the thread."""
+    monkeypatch.setattr(micmute, "_SWEEP_INTERVAL", 0.01)
+    spotify = _Volume(level=0.8)
+    world["playback"] = [_session(20, "Spotify.exe", spotify)]
+    muter = _muter(MuteAppsConfig(apps=(), duck_to=0.5))
+    muter.mute()
+
+    next_track = _Volume(level=0.8)
+    world["playback"] = [_session(20, "Spotify.exe", next_track)]
+    deadline = time.monotonic() + 5.0
+    while next_track.level == 0.8 and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert next_track.level == 0.4
+    muter.unmute()
+
+
+def test_no_watcher_is_left_running_when_ducking_is_off(world: dict[str, list]) -> None:
+    muter = _muter(MuteAppsConfig(apps=(), duck_enabled=False))
+
+    muter.mute()
+
+    assert muter._watcher is None  # noqa: SLF001
 
 
 def test_a_disabled_feature_touches_nothing(world: dict[str, list]) -> None:

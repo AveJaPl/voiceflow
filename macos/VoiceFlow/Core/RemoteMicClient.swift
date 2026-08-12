@@ -64,6 +64,12 @@ final class RemoteMicClient: ObservableObject {
     private var focusObserver: NSObjectProtocol?
     private var isRemoteUtteranceActive = false
 
+    /// Strona Maca zdalnego sterowania (plan §Mac): okna, fokus, terminal,
+    /// zrzuty. Tworzony raz; wysyła przez AKTUALNY socket, więc przeżywa
+    /// rekonekty.
+    private lazy var snapshotter = WindowSnapshotter()
+    private lazy var hub: RemoteControlHub = makeHub()
+
     /// Format wire dla audio od telefonu — patrz doc-comment pliku. Mono
     /// 16 kHz Int16 pasuje wprost do wymagań `WhisperSpeechEngine`
     /// (resampluje i tak przez `AVAudioConverter`, więc to praktycznie
@@ -102,6 +108,12 @@ final class RemoteMicClient: ObservableObject {
         guard connectionTask == nil else { return }
         connectionState = .connecting
         installFocusObserver()
+        // Potwierdzenie dla telefonu, że tekst dojechał (ramka `injected`) —
+        // hub sam pilnuje, czy bieżąca wypowiedź w ogóle była zdalna
+        // (`activeTarget`), więc lokalne dyktowania tego nie wysyłają.
+        sessionController.onUtteranceFinished = { [weak self] text, injected in
+            self?.hub.dictationFinished(text: text, injected: injected)
+        }
         connectionTask = Task { [weak self] in
             await self?.connectLoop()
         }
@@ -199,21 +211,80 @@ final class RemoteMicClient: ObservableObject {
     }
 
     private func handleControlFrame(_ text: String) {
+        // Nowy kontrakt (shared/wire) MA typy "start"/"end" starego protokołu —
+        // stary telefon dekoduje się jako `.start(target: nil)` / `.end` i
+        // przechodzi przez hub tą samą ścieżką co nowy, tyle że bez celu.
+        if let frame = WireCodec.decodePhoneFrame(text) {
+            if case .start = frame {
+                // Stary telefon oczekuje ramki focus po starcie (§5a) — nowy ją
+                // ignoruje jako informacyjną.
+                sendFocus()
+            }
+            Task { @MainActor [weak self] in await self?.hub.handle(frame) }
+            return
+        }
         guard let data = text.data(using: .utf8),
               let frame = try? JSONDecoder().decode(ControlFrame.self, from: data) else {
             DebugLog.write("RemoteMic", "ramka tekstowa nie do sparsowania: \(text)")
             return
         }
         switch frame.type {
-        case "start":
-            beginRemoteUtterance()
-            sendFocus()
-        case "end":
-            endRemoteUtterance()
         case "requestFocus":
             sendFocus()
         default:
             DebugLog.write("RemoteMic", "nieobsłużony typ ramki tekstowej: \(frame.type)")
+        }
+    }
+
+    // MARK: - Hub zdalnego sterowania
+
+    private func makeHub() -> RemoteControlHub {
+        RemoteControlHub(deps: .init(
+            snapshotWindows: { [snapshotter] in snapshotter.snapshot() },
+            windowFor: { [snapshotter] id, generation in snapshotter.window(id: id, generation: generation) },
+            focusWindow: { [snapshotter] window in
+                guard let windowID = UInt32(window.id), let pid = snapshotter.pid(forWindowID: window.id) else {
+                    return false
+                }
+                return await WindowFocuser.focus(windowID: windowID, pid: pid)
+            },
+            moveWindow: { [snapshotter] window, move in
+                guard let windowID = UInt32(window.id), let pid = snapshotter.pid(forWindowID: window.id) else {
+                    return false
+                }
+                return WindowFocuser.move(
+                    windowID: windowID, pid: pid,
+                    to: CGRect(x: move.x, y: move.y, width: move.w, height: move.h)
+                )
+            },
+            terminalLines: { window in
+                guard let windowID = UInt32(window.id) else { return nil }
+                return TerminalTextReader.lines(bundleID: window.bundleID, cgWindowID: windowID)
+            },
+            screenshot: { await ScreenshotProvider.captureMainDisplay() },
+            beginDictation: { [weak self] in self?.beginRemoteUtterance() ?? false },
+            endDictation: { [weak self] in self?.endRemoteUtterance() },
+            cancelDictation: { [weak self] in self?.cancelRemoteUtterance() },
+            postKey: { KeyChordSender.post($0) },
+            sendFrame: { [weak self] frame in self?.sendMacFrame(frame) },
+            sendBinary: { [weak self] data in
+                guard let socket = self?.currentSocket else { return }
+                Task { [weak socket] in try? await socket?.send(.data(data)) }
+            },
+            macName: Host.current().localizedName ?? "Mac",
+            capabilities: MacCaps(
+                screenshot: ScreenshotProvider.isPermitted,
+                terminalText: true,
+                move: true
+            )
+        ))
+    }
+
+    private func sendMacFrame(_ frame: MacFrame) {
+        guard let socket = currentSocket,
+              let text = try? WireCodec.encodeToString(frame) else { return }
+        Task { [weak socket] in
+            try? await socket?.send(.string(text))
         }
     }
 
@@ -231,10 +302,11 @@ final class RemoteMicClient: ObservableObject {
         audioCapture.onLevel?(Self.rms(of: buffer), 0)
     }
 
-    private func beginRemoteUtterance() {
+    @discardableResult
+    private func beginRemoteUtterance() -> Bool {
         guard sessionController.state == .idle || sessionController.state == .done else {
             DebugLog.write("RemoteMic", "start zignorowany — sesja zajęta (\(sessionController.state))")
-            return
+            return false
         }
         // Patrz doc-comment klasy: override TYLKO na czas tej wypowiedzi, żeby
         // lokalny skrót (dzielący tę samą instancję `AudioCapture`) dalej
@@ -244,6 +316,18 @@ final class RemoteMicClient: ObservableObject {
         isRemoteUtteranceActive = true
         sessionController.beginUtterance()
         DebugLog.write("RemoteMic", "beginUtterance (zdalny mikrofon)")
+        return true
+    }
+
+    /// `cancel` z telefonu — jak zerwanie połączenia: zapomnij audio, nic nie
+    /// wstrzykuj, przywróć lokalny mikrofon.
+    private func cancelRemoteUtterance() {
+        guard isRemoteUtteranceActive else { return }
+        isRemoteUtteranceActive = false
+        sessionController.cancelUtterance()
+        audioCapture.startOverride = nil
+        audioCapture.stopOverride = nil
+        DebugLog.write("RemoteMic", "cancelUtterance (zdalny mikrofon)")
     }
 
     private func endRemoteUtterance() {
@@ -290,7 +374,7 @@ final class RemoteMicClient: ObservableObject {
     private func sendFocus() {
         guard let socket = currentSocket else { return }
         let focus = focusProbe.currentFocusDescription()
-        let frame = FocusFrame(app: focus.appName, window: focus.windowTitle)
+        let frame = LegacyFocusFrame(app: focus.appName, window: focus.windowTitle)
         guard let data = try? JSONEncoder().encode(frame),
               let text = String(data: data, encoding: .utf8) else { return }
         Task { [weak socket] in
@@ -332,7 +416,9 @@ private struct ControlFrame: Decodable {
     let type: String
 }
 
-private struct FocusFrame: Encodable {
+/// Stara, płaska ramka focus (sprzed kontraktu shared/wire) — zostaje pod tą
+/// nazwą, bo kontrakt ma własny `FocusFrame` o tym samym kształcie ładunku.
+private struct LegacyFocusFrame: Encodable {
     let type = "focus"
     let app: String?
     let window: String?

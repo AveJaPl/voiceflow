@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var debugWindowController: RawDebugWindowController?
     private var sessionController: SessionController?
     private var hotkeyMonitor: HotkeyMonitor?
+    private var dictationLatch: DictationLatch?
     /// Dzielona z `RemoteMicClient` (docs/plans/remote-mic-relay.md) — ten sam
     /// `AudioCapture`, który używa `SessionController` skrótu lokalnego.
     /// Trzymana tutaj jawnie (nie tylko wewnątrz `SessionController`), żeby
@@ -272,6 +273,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Wspólne zakończenie dyktowania ze skrótu — z hold-to-talk i z zatrzasku.
+    private func finishUtteranceFromHotkey() {
+        sessionController?.endUtterance()
+        debugWindowController?.update(notes: notesStore.notes)
+    }
+
     private func setupHotkey() {
         let monitor = HotkeyMonitor(keyCode: settingsModel.mainHotkey.keyCode)
         // Zmiana w Ustawieniach działa natychmiast — `monitor.keyCode` jest
@@ -284,13 +291,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugLog.write("App", "Skrót zmieniony na keyCode=\(hotkey.keyCode)")
             }
             .store(in: &settingsCancellables)
+        // Zatrzask: podwójne stuknięcie = dyktowanie bez trzymania klawisza,
+        // kolejne stuknięcie kończy. Zwykłe przytrzymanie bez zmian.
+        let latch = DictationLatch()
+        dictationLatch = latch
         monitor.onPressed = { [weak self] in
-            self?.sessionController?.beginUtterance()
+            switch latch.pressed(at: CACurrentMediaTime()) {
+            case .begin:
+                self?.sessionController?.beginUtterance()
+            case .end:
+                DebugLog.write("Hotkey", "zatrzask: stuknięcie kończy dyktowanie bez trzymania")
+                self?.finishUtteranceFromHotkey()
+            case .none:
+                break
+            }
         }
         monitor.onReleased = { [weak self] in
-            self?.sessionController?.endUtterance()
-            if let notes = self?.notesStore.notes {
-                self?.debugWindowController?.update(notes: notes)
+            switch latch.released(at: CACurrentMediaTime()) {
+            case .end:
+                self?.finishUtteranceFromHotkey()
+            case .none:
+                if latch.isLatched {
+                    DebugLog.write("Hotkey", "zatrzask: sesja zostaje otwarta — mów bez trzymania, stuknij aby zakończyć")
+                }
+            case .begin:
+                break
             }
         }
         if !monitor.start() {
@@ -345,6 +370,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DispatchQueue.main.async {
                     DebugLog.write("App", "Escape wykryty podczas dyktowania — anuluję")
                     self?.sessionController?.cancelUtterance()
+                    // Sesja nie żyje — zatrzask nie może dalej „trzymać" i
+                    // traktować następnego stuknięcia jako końca dyktowania.
+                    self?.dictationLatch?.reset()
                 }
             }
         default:

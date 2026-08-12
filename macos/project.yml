@@ -22,6 +22,10 @@ targets:
     platform: macOS
     sources:
       - path: VoiceFlow
+      # Kontrakt ramek telefon<->Mac — JEDEN plik źródłowy dla obu platform
+      # (kompilowany też przez ios/project.yml). Nie kopiować do VoiceFlow/:
+      # kopia rozjeżdża się po cichu, patrz nagłówek tamtego pliku.
+      - path: ../shared/wire/ControlFrames.swift
     info:
       path: VoiceFlow/Info.plist
       properties:

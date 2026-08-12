@@ -57,6 +57,11 @@ final class SessionController {
     var onAudioLevel: ((Float) -> Void)?
     /// Log latencji: onset mowy → pierwszy widoczny tekst w polu (kryterium 4 z kontraktu).
     var onFirstTextLatency: ((TimeInterval) -> Void)?
+    /// Wypowiedź domknięta: tekst końcowy + czy trafił do aplikacji docelowej.
+    /// Pusta wypowiedź woła z pustym tekstem. Używane przez `RemoteMicClient`
+    /// do ramki `injected` dla telefonu — telefon czeka na to potwierdzenie
+    /// z timeoutem, więc hak MUSI być wołany na każdej ścieżce zakończenia.
+    var onUtteranceFinished: ((String, Bool) -> Void)?
 
     private var updatesTask: Task<Void, Never>?
     private var speechOnsetAt: CFTimeInterval?
@@ -379,6 +384,7 @@ final class SessionController {
             }
         }
         segmenter.reset()
+        onUtteranceFinished?(formatted, !formatted.isEmpty && lastInjectionSucceeded)
         state = .done
         state = .idle
     }

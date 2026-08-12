@@ -4,6 +4,17 @@ Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[
 
 ## Unreleased
 
+- **[iOS]** The app is now four tabs — Pulpit, Mac, Historia, Ustawienia — and
+  the old "Dyktuj" page is gone. Pulpit summarises the account: words today,
+  words in total, how many dictations and how much speaking time, plus the last
+  three of them. Historia is the account's full history from the server, with a
+  local search, swipe to delete and paging as you scroll. Ustawienia opens with
+  the account: log in with an e-mail and password, see which account is signed
+  in, log out. Dictation itself did not move — the keyboard still opens the app
+  through `voiceflow://dictate`, only now it arrives as a full-screen sheet over
+  the tabs and closes back to where you were. Both history screens need an
+  account: a phone paired with the old QR code is told to log in instead.
+
 - **[All]** Shared dictation rooms. Two people in one room stop talking over each
   other: whoever is speaking blocks the others, and their speaking quietens audio
   on every machine in the room, not just their own. Sessions are measured — who

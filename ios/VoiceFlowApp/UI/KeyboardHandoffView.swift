@@ -12,12 +12,18 @@ import SwiftUI
 ///      dokładnie jak u Wisprа — to nie nasz wymysł, jedyny sposób jaki iOS
 ///      daje).
 struct KeyboardHandoffView: View {
+    /// Zamknięcie ekranu modalnego (redesign 2026-08-12 — dyktowanie nie jest
+    /// już zakładką, tylko `fullScreenCover` nad apką). Gest „wróć do
+    /// poprzedniej aplikacji" zostaje główną drogą; przycisk jest dla sytuacji,
+    /// w której user chce zostać w VoiceFlow.
+    var onClose: (() -> Void)? = nil
+
     @State private var isDone = false
 
     var body: some View {
         Group {
             if isDone {
-                HandoffCompleteView()
+                HandoffCompleteView(onClose: onClose)
             } else {
                 DictationCardView(compact: false, recordsToHistory: true, autoStart: true) { finalText in
                     AppGroup.defaults.set(finalText, forKey: AppGroupKeys.pendingInsertText)
@@ -30,6 +36,8 @@ struct KeyboardHandoffView: View {
 }
 
 private struct HandoffCompleteView: View {
+    var onClose: (() -> Void)?
+
     var body: some View {
         VStack(spacing: 24) {
             Spacer()
@@ -53,6 +61,12 @@ private struct HandoffCompleteView: View {
             }
 
             Spacer()
+
+            if let onClose {
+                Button("Zamknij") { onClose() }
+                    .buttonStyle(VFOutlineButtonStyle())
+                    .padding(.bottom, 8)
+            }
 
             VStack(spacing: 12) {
                 Image(systemName: "arrow.down")

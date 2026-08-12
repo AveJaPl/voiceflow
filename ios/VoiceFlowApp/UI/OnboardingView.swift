@@ -302,7 +302,7 @@ private struct TestDictationStepView: View {
             }
 
             // TO JEST DOKŁADNIE ten sam komponent co zakładka "Dyktuj" w
-            // głównej apce (`DictationView`) — jeden mechanizm testowania i
+            // głównej apce (`KeyboardHandoffView`) — jeden mechanizm testowania i
             // fallbacku, nie dwa równoległe. `recordsToHistory: false`, bo
             // to próba, nie treść do zachowania.
             DictationCardView(compact: true, recordsToHistory: false)

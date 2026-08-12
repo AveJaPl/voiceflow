@@ -115,6 +115,11 @@ final class RemoteSession: ObservableObject {
     /// w ogóle istnieje w pasku, a SwiftUI musi się o zmianie dowiedzieć.
     @Published private(set) var isPaired = false
 
+    /// Poświadczenia tylko do odczytu. Pulpit i Historia wołają HTTP API konta
+    /// (`AccountAPI`) TYM SAMYM tokenem, którym sesja rozmawia po WebSockecie —
+    /// nie ma drugiego źródła prawdy o tym, kto jest zalogowany.
+    var accountCredentials: RemoteCredentials? { credentials }
+
     var selectedWindow: WireWindow? {
         guard let selectedWindowID else { return nil }
         return windows.first { $0.id == selectedWindowID }

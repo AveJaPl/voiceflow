@@ -1,73 +1,141 @@
 import SwiftUI
 
-/// Historia dyktowań z App Group — wspólna dla ekranu dyktowania w apce
-/// (plan B) i przyszłego zapisu z klawiatury.
+/// Historia dyktowań z konta (`GET /history`), a nie z App Group — wpisy
+/// powstają na Macu i na telefonie, więc jedyne miejsce, w którym widać
+/// całość, jest po stronie relaya.
+///
+/// Paginacja: serwer nie zna offsetu, tylko `before=<createdAt>` — dociągamy
+/// starsze wpisy, gdy user dojedzie do końca listy. Dlatego przy dopisywaniu
+/// odsiewamy duplikaty po `id` (wpisy z identycznym `createdAt` mogą przyjść
+/// w obu stronach).
 struct HistoryView: View {
-    @State private var entries: [DictationEntry] = DictationHistoryStore.load()
+    @ObservedObject var remote: RemoteSession
 
-    private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .short
-        f.timeStyle = .short
-        f.locale = Locale(identifier: "pl_PL")
-        return f
-    }()
+    @State private var entries: [AccountAPI.HistoryEntry] = []
+    @State private var query = ""
+    @State private var loading = false
+    @State private var reachedEnd = false
+    @State private var errorText: String?
+
+    private static let pageSize = 50
+
+    private var visible: [AccountAPI.HistoryEntry] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else { return entries }
+        return entries.filter { $0.text.lowercased().contains(needle) }
+    }
 
     var body: some View {
         ZStack {
             VFColor.background.ignoresSafeArea()
-            if entries.isEmpty {
-                VStack(spacing: 10) {
-                    Text("BRAK HISTORII")
-                        .font(VFFont.display(16, weight: .semibold))
-                        .textCase(.uppercase)
-                        .foregroundStyle(VFColor.muted)
-                    Text("Podyktowany tekst pojawi się tutaj.")
-                        .font(VFFont.body(13))
-                        .foregroundStyle(VFColor.faint)
-                }
+            if let errorText, entries.isEmpty {
+                message(errorText)
+            } else if entries.isEmpty && !loading {
+                message("Brak dyktowań. Podyktowany tekst pojawi się tutaj.")
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(entries) { entry in
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack {
-                                    Text(Self.dateFormatter.string(from: entry.date))
-                                        .font(VFFont.mono(10))
-                                        .foregroundStyle(VFColor.faint)
-                                    Spacer()
-                                    Text(entry.source == .keyboard ? "KLAWIATURA" : "APKA")
-                                        .font(VFFont.mono(10))
-                                        .tracking(1)
-                                        .foregroundStyle(VFColor.faint)
-                                }
-                                Text(entry.text)
-                                    .font(VFFont.body(14))
-                                    .foregroundStyle(VFColor.text)
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 16)
-                            .overlay(alignment: .bottom) {
-                                Rectangle().fill(VFColor.border).frame(height: 1)
-                            }
-                        }
-                    }
-                }
+                list
             }
         }
         .navigationTitle("Historia")
-        .onAppear { entries = DictationHistoryStore.load() }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                if !entries.isEmpty {
-                    Button("Wyczyść") {
-                        DictationHistoryStore.clear()
-                        entries = []
+        .searchable(text: $query, prompt: "Szukaj w historii")
+        .task { await reload() }
+        .onChange(of: remote.isPaired) { _, _ in Task { await reload() } }
+    }
+
+    private var list: some View {
+        List {
+            ForEach(visible) { entry in
+                HistoryRow(entry: entry)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(VFColor.background)
+                    .listRowSeparatorTint(VFColor.border)
+                    .swipeActions(edge: .trailing) {
+                        Button("Usuń", role: .destructive) {
+                            Task { await delete(entry) }
+                        }
                     }
-                    .font(VFFont.body(13))
-                    .foregroundStyle(VFColor.muted)
-                }
+                    .onAppear {
+                        // Doładowanie startuje na ostatnim wpisie — przy
+                        // aktywnym wyszukiwaniu też, bo filtr jest lokalny
+                        // i użytkownik może szukać w jeszcze niepobranych.
+                        if entry.id == entries.last?.id { Task { await loadMore() } }
+                    }
             }
+            if loading {
+                Text("Wczytuję…")
+                    .font(VFFont.mono(11))
+                    .foregroundStyle(VFColor.faint)
+                    .listRowBackground(VFColor.background)
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .refreshable { await reload() }
+    }
+
+    private func message(_ text: String) -> some View {
+        Text(text)
+            .font(VFFont.body(13))
+            .foregroundStyle(VFColor.muted)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 40)
+    }
+
+    // MARK: - Dane
+
+    private func reload() async {
+        guard let credentials = remote.accountCredentials else {
+            entries = []
+            errorText = AccountAPI.Failure.unauthorized.message
+            return
+        }
+        loading = true
+        defer { loading = false }
+        do {
+            entries = try await AccountAPI.history(credentials: credentials, limit: Self.pageSize)
+            reachedEnd = entries.count < Self.pageSize
+            errorText = nil
+        } catch let failure as AccountAPI.Failure {
+            errorText = failure.message
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+
+    private func loadMore() async {
+        guard !loading, !reachedEnd,
+              let credentials = remote.accountCredentials,
+              let oldest = entries.last?.createdAt
+        else { return }
+        loading = true
+        defer { loading = false }
+        do {
+            let page = try await AccountAPI.history(
+                credentials: credentials,
+                limit: Self.pageSize,
+                before: oldest
+            )
+            let known = Set(entries.map(\.id))
+            entries.append(contentsOf: page.filter { !known.contains($0.id) })
+            reachedEnd = page.count < Self.pageSize
+        } catch let failure as AccountAPI.Failure {
+            errorText = failure.message
+        } catch {
+            errorText = error.localizedDescription
+        }
+    }
+
+    private func delete(_ entry: AccountAPI.HistoryEntry) async {
+        guard let credentials = remote.accountCredentials else { return }
+        // Znika od razu; gdyby serwer odmówił, wraca przy najbliższym
+        // odświeżeniu i user widzi powód.
+        entries.removeAll { $0.id == entry.id }
+        do {
+            try await AccountAPI.deleteHistoryEntry(id: entry.id, credentials: credentials)
+        } catch let failure as AccountAPI.Failure {
+            errorText = failure.message
+        } catch {
+            errorText = error.localizedDescription
         }
     }
 }

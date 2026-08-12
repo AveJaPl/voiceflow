@@ -4,18 +4,17 @@ import SwiftUI
 /// `ContainerDictationEngine`). UŻYWANA W DWÓCH MIEJSCACH — to jest CELOWE,
 /// nie duplikacja: (1) krok testu dyktowania w onboardingu
 /// (`OnboardingView`, krok `.testDictation` — to najważniejszy krok
-/// tutorialu, "dowód że działa" zamiast deklaracji), (2) ekran dyktowania w
-/// zakładce głównej apki (plan B z docs/plans/ios-voiceflow-app.md §3, jeśli
-/// mikrofon w rozszerzeniu klawiatury zawiedzie). Wojtek wprost poprosił,
-/// żeby to był JEDEN mechanizm, nie dwa równoległe — patrz komentarz w
-/// `DictationView.swift`.
+/// tutorialu, "dowód że działa" zamiast deklaracji), (2) ekran dyktowania
+/// otwierany z klawiatury przez `voiceflow://dictate`
+/// (`KeyboardHandoffView`). Wojtek wprost poprosił, żeby to był JEDEN
+/// mechanizm, nie dwa równoległe.
 struct DictationCardView: View {
     /// `true` w onboardingu (mniej paddingu, bez nawigacji na pełny ekran),
     /// `false` na zakładce głównej (pełny ekran, wyśrodkowane pionowo).
     var compact: Bool = false
     /// Czy zapisywać sfinalizowane dyktowanie do historii (App Group) —
-    /// TAK na zakładce głównej, NIE w trakcie testu onboardingu (to tylko
-    /// próba, nie realna treść do zachowania).
+    /// TAK przy dyktowaniu z klawiatury, NIE w trakcie testu onboardingu (to
+    /// tylko próba, nie realna treść do zachowania).
     var recordsToHistory: Bool = true
     /// PIVOT #2 (docs/plans/ios-voiceflow-app.md §7): `true` wyłącznie gdy
     /// apka została otwarta przez klawiaturę (`voiceflow://dictate`) —

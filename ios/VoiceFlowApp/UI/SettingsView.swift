@@ -15,6 +15,12 @@ struct SettingsView: View {
             VFColor.background.ignoresSafeArea()
             ScrollView {
                 VStack(alignment: .leading, spacing: 32) {
+                    // Konto jest NAJWYŻEJ celowo: bez zalogowania Pulpit i
+                    // Historia nie mają czego pokazać, więc to pierwsza rzecz,
+                    // której user tu szuka.
+                    AccountSection(remote: remote)
+                        .padding(.top, 20)
+
                     VStack(alignment: .leading, spacing: 6) {
                         Text("DIAGNOSTYKA KLAWIATURY")
                             .vfEyebrow()
@@ -22,7 +28,6 @@ struct SettingsView: View {
                             .font(VFFont.body(12.5))
                             .foregroundStyle(VFColor.faint)
                     }
-                    .padding(.top, 20)
 
                     VStack(spacing: 0) {
                         DiagnosticRow(label: "Klawiatura uruchamiana", value: diagnostics.launched ? "TAK" : "NIE")

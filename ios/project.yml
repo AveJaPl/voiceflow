@@ -35,6 +35,8 @@ targets:
         UIRequiresFullScreen: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         NSMicrophoneUsageDescription: "VoiceFlow potrzebuje mikrofonu, żeby transkrybować dyktowanie na żywo."
         NSSpeechRecognitionUsageDescription: "VoiceFlow potrzebuje rozpoznawania mowy Apple do transkrypcji polskiej."
         NSCameraUsageDescription: "VoiceFlow używa aparatu wyłącznie do zeskanowania kodu QR, którym parujesz telefon z Makiem."

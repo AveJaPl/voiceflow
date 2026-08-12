@@ -35,6 +35,14 @@ final class HotkeyMonitor {
 
     var onPressed: (() -> Void)?
     var onReleased: (() -> Void)?
+    /// Fn+Z: jeden klik zaczyna dyktowanie, kolejny kończy — bez trzymania.
+    /// Osobna, ODPORNA ścieżka obok gołego Fn: zwykłe `keyDown` litery z
+    /// flagą Fn zawsze dochodzi, podczas gdy samo stuknięcie Fn bywa
+    /// połykane przez systemową akcję klawisza Globe (zaobserwowane w logu
+    /// 2026-08-12: puszczenie doszło, wciśnięcia nigdy nie było).
+    var onToggleChord: (() -> Void)?
+    /// Kod litery przełącznika: 6 = „Z" (układ PL/US).
+    var toggleKeyCode: CGKeyCode = 6
 
     private(set) var isDown = false
 
@@ -203,7 +211,18 @@ final class HotkeyMonitor {
     }
 
     private func handlePlainKey(_ event: CGEvent, down: Bool) {
-        guard event.getIntegerValueField(.keyboardEventKeycode) == Int64(keyCode) else { return }
+        let eventKeyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        // Fn+Z (przełącznik) — łapiemy WCIŚNIĘCIE litery z aktywną flagą Fn.
+        // Debounce ten sam co dla głównego klawisza: auto-repeat trzymanej
+        // litery nie może przełączać dyktowania co 30 ms.
+        if down, eventKeyCode == Int64(toggleKeyCode),
+           event.flags.contains(.maskSecondaryFn),
+           event.getIntegerValueField(.keyboardEventAutorepeat) == 0 {
+            DebugLog.write("Hotkey", "Fn+Z — przełącznik dyktowania")
+            DispatchQueue.main.async { [weak self] in self?.onToggleChord?() }
+            return
+        }
+        guard eventKeyCode == Int64(keyCode) else { return }
         setDown(down)
     }
 

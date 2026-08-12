@@ -318,6 +318,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 break
             }
         }
+        monitor.onToggleChord = { [weak self] in
+            guard let self, let session = self.sessionController else { return }
+            if session.state == .listening {
+                self.dictationLatch?.reset()
+                self.finishUtteranceFromHotkey()
+            } else {
+                session.beginUtterance()
+            }
+        }
         if !monitor.start() {
             log.error("HotkeyMonitor nie wystartował — brak Dostępności/Monitorowania danych wejściowych")
             let alert = NSAlert()

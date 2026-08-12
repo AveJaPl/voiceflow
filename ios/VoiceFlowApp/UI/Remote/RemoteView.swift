@@ -25,24 +25,14 @@ struct RemoteView: View {
 
                 if !session.isPaired {
                     pairingCard
-                } else if session.windows.isEmpty {
+                } else if terminals.isEmpty {
                     emptyState
                 } else {
-                    DesktopMapView(
-                        windows: session.windows,
-                        displays: session.displays,
-                        screenshot: session.screenshotJPEG,
-                        selectedID: session.selectedWindowID,
-                        targetID: activeTarget,
-                        onTap: { session.focus($0) },
-                        onHoldBegan: { beginHold(on: $0) },
-                        onHoldEnded: { _ in endHold() },
-                        onDoubleTap: { toggleLatch(on: $0) },
-                        onMove: { window, rect in
-                            session.move(window, to: (x: rect.x, y: rect.y, w: rect.w, h: rect.h))
-                        }
-                    )
-
+                    // Tylko terminale — po to jest ta zakładka. Mapa pulpitu
+                    // i pozostałe okna wyleciały: rysowanie mapy z gestami
+                    // przy każdej ramce `windows` zauważalnie mulило apkę,
+                    // a tap w kartę PRZESTAWIAŁ okna na Macu, zanim jeszcze
+                    // cokolwiek podyktowano.
                     windowList
 
                     if let terminal = session.selectedWindow, terminal.isTerminal {
@@ -97,6 +87,13 @@ struct RemoteView: View {
         .onChange(of: session.isPaired) { _, paired in
             // Udany skan zamyka arkusz sam — użytkownik od razu widzi okna.
             if paired { showPairing = false }
+        }
+        .onChange(of: session.windows) { _, windows in
+            // Pierwszy terminal zaznacza się sam — przycisk „Mów" ma działać
+            // od razu, bez obowiązkowego tapnięcia w listę.
+            if session.selectedWindowID == nil {
+                session.select(windowID: windows.first(where: \.isTerminal)?.id)
+            }
         }
         .refreshable {
             session.requestScreenshot()
@@ -184,10 +181,10 @@ struct RemoteView: View {
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Brak okien do pokazania")
+            Text("Brak terminali do pokazania")
                 .font(VFFont.body(15, weight: .semibold))
                 .foregroundStyle(VFColor.text)
-            Text("Sprawdź, czy VoiceFlow działa na Macu i ma włączone zdalne sterowanie w Ustawieniach.")
+            Text("Otwórz okno Terminala na Macu i sprawdź, czy VoiceFlow tam działa.")
                 .font(VFFont.body(13))
                 .foregroundStyle(VFColor.muted)
         }
@@ -199,22 +196,28 @@ struct RemoteView: View {
 
     // MARK: - Lista okien
 
+    /// Terminale z ostatniej migawki — jedyne okna, które tu pokazujemy.
+    private var terminals: [WireWindow] {
+        session.windows.filter(\.isTerminal)
+    }
+
     private var windowList: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("OKNA").vfEyebrow()
+            Text("TERMINALE").vfEyebrow()
             VStack(spacing: 4) {
-                ForEach(session.windows) { window in
+                ForEach(terminals) { window in
                     WindowRow(
                         window: window,
                         isSelected: window.id == session.selectedWindowID,
                         isTarget: window.id == activeTarget
                     )
-                    .windowGestures(
-                        onTap: { session.focus(window) },
-                        onHoldBegan: { beginHold(on: window) },
-                        onHoldEnded: { endHold() },
-                        onDoubleTap: { toggleLatch(on: window) }
-                    )
+                    // Tap TYLKO zaznacza cel po stronie telefonu — okno na
+                    // Macu podnosi się dopiero przy starcie dyktowania
+                    // (atomowy start z weryfikacją fokusu). Wcześniejsze
+                    // „tap = podnieś od razu" przestawiało okna na Macu przy
+                    // zwykłym przeglądaniu listy.
+                    .contentShape(Rectangle())
+                    .onTapGesture { session.select(windowID: window.id) }
                 }
             }
         }
@@ -294,11 +297,11 @@ struct RemoteView: View {
         switch session.phase {
         case .failed(let failure): failure.message
         case .arming: "łączę z oknem…"
-        case .streaming: latchedTarget == nil ? "mów — puść, aby wysłać" : "mów — dotknij dwa razy, aby zakończyć"
+        case .streaming: latchedTarget == nil ? "mówisz — puść, aby wysłać" : "mówisz — stuknij 2 razy, aby zakończyć"
         case .finishing: "przetwarzam…"
         case .connecting: "łączę z Makiem…"
         case .offline: "brak sparowanego Maca"
-        case .ready: session.selectedWindow == nil ? "wybierz okno" : "przytrzymaj, aby mówić"
+        case .ready: session.selectedWindow == nil ? "zaznacz terminal na liście" : "Mów — przytrzymaj albo stuknij 2 razy"
         }
     }
 

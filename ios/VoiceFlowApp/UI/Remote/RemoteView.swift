@@ -33,6 +33,8 @@ struct RemoteView: View {
                     // przy każdej ramce `windows` zauważalnie mulило apkę,
                     // a tap w kartę PRZESTAWIAŁ okna na Macu, zanim jeszcze
                     // cokolwiek podyktowano.
+                    screenPreview
+
                     windowList
 
                     if let terminal = session.selectedWindow, terminal.isTerminal {
@@ -195,6 +197,53 @@ struct RemoteView: View {
     }
 
     // MARK: - Lista okien
+
+    /// Podgląd całego ekranu Maca — jeden JPEG NA ŻĄDANIE (stuknięcie /
+    /// przeciągnięcie w dół), nie strumień: oszczędza baterię i transfer,
+    /// a układ pulpitu i tak nie zmienia się, gdy siedzisz przy telefonie.
+    @ViewBuilder private var screenPreview: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("EKRAN").vfEyebrow()
+                Spacer()
+                Button {
+                    session.requestScreenshot()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13))
+                        .foregroundStyle(VFColor.muted)
+                }
+            }
+            if let data = session.screenshotJPEG, let image = UIImage(data: data) {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                    .overlay(Rectangle().stroke(VFColor.border, lineWidth: 1))
+                    .onTapGesture { session.requestScreenshot() }
+            } else if session.mac?.caps.screenshot == false {
+                Text("Mac nie ma zgody „Nagrywanie ekranu” — włącz ją w Ustawieniach systemowych na Macu, wtedy zobaczysz tu podgląd pulpitu i tytuły okien.")
+                    .font(VFFont.body(12))
+                    .foregroundStyle(VFColor.faint)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(VFColor.surfaceSolid)
+                    .overlay(Rectangle().stroke(VFColor.border, lineWidth: 1))
+            } else {
+                Button {
+                    session.requestScreenshot()
+                } label: {
+                    Text("Pobierz podgląd ekranu")
+                        .font(VFFont.body(13))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                }
+                .foregroundStyle(VFColor.text)
+                .background(VFColor.surfaceSolid)
+                .overlay(Rectangle().stroke(VFColor.border, lineWidth: 1))
+            }
+        }
+    }
 
     /// Terminale z ostatniej migawki — jedyne okna, które tu pokazujemy.
     private var terminals: [WireWindow] {

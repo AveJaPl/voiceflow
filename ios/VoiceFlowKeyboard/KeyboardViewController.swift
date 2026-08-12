@@ -183,11 +183,31 @@ final class KeyboardViewController: UIInputViewController {
             return
         }
         guard let url = URL(string: "voiceflow://dictate") else { return }
-        // Standardowe API rozszerzeń klawiatury do otwarcia apki-kontenera —
-        // wymaga Pełnego dostępu (mamy, sprawdzone wyżej), nie jest hackiem.
-        // Apka kontenerowa robi resztę (nagranie, zapis do App Group) —
-        // patrz ContainerDictationEngine i KeyboardHandoffView w kontenerze.
-        extensionContext?.open(url, completionHandler: nil)
+        // UWAGA, mur platformy #2 (2026-08-12, zaobserwowane na fizycznym
+        // iPhone 16 Pro): `extensionContext?.open(...)` z ROZSZERZENIA
+        // KLAWIATURY po cichu NIE robi nic — Apple honoruje to API z widgetów
+        // i innych rozszerzeń, ale nie z klawiatur (completion dostaje false,
+        // zero błędu, zero logu). Objaw u użytkownika: „stukam w mikrofon i
+        // nic". Jedyna działająca droga to klasyczne przejście po łańcuchu
+        // responderów do UIApplication i wywołanie `openURL:` selektorem —
+        // ten sam mechanizm, na którym stoją wszystkie klawiatury dyktujące.
+        extensionContext?.open(url) { [weak self] success in
+            guard !success else { return }
+            DispatchQueue.main.async { self?.openViaResponderChain(url) }
+        }
+    }
+
+    private func openViaResponderChain(_ url: URL) {
+        let selector = NSSelectorFromString("openURL:")
+        var responder: UIResponder? = self
+        while let current = responder {
+            if current.responds(to: selector), !(current is UIViewController) {
+                current.perform(selector, with: url)
+                return
+            }
+            responder = current.next
+        }
+        statusLabel.text = "Nie mogę otworzyć aplikacji"
     }
 
     private func renderIdle() {

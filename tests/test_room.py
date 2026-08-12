@@ -272,3 +272,48 @@ def test_state_writer_that_throws_does_not_break_dictation() -> None:
     client.report_started()
 
     assert transport.sent == [{"type": "speaking_started"}]
+
+
+# --- co teraz gra ----------------------------------------------------------
+
+
+def test_track_is_sent_once_not_on_every_poll() -> None:
+    """Odczyt leci co kilka sekund, a utwór zmienia się raz na piosenkę."""
+    client, transport, _states = _client_with_states()
+    track = {"title": "Numb", "artist": "Linkin Park", "player": "Spotify", "artUrl": ""}
+
+    client.report_now_playing(track)
+    client.report_now_playing(track)
+    client.report_now_playing(track)
+
+    assert transport.sent == [{"type": "now_playing", "track": track}]
+
+
+def test_new_track_is_sent() -> None:
+    client, transport, _states = _client_with_states()
+    client.report_now_playing({"title": "Numb"})
+
+    client.report_now_playing({"title": "In The End"})
+
+    assert transport.sent[-1]["track"]["title"] == "In The End"
+
+
+def test_silence_clears_the_tile() -> None:
+    client, transport, _states = _client_with_states()
+    client.report_now_playing({"title": "Numb"})
+
+    client.report_now_playing(None)
+
+    assert transport.sent[-1] == {"type": "now_playing", "track": None}
+
+
+def test_reconnect_resends_the_track() -> None:
+    """Serwer trzyma kafelek w pamięci procesu i gubi go razem z połączeniem."""
+    client, transport, _states = _client_with_states()
+    client.report_now_playing({"title": "Numb"})
+    transport.sent.clear()
+
+    client.on_disconnected()
+    client.report_now_playing({"title": "Numb"})
+
+    assert transport.sent == [{"type": "now_playing", "track": {"title": "Numb"}}]

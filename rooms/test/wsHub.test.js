@@ -183,3 +183,55 @@ test('anulowanie zwalnia głos, ale nie tworzy wpisu w rankingu', async () => {
     'druga osoba może od razu mówić',
   );
 });
+
+test('co gra rozsyła się do pokoju i nie dotyka bazy', async () => {
+  const writes = [];
+  const hub = createHub({
+    store: { async activeSession() { return { id: 1 }; }, async recordDictation(...a) { writes.push(a); } },
+  });
+  const filip = fakeConnection('dev-1', 'Filip');
+  const widz = { ...fakeConnection('viewer-1', null), viewer: true, sent: [], send(o) { this.sent.push(o); } };
+  await hub.handleMessage(filip, { type: 'hello' });
+  await hub.handleMessage(widz, { type: 'hello' });
+  filip.sent.length = 0;
+  widz.sent.length = 0;
+
+  await hub.handleMessage(filip, {
+    type: 'now_playing',
+    track: { title: 'Smells Like Teen Spirit', artist: 'Nirvana', player: 'Spotify', artUrl: 'https://x' },
+  });
+
+  const played = widz.sent.filter((m) => m.type === 'now_playing');
+  assert.equal(played.length, 1);
+  assert.equal(played[0].playing[0].title, 'Smells Like Teen Spirit');
+  assert.equal(played[0].playing[0].name, 'Filip');
+  assert.deepEqual(writes, [], 'utwór nie ma prawa trafić do bazy');
+});
+
+test('cisza w odtwarzaczu zdejmuje kafelek', async () => {
+  const hub = createHub({ store: noopStore });
+  const filip = fakeConnection('dev-1', 'Filip');
+  await hub.handleMessage(filip, { type: 'hello' });
+  await hub.handleMessage(filip, { type: 'now_playing', track: { title: 'x' } });
+  filip.sent.length = 0;
+
+  await hub.handleMessage(filip, { type: 'now_playing', track: null });
+
+  const played = filip.sent.filter((m) => m.type === 'now_playing');
+  assert.deepEqual(played.at(-1).playing, []);
+});
+
+test('wyjście z pokoju zabiera ze sobą kafelek muzyki', async () => {
+  const hub = createHub({ store: noopStore });
+  const filip = fakeConnection('dev-1', 'Filip');
+  const wojtek = fakeConnection('dev-2', 'Wojtek');
+  await hub.handleMessage(filip, { type: 'hello' });
+  await hub.handleMessage(wojtek, { type: 'hello' });
+  await hub.handleMessage(filip, { type: 'now_playing', track: { title: 'x' } });
+  wojtek.sent.length = 0;
+
+  hub.disconnect(filip);
+
+  const played = wojtek.sent.filter((m) => m.type === 'now_playing');
+  assert.deepEqual(played.at(-1).playing, []);
+});

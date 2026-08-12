@@ -32,12 +32,17 @@ from voiceflow.presence import DiscordPresence
 from voiceflow.preview import PreviewLoop
 from voiceflow.recorder import Recorder
 from voiceflow.room import RoomClient
+from voiceflow.nowplaying import current_track
 from voiceflow.roomstate import write_room_state
 from voiceflow.roomlink import WebSocketTransport
 from voiceflow.transcriber import Transcriber, TranscriptionResult
 from voiceflow.stats import build_stats, write_stats
 from voiceflow.tray import NullTray, Tray, build_payload
 from voiceflow.updates import check as check_updates
+
+#: Co ile sprawdzamy, co gra — pod długością utworu, a kosztuje jeden krótki
+#: podproces. Sygnały MPRIS wymagałyby pętli D-Bus w demonie dla ozdoby.
+NOW_PLAYING_SECONDS = 5
 
 _WINDOWS = os.name == "nt"
 
@@ -198,6 +203,9 @@ class VoiceflowDaemon:
             threading.Thread(
                 target=self._tray_refresh_loop, name="voiceflow-tray-refresh", daemon=True
             ).start()
+        threading.Thread(
+            target=self._now_playing_loop, name="voiceflow-now-playing", daemon=True
+        ).start()
         self.presence = DiscordPresence(config.presence)
         if _WINDOWS and injector is None:
             from voiceflow.winplat.injector import WinInjector
@@ -471,6 +479,25 @@ class VoiceflowDaemon:
         # nothing gets dictated right around then.
         while not self._shutdown_requested.wait(300):
             self._refresh_tray()
+
+    def _now_playing_loop(self) -> None:
+        """Tell the room what is playing here, while we are in one.
+
+        Polled rather than subscribed: MPRIS signals would mean a D-Bus main
+        loop inside the daemon for a decorative feature. Five seconds is well
+        under the length of a song and costs one short subprocess.
+        """
+        while not self._shutdown_requested.wait(NOW_PLAYING_SECONDS):
+            # Cała pętla pod jednym `try`, nie tylko odczyt: to jest ozdoba
+            # i nie ma prawa przewrócić dyktowania z żadnego powodu — także
+            # gdy pokój jest atrapą bez tych metod, jak w testach.
+            try:
+                if not self.room.active:
+                    continue
+                track = current_track()
+                self.room.report_now_playing(track.as_payload() if track else None)
+            except Exception:
+                LOGGER.debug("Nie udało się zgłosić odtwarzanego utworu", exc_info=True)
 
     def _max_duration_reached(self) -> None:
         LOGGER.warning("Automatycznie kończę nagranie po limicie czasu")

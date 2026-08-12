@@ -89,6 +89,22 @@ h1{font-family:var(--display); font-weight:700; font-size:clamp(2.1rem,5vw,3.2re
 .wave i:nth-child(5){animation-delay:-.15s}
 @keyframes pulse{0%,100%{height:9px}50%{height:48px}}
 
+/* --- co teraz gra ------------------------------------------------------------
+   Mały kafelek, nie druga karta: to jest tło pracy, nie jej wynik. Okładka
+   przychodzi z CDN wydawcy, więc przeglądarka bierze ją wprost — przez naszą
+   usługę nie przechodzi nic. */
+.tunes{display:flex; gap:12px; flex-wrap:wrap; margin:18px 0 0}
+.tune{display:flex; align-items:center; gap:12px; padding:8px 14px 8px 8px;
+  border:1px solid var(--border); border-radius:999px; background:var(--surface);
+  max-width:min(100%,26rem)}
+.tune img{width:38px; height:38px; border-radius:50%; object-fit:cover; flex:none;
+  background:var(--raised)}
+.tune .tune-text{min-width:0}
+.tune .tune-title{font-size:.86rem; font-weight:600; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap}
+.tune .tune-sub{font-size:.7rem; color:var(--faint); overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap}
+
 /* --- tablica wyników -------------------------------------------------------
    Nie tabela: lista edytorska. Numer pozycji jest wielki i pusty w środku
    (obrys), bo ma działać jak numer rozdziału na landingu, a nie jak komórka. */
@@ -235,6 +251,8 @@ systemctl --user restart voiceflow</code></pre>
       </div>
     </div>
   </section>
+
+  <div class="tunes" id="tunes"></div>
 
   <section class="board">
     <div class="board-head">
@@ -420,6 +438,21 @@ function renderRanking(data) {
   if (placeholder) placeholder.remove();
 }
 
+/* Utwory przychodzą WebSocketem i nigdzie nie są zapisywane — serwer rozsyła
+   je i zapomina. Zamknięcie sesji nie zostawia śladu tego, czego kto słuchał. */
+function renderTunes(playing) {
+  const tiles = (playing ?? []).filter((item) => item.title);
+  el('tunes').innerHTML = tiles.map((item) => `
+    <div class="tune">
+      ${item.artUrl ? `<img src="${escapeHtml(item.artUrl)}" alt="">` : ''}
+      <div class="tune-text">
+        <div class="tune-title">${escapeHtml(item.title)}</div>
+        <div class="tune-sub">${escapeHtml([item.artist, item.player, item.name]
+          .filter(Boolean).join(' · '))}</div>
+      </div>
+    </div>`).join('');
+}
+
 function setStatus(text, state) {
   el('status').textContent = text;
   el('status').classList.toggle('offline', state === 'bad');
@@ -456,6 +489,10 @@ function connect() {
   const socket = new WebSocket(`${scheme}://${location.host}/ws?room=${code}&view=1`);
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data);
+    if (message.type === 'now_playing') {
+      renderTunes(message.playing);
+      return;
+    }
     if (message.type === 'speaker_changed' || message.type === 'room_state') {
       speakingName = message.speaking?.name ?? null;
       renderSpeaker();

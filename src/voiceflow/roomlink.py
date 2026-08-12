@@ -100,7 +100,17 @@ class WebSocketTransport:
         attempt = 0
         while not self._stop.is_set():
             try:
-                with connect(self._url(), open_timeout=5) as socket:
+                with connect(
+                    self._url(),
+                    open_timeout=5,
+                    # Własny puls idzie co 3 s (patrz `_pump`), więc pingi
+                    # biblioteki są tu drugim, nadmiarowym mechanizmem. Zostają
+                    # dla wykrycia martwego gniazda, ale z hojnym oknem: przy
+                    # domyślnych 20 s połączenie ginęło, gdy proces akurat
+                    # mielił transkrypcję i pong nie zdążył wrócić na czas.
+                    ping_interval=20,
+                    ping_timeout=60,
+                ) as socket:
                     with self._lock:
                         self._socket = socket
                     attempt = 0

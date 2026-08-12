@@ -52,6 +52,8 @@ class RoomClient:
         #: Set by any message arriving from the service — a link that talks to
         #: us is a link that works, and there is no separate "connected" event.
         self._connected = False
+        #: Ostatnio rozgłoszony utwór, żeby nie powtarzać tego samego.
+        self._now_playing: dict[str, str] | None = None
         #: Name of whoever is speaking elsewhere, or None when the room is quiet.
         self._remote_speaker: str | None = None
         #: True once we quietened this machine for somebody else, so the restore
@@ -95,6 +97,18 @@ class RoomClient:
         self._publish_state()
         self._send({"type": "speaking_ended", "words": 0, "seconds": 0})
 
+    def report_now_playing(self, track: dict[str, str] | None) -> None:
+        """Publish what is playing here, but only when it actually changed.
+
+        The room shows it live and the server forgets it immediately — there is
+        no table for this. Sending on every poll would be a message a second for
+        a value that changes once per song.
+        """
+        if track == self._now_playing:
+            return
+        self._now_playing = track
+        self._send({"type": "now_playing", "track": track})
+
     def heartbeat(self) -> None:
         self._send({"type": "heartbeat"})
 
@@ -107,6 +121,9 @@ class RoomClient:
         out, because nobody else is going to tell us to.
         """
         self._connected = False
+        # Serwer trzyma kafelek tylko w pamięci procesu i zapomniał go razem
+        # z połączeniem; bez tego po powrocie nie wysłalibyśmy go ponownie.
+        self._now_playing = None
         self._set_remote_speaker(None)
         self._publish_state()
         LOGGER.info("Pokój niedostępny; dyktowanie działa lokalnie")

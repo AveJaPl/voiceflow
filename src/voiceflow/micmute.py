@@ -36,9 +36,15 @@ import json
 import logging
 import shutil
 import subprocess
+import threading
 from dataclasses import dataclass
 
 from voiceflow.config import MuteAppsConfig
+
+#: Jak często, w trakcie dyktowania, sprawdzamy czy nie pojawił się nowy
+#: strumień do ściszenia. Zmiana utworu w odtwarzaczu potrafi zamknąć jeden
+#: strumień i otworzyć drugi — bez tego nowy leciałby na pełnej głośności.
+DUCK_RESCAN_SECONDS = 1.0
 
 LOGGER = logging.getLogger(__name__)
 
@@ -63,6 +69,14 @@ class MicMuter:
         self._muted: list[_Target] = []
         #: (target, original volume) pairs for playback streams we turned down.
         self._ducked: list[tuple[_Target, float]] = []
+        #: Węzły już ściszone. Drugie ściszenie tego samego zapamiętałoby
+        #: ściszony poziom jako „oryginalny" i zostawiło aplikację cicho na stałe.
+        self._ducked_ids: set[int] = set()
+        #: Ściszanie działa przez cały czas nagrywania, nie tylko w chwili startu,
+        #: więc dogląda go osobny wątek. Blokada chroni listę współdzieloną z nim.
+        self._duck_lock = threading.Lock()
+        self._duck_stop: threading.Event | None = None
+        self._duck_thread: threading.Thread | None = None
         #: app (casefolded) -> (display name, original volume) for restores that
         #: found no live stream; retried whenever the app shows up again.
         self._pending_restores: dict[str, tuple[str, float]] = {}
@@ -99,9 +113,11 @@ class MicMuter:
                 LOGGER.info("Wyciszono mikrofon aplikacji %s (node %d)", target.app, target.node_id)
         if self.config.duck_enabled:
             self._duck()
+            self._start_duck_watch()
 
     def unmute(self) -> None:
         """Restore every stream muted or ducked by :meth:`mute`. Never raises."""
+        self._stop_duck_watch()
         for target in self._muted:
             if self._set_mute(target.node_id, False):
                 LOGGER.info(
@@ -129,6 +145,7 @@ class MicMuter:
                 )
                 self._pending_restores[target.app.casefold()] = (target.app, original)
         self._ducked = []
+        self._ducked_ids.clear()
 
     def _restore_by_app(self, app: str, original: float) -> bool:
         """Set ``original`` on every current playback stream of ``app``."""
@@ -150,6 +167,38 @@ class MicMuter:
             if self._restore_by_app(app, original):
                 del self._pending_restores[key]
 
+    def _start_duck_watch(self) -> None:
+        """Keep ducking whatever starts playing until the recording ends.
+
+        Ducking once, at the start, only covered streams that already existed.
+        Changing a track closes one stream and opens another, and that new one
+        came in at full volume straight into the microphone.
+        """
+        if self._duck_stop is not None:
+            return
+        stop = threading.Event()
+        self._duck_stop = stop
+        thread = threading.Thread(target=self._watch_ducking, args=(stop,), daemon=True)
+        self._duck_thread = thread
+        thread.start()
+
+    def _stop_duck_watch(self) -> None:
+        stop, thread = self._duck_stop, self._duck_thread
+        self._duck_stop = None
+        self._duck_thread = None
+        if stop is not None:
+            stop.set()
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=2.0)
+
+    def _watch_ducking(self, stop: threading.Event) -> None:
+        while not stop.wait(DUCK_RESCAN_SECONDS):
+            try:
+                self._duck()
+            except Exception:
+                # Zepsute doglądanie nie może przewrócić nagrywania.
+                LOGGER.warning("Nie udało się dościszyć nowych strumieni", exc_info=True)
+
     def _duck(self) -> None:
         """Turn every playing app down to a fraction of where its own slider is.
 
@@ -162,7 +211,13 @@ class MicMuter:
         # Clamp: a multiplier above 1.0 would make audio LOUDER while dictating.
         default = min(self.config.duck_to, 1.0)
         rules = {name.casefold(): volume for name, volume in self.config.duck_rules}
+        with self._duck_lock:
+            self._duck_streams(default, rules)
+
+    def _duck_streams(self, default: float, rules: dict[str, float]) -> None:
         for target in self._find_playback_streams():
+            if target.node_id in self._ducked_ids:
+                continue
             factor = min(rules.get(target.app.casefold(), default), 1.0)
             if factor >= 1.0:
                 # An explicit "never duck this app" rule.
@@ -177,6 +232,7 @@ class MicMuter:
                 continue
             if self._set_volume(target.node_id, duck_to):
                 self._ducked.append((target, original))
+                self._ducked_ids.add(target.node_id)
                 LOGGER.info(
                     "Ściszono %s z %.0f%% do %.0f%% (mnożnik %.2f, node %d)",
                     target.app,

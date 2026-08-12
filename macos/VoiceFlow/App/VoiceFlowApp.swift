@@ -342,6 +342,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             log.error("setupRemoteMic wołane przed setupSessionController — pomijam")
             return
         }
+        // Jednorazowy import tokenu parowania podrzuconego przez `defaults`
+        // (np. skonfigurowanego skryptem/agentem). Wpis do Keychaina zrobiony
+        // przez `security` z CLI ma partition-list ograniczoną do narzędzi
+        // Apple i apka NIE MOŻE go odczytać — jedyna czysta droga to zapis
+        // przez samą aplikację. Token jest natychmiast USUWANY z defaults;
+        // na dysku zostaje wyłącznie w Keychainie.
+        let importKey = "voiceflow.pairingTokenImport"
+        if let imported = UserDefaults.standard.string(forKey: importKey), !imported.isEmpty {
+            KeychainPairingTokenStore().saveToken(imported)
+            UserDefaults.standard.removeObject(forKey: importKey)
+            DebugLog.write("RemoteMic", "token parowania zaimportowany z defaults do Keychaina")
+        }
+
         let client = RemoteMicClient(sessionController: sessionController, audioCapture: sharedAudioCapture)
         remoteMicClient = client
 

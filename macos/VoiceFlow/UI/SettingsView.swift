@@ -53,6 +53,12 @@ enum MainHotkey: String, CaseIterable, Identifiable {
     /// modyfikatora. keyCode i bit ZMIERZONE sondą 2026-08-09 (nie zgadywane),
     /// patrz Hotkey/HotkeyMonitor.swift.
     case fn
+    /// F5 — klawisz z symbolem mikrofonu na klawiaturach MacBooków. UWAGA:
+    /// żeby słał zwykłe `keyDown` F5, w Ustawieniach systemowych musi być
+    /// włączone „Używaj klawiszy F1, F2… jako standardowych" ALBO wciskany
+    /// razem z Fn; do tego skrót systemowego Dyktowania Apple trzeba
+    /// wyłączyć, inaczej podwójne stuknięcie odpala dyktowanie Apple.
+    case f5
     case rightOption
     case rightControl
     case rightShift
@@ -64,6 +70,7 @@ enum MainHotkey: String, CaseIterable, Identifiable {
     var keyCode: CGKeyCode {
         switch self {
         case .fn: 0x3F
+        case .f5: 0x60
         case .rightOption: 0x3D
         case .rightControl: 0x3E
         case .rightShift: 0x3C
@@ -79,6 +86,7 @@ enum MainHotkey: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .fn: "Fn / 🌐 (zalecane — jak Wispr Flow i Dyktowanie Apple)"
+        case .f5: "F5 / klawisz mikrofonu — wymaga „F1, F2… jako standardowe” i wyłączenia skrótu Dyktowania Apple"
         case .rightOption: "Prawy ⌥ — u Ciebie odpalał się samoistnie"
         case .rightControl: "Prawy ⌃ — może nie istnieć na Twojej klawiaturze"
         case .rightShift: "Prawy ⇧"

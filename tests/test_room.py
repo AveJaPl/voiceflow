@@ -343,3 +343,45 @@ def test_reconnect_stays_quiet_when_we_are_not_speaking() -> None:
     transport.deliver({"type": "room_state", "speaking": None})
 
     assert transport.sent == []
+
+
+# --- zgoda na kafelki ------------------------------------------------------
+
+
+def test_music_is_not_shared_without_consent() -> None:
+    """Czego ktoś słucha, to rzecz o nim, a nie o pracy — wejście do pokoju
+    samo w sobie zgody nie daje."""
+    client, transport, _states = _client_with_states(share_music=False)
+
+    client.report_now_playing({"title": "Numb"})
+
+    assert transport.sent == []
+
+
+def test_claude_usage_needs_explicit_consent() -> None:
+    client, transport, _states = _client_with_states()   # domyślnie wyłączone
+
+    client.report_claude_usage({"fiveHour": 58, "sevenDay": 5})
+
+    assert transport.sent == []
+
+
+def test_claude_usage_is_sent_once_when_allowed() -> None:
+    client, transport, _states = _client_with_states(share_claude_usage=True)
+    usage = {"fiveHour": 58, "sevenDay": 5, "resetsAt": 0}
+
+    client.report_claude_usage(usage)
+    client.report_claude_usage(usage)
+
+    assert transport.sent == [{"type": "claude_usage", "usage": usage}]
+
+
+def test_reconnect_resends_claude_usage() -> None:
+    client, transport, _states = _client_with_states(share_claude_usage=True)
+    client.report_claude_usage({"fiveHour": 58})
+    transport.sent.clear()
+
+    client.on_disconnected()
+    client.report_claude_usage({"fiveHour": 58})
+
+    assert transport.sent == [{"type": "claude_usage", "usage": {"fiveHour": 58}}]

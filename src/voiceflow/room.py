@@ -54,6 +54,8 @@ class RoomClient:
         self._connected = False
         #: Ostatnio rozgłoszony utwór, żeby nie powtarzać tego samego.
         self._now_playing: dict[str, str] | None = None
+        #: To samo dla zużycia Claude Code.
+        self._claude_usage: dict[str, int] | None = None
         #: Name of whoever is speaking elsewhere, or None when the room is quiet.
         self._remote_speaker: str | None = None
         #: True once we quietened this machine for somebody else, so the restore
@@ -100,14 +102,32 @@ class RoomClient:
     def report_now_playing(self, track: dict[str, str] | None) -> None:
         """Publish what is playing here, but only when it actually changed.
 
-        The room shows it live and the server forgets it immediately — there is
-        no table for this. Sending on every poll would be a message a second for
-        a value that changes once per song.
+        Silent unless `share_music` is on: what somebody listens to is about
+        them, not about the work, and joining a room does not grant it. The
+        room shows it live and the server forgets it immediately — there is no
+        table for this. Sending on every poll would be a message a second for a
+        value that changes once per song.
         """
+        if not self.config.share_music:
+            return
         if track == self._now_playing:
             return
         self._now_playing = track
         self._send({"type": "now_playing", "track": track})
+
+    def report_claude_usage(self, usage: dict[str, int] | None) -> None:
+        """Publish this machine's Claude Code limit usage, when allowed.
+
+        Off unless `share_claude_usage` is on, and off by default: this says
+        something about how a person works, which is a step past the word counts
+        the room exists to compare. Same transient treatment as the music.
+        """
+        if not self.config.share_claude_usage:
+            return
+        if usage == self._claude_usage:
+            return
+        self._claude_usage = usage
+        self._send({"type": "claude_usage", "usage": usage})
 
     def heartbeat(self) -> None:
         self._send({"type": "heartbeat"})
@@ -124,6 +144,7 @@ class RoomClient:
         # Serwer trzyma kafelek tylko w pamięci procesu i zapomniał go razem
         # z połączeniem; bez tego po powrocie nie wysłalibyśmy go ponownie.
         self._now_playing = None
+        self._claude_usage = None
         self._set_remote_speaker(None)
         self._publish_state()
         LOGGER.info("Pokój niedostępny; dyktowanie działa lokalnie")

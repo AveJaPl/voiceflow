@@ -23,6 +23,7 @@ export function createHub({ store }) {
         // Wyłącznie w pamięci procesu: restart usługi kasuje kafelki i to
         // jest w porządku — to stan chwili, nie dane.
         nowPlaying: new Map(),
+        usage: new Map(),
       });
     }
     return rooms.get(code);
@@ -63,6 +64,20 @@ export function createHub({ store }) {
     return { type: 'now_playing', playing };
   }
 
+  function usagePayload(entry) {
+    const people = [];
+    for (const [deviceId, item] of entry.usage) {
+      if (item.usage) people.push({ deviceId, name: item.name, ...item.usage });
+    }
+    return { type: 'claude_usage', people };
+  }
+
+  function broadcastUsage(code) {
+    const entry = room(code);
+    const payload = usagePayload(entry);
+    for (const connection of entry.connections) connection.send(payload);
+  }
+
   function broadcastNowPlaying(code) {
     const entry = room(code);
     const payload = nowPlayingPayload(entry);
@@ -84,6 +99,7 @@ export function createHub({ store }) {
         }
         connection.send({ type: 'room_state', speaking: speakerPayload(entry) });
         connection.send(nowPlayingPayload(entry));
+        connection.send(usagePayload(entry));
         return;
       }
 
@@ -101,6 +117,19 @@ export function createHub({ store }) {
         } : null;
         entry.nowPlaying.set(connection.deviceId, { name: connection.name, track });
         broadcastNowPlaying(connection.roomCode);
+        return;
+      }
+
+      if (message.type === 'claude_usage') {
+        // Jak muzyka: przelotem, bez tabeli. Dzielenie się tym jest wyłączone
+        // domyślnie po stronie klienta — tu tylko rozsyłamy to, co przyszło.
+        const usage = message.usage ? {
+          fiveHour: Math.max(0, Math.min(100, Number(message.usage.fiveHour) || 0)),
+          sevenDay: Math.max(0, Math.min(100, Number(message.usage.sevenDay) || 0)),
+          resetsAt: Number(message.usage.resetsAt) || 0,
+        } : null;
+        entry.usage.set(connection.deviceId, { name: connection.name, usage });
+        broadcastUsage(connection.roomCode);
         return;
       }
 
@@ -155,6 +184,9 @@ export function createHub({ store }) {
       entry.connections.delete(connection);
       if (entry.nowPlaying.delete(connection.deviceId)) {
         broadcastNowPlaying(connection.roomCode);
+      }
+      if (entry.usage.delete(connection.deviceId)) {
+        broadcastUsage(connection.roomCode);
       }
       const wasSpeaking = entry.state.speaking?.deviceId === connection.deviceId;
       entry.state = leave(entry.state, connection.deviceId);

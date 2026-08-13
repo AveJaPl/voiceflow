@@ -235,3 +235,35 @@ test('wyjście z pokoju zabiera ze sobą kafelek muzyki', async () => {
   const played = wojtek.sent.filter((m) => m.type === 'now_playing');
   assert.deepEqual(played.at(-1).playing, []);
 });
+
+test('zużycie Claude Code rozsyła się i nie dotyka bazy', async () => {
+  const writes = [];
+  const hub = createHub({
+    store: { async activeSession() { return { id: 1 }; }, async recordDictation(...a) { writes.push(a); } },
+  });
+  const filip = fakeConnection('dev-1', 'Filip');
+  const widz = { ...fakeConnection('viewer-1', null), viewer: true, sent: [], send(o) { this.sent.push(o); } };
+  await hub.handleMessage(filip, { type: 'hello' });
+  await hub.handleMessage(widz, { type: 'hello' });
+  widz.sent.length = 0;
+
+  await hub.handleMessage(filip, { type: 'claude_usage', usage: { fiveHour: 58, sevenDay: 5 } });
+
+  const seen = widz.sent.filter((m) => m.type === 'claude_usage').at(-1);
+  assert.equal(seen.people[0].fiveHour, 58);
+  assert.equal(seen.people[0].name, 'Filip');
+  assert.deepEqual(writes, [], 'zużycie nie ma prawa trafić do bazy');
+});
+
+test('bzdurne procenty są przycinane, nie przepisywane', async () => {
+  const hub = createHub({ store: noopStore });
+  const filip = fakeConnection('dev-1', 'Filip');
+  await hub.handleMessage(filip, { type: 'hello' });
+  filip.sent.length = 0;
+
+  await hub.handleMessage(filip, { type: 'claude_usage', usage: { fiveHour: 900, sevenDay: -5 } });
+
+  const seen = filip.sent.filter((m) => m.type === 'claude_usage').at(-1);
+  assert.equal(seen.people[0].fiveHour, 100);
+  assert.equal(seen.people[0].sevenDay, 0);
+});

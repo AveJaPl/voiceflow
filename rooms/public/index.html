@@ -101,7 +101,8 @@ button:hover{border-color:rgba(255,255,255,.35)}
 .tiles{display:grid; grid-template-columns:1fr 1fr; gap:clamp(10px,1.2vh,16px);
   min-height:0; align-content:start}
 .tile{padding:clamp(12px,1.7vh,20px) clamp(14px,1.4vw,20px); min-width:0;
-  display:flex; flex-direction:column; justify-content:center; gap:6px}
+  display:flex; flex-direction:column; justify-content:center; gap:6px;
+  align-items:flex-start; text-align:left}
 .tile.wide{grid-column:1 / -1}
 .tile-value{font-family:var(--display); font-weight:700; letter-spacing:-.02em;
   font-size:clamp(1.3rem,2.8vh,1.95rem); line-height:1.1;
@@ -116,6 +117,17 @@ button:hover{border-color:rgba(255,255,255,.35)}
 .tune img{width:clamp(38px,5.4vh,54px); height:clamp(38px,5.4vh,54px); border-radius:8px;
   object-fit:cover; flex:none; background:var(--raised)}
 .tune .tune-text{min-width:0}
+/* Zużycie Claude Code: pasek na okno pięciogodzinne, bo to ono uwiera w pracy.
+   Tydzień jako liczba obok — ważny, ale nie z minuty na minutę. */
+.usage-row{display:flex; align-items:baseline; gap:8px; width:100%}
+.usage-name{font-size:.78rem; color:var(--muted); min-width:0;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1}
+.usage-value{font-family:var(--display); font-weight:600; font-size:.95rem;
+  font-variant-numeric:tabular-nums}
+.usage-bar{height:4px; border-radius:3px; background:rgba(255,255,255,.07);
+  overflow:hidden; width:100%; margin-top:4px}
+.usage-bar i{display:block; height:100%; border-radius:3px; background:var(--mark)}
+.usage-bar i.hot{background:var(--rec)}
 
 /* --- ranking ------------------------------------------------------------- */
 .board-head{display:flex; align-items:baseline; justify-content:space-between; gap:12px;
@@ -348,6 +360,7 @@ let board = {};
 let roomHistory = {};
 let timeline = { points: [] };
 let tunes = [];
+let claudeUsage = [];
 let leaderSince = null;
 let lastLeader = null;
 
@@ -410,18 +423,40 @@ function tempoLabel() {
 
 function renderTiles() {
   const music = tunes.filter((item) => item.title);
-  el('tiles').innerHTML = music.map((item) => `
-    <div class="card tile tune${music.length > 1 ? '' : ' wide'}">
-      ${item.artUrl ? `<img src="${escapeHtml(item.artUrl)}" alt="">` : ''}
-      <div class="tune-text">
-        <p class="eyebrow">Teraz gra</p>
-        <div class="tile-value" style="font-size:1.05rem">${escapeHtml(item.title)}</div>
-        <div class="tile-sub">${escapeHtml([item.artist, item.player, item.name]
-          .filter(Boolean).join(' · '))}</div>
-      </div>
-    </div>`).join('')
-    || '<div class="card tile wide"><p class="eyebrow">Teraz gra</p>'
-       + '<div class="tile-sub">Nic teraz nie leci</div></div>';
+  const usage = claudeUsage.filter((item) => item.fiveHour !== undefined);
+  // Sam kafelek bierze pełną szerokość; dwa dzielą rząd po połowie.
+  const alone = (music.length ? 1 : 0) + (usage.length ? 1 : 0) < 2;
+  const parts = [];
+
+  parts.push(`<div class="card tile tune${alone ? ' wide' : ''}">
+    ${music[0]?.artUrl ? `<img src="${escapeHtml(music[0].artUrl)}" alt="">` : ''}
+    <div class="tune-text">
+      <p class="eyebrow">Teraz gra</p>
+      ${music.length
+        ? `<div class="tile-value" style="font-size:1.05rem">${escapeHtml(music[0].title)}</div>
+           <div class="tile-sub">${escapeHtml([music[0].artist, music[0].player, music[0].name]
+             .filter(Boolean).join(' · '))}</div>`
+        : '<div class="tile-sub">Nic teraz nie leci</div>'}
+    </div>
+  </div>`);
+
+  if (usage.length) {
+    parts.push(`<div class="card tile${alone ? ' wide' : ''}">
+      <p class="eyebrow">Claude Code</p>
+      ${usage.map((item) => `
+        <div style="width:100%">
+          <div class="usage-row">
+            <span class="usage-name">${escapeHtml(item.name ?? '—')}</span>
+            <span class="usage-value">${item.fiveHour}%</span>
+          </div>
+          <div class="usage-bar"><i class="${item.fiveHour >= 80 ? 'hot' : ''}"
+            style="width:${item.fiveHour}%"></i></div>
+        </div>`).join('')}
+      <div class="tile-sub">okno 5-godzinne · tydzień ${usage
+        .map((item) => `${item.sevenDay}%`).join(' / ')}</div>
+    </div>`);
+  }
+  el('tiles').innerHTML = parts.join('');
 }
 
 /* --- tablica -------------------------------------------------------------- */
@@ -664,6 +699,7 @@ function connect() {
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data);
     if (message.type === 'now_playing') { tunes = message.playing ?? []; renderTiles(); return; }
+    if (message.type === 'claude_usage') { claudeUsage = message.people ?? []; renderTiles(); return; }
     if (message.type === 'speaker_changed' || message.type === 'room_state') {
       speakingName = message.speaking?.name ?? null;
       renderSpeaker();
@@ -682,7 +718,7 @@ function showRoom(wanted, { push = true } = {}) {
   el('no-room').dataset.on = '0';
   el('board').dataset.on = '1';
   el('switcher').dataset.on = '0';
-  board = {}; roomHistory = {}; timeline = { points: [] }; tunes = [];
+  board = {}; roomHistory = {}; timeline = { points: [] }; tunes = []; claudeUsage = [];
   lastLeader = null; leaderSince = null;
   renderSpeaker();
   renderTiles();

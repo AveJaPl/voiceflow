@@ -181,6 +181,20 @@ class RoomPage(Gtk.ScrolledWindow):
         advertise_label.set_hexpand(True)
         advertise.append(advertise_label)
         header.append(advertise)
+
+        # Zgody na kafelki. Osobno od samego pokoju, bo dołączenie do niego
+        # dotyczy pracy, a to są rzeczy o Tobie.
+        self._share_music = self._consent_row(
+            header,
+            "Pokazuj w pokoju, czego słucham",
+            "Tytuł, wykonawca i okładka trafiają na tablicę. Nic z tego nie jest zapisywane.",
+        )
+        self._share_claude = self._consent_row(
+            header,
+            "Pokazuj w pokoju zużycie Claude Code",
+            "Wyłącznie procenty limitów — bez nazw sesji, katalogów i kosztów. "
+            "Domyślnie wyłączone.",
+        )
         box.append(header)
 
         now = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=style.SPACE_12)
@@ -232,6 +246,59 @@ class RoomPage(Gtk.ScrolledWindow):
         box.append(self._status)
         return box
 
+    def _consent_row(self, parent: Gtk.Box, title: str, detail: str) -> Gtk.Switch:
+        """One opt-in switch: what leaves this machine, in the user's words."""
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=style.SPACE_12)
+        switch = Gtk.Switch()
+        switch.set_valign(Gtk.Align.CENTER)
+        switch.connect("notify::active", self._on_consent_changed)
+        row.append(switch)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=style.SPACE_4)
+        text.set_hexpand(True)
+        text.append(label(title, "body-text"))
+        hint = label(detail, "section-hint")
+        hint.set_wrap(True)
+        text.append(hint)
+        row.append(text)
+        parent.append(row)
+        return switch
+
+    def _on_consent_changed(self, _switch: Gtk.Switch, _param) -> None:
+        """Persist both switches and restart, because the daemon reads once."""
+        if self._busy or not self._in_room():
+            return
+        wanted = {
+            "share_music": self._share_music.get_active(),
+            "share_claude_usage": self._share_claude.get_active(),
+        }
+        try:
+            raw = services.load_raw_config()
+            room = services.ensure_mutable_section(raw, "room")
+            if all(room.get(key) == value for key, value in wanted.items()):
+                return
+            room.update(wanted)
+            services.atomic_write_config(raw)
+        except RuntimeError as exc:
+            self._on_toast(str(exc))
+            return
+        self._restart_daemon("Zapisano. Demon wstaje ponownie…")
+
+    def _restart_daemon(self, message: str) -> None:
+        if self._busy:
+            return
+        self._busy = True
+        self._on_toast(message)
+
+        def worker() -> None:
+            try:
+                services.run_systemctl("restart")
+            except RuntimeError as exc:
+                GLib.idle_add(self._finish_action, False, str(exc), False)
+                return
+            GLib.idle_add(self._finish_action, True, "Gotowe", False)
+
+        threading.Thread(target=worker, name="room-consent", daemon=True).start()
+
     # -- cykl życia ---------------------------------------------------------
 
     def refresh(self) -> None:
@@ -245,6 +312,13 @@ class RoomPage(Gtk.ScrolledWindow):
         self._server = services.string_value(room, "server", DEFAULT_SERVER)
         self._enabled = services.bool_value(room, "enabled", False)
         self._code = services.string_value(room, "code", "").upper()
+        # `set_active` odpala sygnał, więc na czas wczytania zgłaszamy zajętość,
+        # żeby samo pokazanie strony nie zapisywało konfiguracji i nie restartowało
+        # demona w kółko.
+        loading, self._busy = self._busy, True
+        self._share_music.set_active(services.bool_value(room, "share_music", True))
+        self._share_claude.set_active(services.bool_value(room, "share_claude_usage", False))
+        self._busy = loading
 
         self._state = read_room_state(services.room_state_path())
         self._browser.start()

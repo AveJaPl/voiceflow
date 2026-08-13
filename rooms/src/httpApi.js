@@ -120,10 +120,11 @@ export function createHttpApi({ store }) {
       // a dwa odpytania dawałyby widok, w którym sumy nie zgadzają się z listą.
       const limit = clampLimit(query.get('limit'));
       const offset = Math.max(0, Number(query.get('offset')) || 0);
-      const [page, people, sessionCount] = await Promise.all([
+      const [page, people, sessionCount, hours] = await Promise.all([
         store.sessionHistory(room.id, limit, offset),
         store.roomSummary(room.id),
         store.sessionCount(room.id),
+        store.hourlyActivity(room.id),
       ]);
       // Zapytanie pobrało jeden wiersz ponad limit — on nie jedzie do klienta,
       // służy wyłącznie za odpowiedź na „czy jest coś dalej".
@@ -135,6 +136,7 @@ export function createHttpApi({ store }) {
         people,
         hasMore,
         offset,
+        hours,
         // Sumy dotyczą CAŁEGO pokoju, nie tej strony wyników — inaczej
         // przewijanie historii zmieniałoby dorobek ludzi w locie.
         totals: historyTotals(sessionCount, people),

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { rankingRows, generateCode, hashToken, historyRows, summaryRows, historyTotals, withSilentMembers } from '../src/store.js';
+import { rankingRows, generateCode, hashToken, historyRows, summaryRows, historyTotals, withSilentMembers, hourlyRows } from '../src/store.js';
 
 test('ranking sumuje słowa i sekundy per urządzenie i sortuje malejąco', () => {
   const rows = [
@@ -167,4 +167,21 @@ test('brak listy obecnych nie wywraca rankingu', () => {
   ]);
 
   assert.equal(withSilentMembers(ranking, undefined).length, 1);
+});
+
+test('rozkład dobowy ma wszystkie 24 godziny, także puste', () => {
+  // Wykres musi mieć pełną dobę, inaczej godziny bez pracy po prostu znikają
+  // z osi i wygląda to, jakby doba miała pięć godzin.
+  const hours = hourlyRows([{ hour: '9', words: '120', dictations: '3' }]);
+
+  assert.equal(hours.length, 24);
+  assert.deepEqual(hours[9], { hour: 9, words: 120, dictations: 3 });
+  assert.deepEqual(hours[0], { hour: 0, words: 0, dictations: 0 });
+});
+
+test('bzdurna godzina z bazy nie psuje doby', () => {
+  const hours = hourlyRows([{ hour: '99', words: '5', dictations: '1' }]);
+
+  assert.equal(hours.length, 24);
+  assert.equal(hours.reduce((sum, h) => sum + h.words, 0), 0);
 });

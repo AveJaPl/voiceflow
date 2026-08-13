@@ -35,6 +35,7 @@ function fakeStore(overrides = {}) {
     async sessionHistory() { return []; },
     async sessionCount() { return 0; },
     async roomSummary() { return []; },
+    async hourlyActivity() { return []; },
     ...overrides,
   };
 }

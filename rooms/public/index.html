@@ -222,6 +222,17 @@ input[type=text]:focus{outline:none; border-color:rgba(255,255,255,.4)}
 .axis-row{display:flex; justify-content:space-between; padding-right:5.6rem;
   color:var(--faint); font-size:.62rem; font-family:var(--mono); margin-top:6px}
 
+/* Rozkład dobowy: jedna seria, więc identyfikacja nie jest problemem i wystarczy
+   sama jasność. Wyróżniona jest bieżąca godzina — po to, żeby patrzący widział
+   siebie na tle własnych nawyków, a nie sam słupek. */
+.hours{display:grid; grid-template-columns:repeat(24,1fr); gap:2px;
+  align-items:end; height:clamp(48px,8vh,84px)}
+.hour{background:var(--mark); min-height:2px; border-radius:2px 2px 0 0}
+.hour.now{background:rgba(255,255,255,.9)}
+.hour.empty{background:rgba(255,255,255,.06)}
+.hours-axis{display:flex; justify-content:space-between; color:var(--faint);
+  font-size:.62rem; font-family:var(--mono); margin-top:6px}
+
 /* --- ekran bez pokoju --- */
 #no-room{display:none; height:100dvh; overflow:auto; padding:clamp(20px,5vh,60px)}
 #no-room[data-on="1"]{display:block}
@@ -272,6 +283,13 @@ pre{background:rgba(0,0,0,.4); border:1px solid var(--border); border-radius:10p
           <p class="eyebrow" id="tempo"></p>
         </div>
         <div id="charts-body"></div>
+      </section>
+      <section class="card chart-card">
+        <div class="chart-head">
+          <p class="eyebrow">O której pracujecie</p>
+          <p class="eyebrow" id="hours-note"></p>
+        </div>
+        <div id="hours-body"></div>
       </section>
     </div>
 
@@ -559,6 +577,42 @@ function renderCharts() {
     <div class="axis-row">${ticks.map((b) => `<span>${hour(b)}</span>`).join('')}</div>`;
 }
 
+function renderHours() {
+  const hours = roomHistory.hours ?? [];
+  if (!hours.length || !hours.some((item) => item.words)) {
+    el('hours-body').innerHTML =
+      '<div class="tile-sub">Za mało pracy, żeby zobaczyć rytm dnia.</div>';
+    el('hours-note').textContent = '';
+    return;
+  }
+
+  // Baza liczy godziny w UTC, bo nie ma prawa zgadywać strefy patrzącego.
+  // Przesunięcie na czas lokalny robimy tutaj — przeglądarka swoją strefę zna.
+  const shift = -new Date().getTimezoneOffset() / 60;
+  const local = new Array(24).fill(0);
+  for (const item of hours) {
+    local[(((item.hour + shift) % 24) + 24) % 24] += item.words;
+  }
+
+  const ceiling = Math.max(...local, 1);
+  const nowHour = new Date().getHours();
+  const busiest = local.indexOf(Math.max(...local));
+  const total = local.reduce((sum, value) => sum + value, 0);
+  el('hours-note').textContent =
+    `szczyt o ${busiest}:00 · ${Math.round((local[busiest] / total) * 100)}% dorobku`;
+
+  el('hours-body').innerHTML = `
+    <div class="hours">${local.map((value, hour) => {
+      const height = value ? Math.max(6, (value / ceiling) * 100) : 0;
+      const kind = !value ? 'empty' : hour === nowHour ? 'now' : '';
+      return `<div class="hour ${kind}" style="height:${value ? height : 4}%"
+        title="${escapeHtml(`${hour}:00 — ${numbers.format(value)} ${wordWord(value)}`)}"></div>`;
+    }).join('')}</div>
+    <div class="hours-axis">
+      ${[0, 6, 12, 18, 23].map((hour) => `<span>${hour}:00</span>`).join('')}
+    </div>`;
+}
+
 /* --- dane ----------------------------------------------------------------- */
 
 function setStatus(text, state) {
@@ -599,6 +653,7 @@ async function refreshSlow() {
   }
   renderTiles();
   renderCharts();
+  renderHours();
   el('tempo').textContent = tempoLabel();
 }
 
@@ -632,6 +687,7 @@ function showRoom(wanted, { push = true } = {}) {
   renderSpeaker();
   renderTiles();
   renderCharts();
+  renderHours();
   refresh();
   refreshSlow();
   connect();

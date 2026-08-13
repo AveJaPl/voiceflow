@@ -197,23 +197,30 @@ input[type=text]:focus{outline:none; border-color:rgba(255,255,255,.4)}
 .chart-head{display:flex; align-items:baseline; justify-content:space-between; gap:10px}
 #charts-body{min-height:0}
 
-/* Wykres: jeden panel na osobę, wspólna skala i wspólna oś czasu pod spodem.
-   Tożsamość niesie podpis panelu, nie barwa — dlatego cała tablica zostaje
-   monochromatyczna i nie potrzeba palety kategorycznej. */
-.chart-row{display:grid; grid-template-columns:minmax(0,5.5rem) minmax(0,1fr) auto;
-  gap:10px; align-items:center; padding:clamp(5px,.9vh,10px) 0;
-  border-bottom:1px solid rgba(255,255,255,.05)}
-.chart-row:last-of-type{border-bottom:none}
-.chart-name{font-family:var(--display); font-weight:600; font-size:.92rem;
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-.chart-total{font-family:var(--display); font-weight:600; font-size:.92rem;
-  color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap}
-.chart{width:100%; height:clamp(22px,4.2vh,40px); display:block}
-.chart rect{fill:var(--mark)}
-.chart .axis{fill:rgba(255,255,255,.08)}
-.axis-row{display:grid; grid-template-columns:minmax(0,5.5rem) minmax(0,1fr) auto;
-  gap:10px; color:var(--faint); font-size:.62rem; font-family:var(--mono)}
-.axis-ticks{display:flex; justify-content:space-between}
+/* Wykres narastający: ile słów kto ma RAZEM w danym momencie sesji. Słupki
+   mówiły „ile w tym kwadransie" — z tego nie widać, jak szło ani kto kogo
+   wyprzedził. Linie, które się przecinają, pokazują dokładnie to.
+
+   Wszystkie linie są w tej samej szarości; tożsamość niesie podpis przy końcu
+   linii, nie barwa. Dzięki temu wykres wielu serii mieści się w monochromie,
+   a czerwień dalej znaczy wyłącznie „ten ktoś właśnie mówi". */
+.plot{position:relative; width:100%; height:clamp(120px,20vh,190px);
+  padding-right:5.6rem}
+.plot svg{width:100%; height:100%; display:block; overflow:visible}
+.plot polyline{fill:none; stroke:var(--mark); stroke-width:2;
+  vector-effect:non-scaling-stroke; stroke-linejoin:round; stroke-linecap:round}
+.plot polyline.lead{stroke:rgba(255,255,255,.85)}
+.plot polyline.speaking{stroke:var(--rec)}
+.plot .grid{stroke:rgba(255,255,255,.07); stroke-width:1; vector-effect:non-scaling-stroke}
+/* Podpis przy końcu linii — to on identyfikuje serię, więc nie może zniknąć. */
+.tag{position:absolute; left:calc(100% - 5.3rem); transform:translateY(-50%);
+  font-size:.72rem; color:var(--muted); white-space:nowrap; pointer-events:none;
+  overflow:hidden; text-overflow:ellipsis; max-width:5.3rem}
+.tag b{font-family:var(--display); font-weight:600; color:var(--text)}
+.tag.lead b{color:#fff}
+.tag.speaking b{color:var(--rec)}
+.axis-row{display:flex; justify-content:space-between; padding-right:5.6rem;
+  color:var(--faint); font-size:.62rem; font-family:var(--mono); margin-top:6px}
 
 /* --- ekran bez pokoju --- */
 #no-room{display:none; height:100dvh; overflow:auto; padding:clamp(20px,5vh,60px)}
@@ -386,7 +393,7 @@ function tempoLabel() {
 function renderTiles() {
   const music = tunes.filter((item) => item.title);
   el('tiles').innerHTML = music.map((item) => `
-    <div class="card tile tune wide">
+    <div class="card tile tune${music.length > 1 ? '' : ' wide'}">
       ${item.artUrl ? `<img src="${escapeHtml(item.artUrl)}" alt="">` : ''}
       <div class="tune-text">
         <p class="eyebrow">Teraz gra</p>
@@ -493,47 +500,63 @@ function renderCharts() {
   const points = timeline.points ?? [];
   if (!points.length) {
     el('charts-body').innerHTML =
-      '<p class="lead">W tej sesji nie ma jeszcze czego rysować.</p>';
+      '<div class="tile-sub">W tej sesji nie ma jeszcze czego rysować.</div>';
     return;
   }
   const buckets = [...new Set(points.map((p) => p.at))].sort();
-  const ceiling = Math.max(...points.map((p) => p.words), 1);
   const people = [...new Map(points.map((p) => [p.deviceId, p.name])).entries()];
-  const width = 100 / buckets.length;
+  const leader = (board.ranking ?? [])[0]?.name;
+
+  // Narastająco: w każdym punkcie osi ile ktoś ma RAZEM od początku sesji.
+  const series = people.map(([deviceId, name]) => {
+    const mine = new Map(points.filter((p) => p.deviceId === deviceId).map((p) => [p.at, p.words]));
+    let running = 0;
+    const values = buckets.map((bucket) => (running += mine.get(bucket) ?? 0));
+    return { deviceId, name, values, total: running };
+  }).sort((a, b) => b.total - a.total);
+
+  const ceiling = Math.max(...series.map((s) => s.total), 1);
+  const x = (index) => (buckets.length < 2 ? 0 : (index / (buckets.length - 1)) * 100);
+  const y = (value) => 100 - (value / ceiling) * 100;
+
+  const lines = series.map((item) => {
+    const kind = item.name === leader ? 'lead' : item.name === speakingName ? 'speaking' : '';
+    const shape = item.values.map((value, index) => `${x(index)},${y(value)}`).join(' ');
+    return `<polyline class="${kind}" points="${shape}"><title>${escapeHtml(
+      `${item.name} — ${item.total} ${wordWord(item.total)}`)}</title></polyline>`;
+  }).join('');
+
+  // Podpisy przy końcach linii, odsunięte od siebie, żeby przy zbliżonych
+  // wynikach nie nachodziły na siebie i dalej dało się je przeczytać.
+  let previous = -Infinity;
+  const tags = series.map((item) => {
+    const wanted = Math.min(96, Math.max(4, y(item.total)));
+    const top = wanted - previous < 13 ? previous + 13 : wanted;
+    previous = top;
+    const kind = item.name === leader ? 'lead' : item.name === speakingName ? 'speaking' : '';
+    return `<div class="tag ${kind}" style="top:${top}%">
+      <b>${escapeHtml(item.name ?? '—')}</b> ${numbers.format(item.total)}</div>`;
+  }).join('');
+
   const hour = (value) => {
     const when = new Date(value);
     return Number.isNaN(when.getTime()) ? '' :
       `${when.getHours()}:${String(when.getMinutes()).padStart(2, '0')}`;
   };
-
-  const rows = people.map(([deviceId, name]) => {
-    const mine = new Map(points.filter((p) => p.deviceId === deviceId).map((p) => [p.at, p.words]));
-    const words = buckets.reduce((sum, b) => sum + (mine.get(b) ?? 0), 0);
-    const bars = buckets.map((bucket, index) => {
-      const value = mine.get(bucket) ?? 0;
-      if (!value) return '';
-      const height = Math.max(4, (value / ceiling) * 100);
-      // 2 px przerwy: sąsiadujące wypełnienia muszą być rozdzielone powierzchnią.
-      return `<rect x="${index * width}%" y="${100 - height}%" height="${height}%"
-        style="width:calc(${width}% - 2px)"><title>${escapeHtml(
-          `${name} · ${hour(bucket)} · ${value} ${wordWord(value)}`)}</title></rect>`;
-    }).join('');
-    return `<div class="chart-row">
-      <div class="chart-name">${escapeHtml(name ?? '—')}</div>
-      <svg class="chart" preserveAspectRatio="none">
-        <rect class="axis" x="0" y="99%" width="100%" height="1%"></rect>${bars}</svg>
-      <div class="chart-total">${numbers.format(words)}</div>
-    </div>`;
-  }).join('');
-
   const ticks = buckets.filter((_, index) =>
-    index === 0 || index === buckets.length - 1 || index % Math.ceil(buckets.length / 6) === 0);
-  el('charts-body').innerHTML = rows + `
-    <div class="axis-row" style="margin-top:8px">
-      <div></div>
-      <div class="axis-ticks">${ticks.map((b) => `<span>${hour(b)}</span>`).join('')}</div>
-      <div></div>
-    </div>`;
+    index === 0 || index === buckets.length - 1
+    || index % Math.max(1, Math.ceil(buckets.length / 5)) === 0);
+
+  el('charts-body').innerHTML = `
+    <div class="plot">
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+        <line class="grid" x1="0" y1="100" x2="100" y2="100"></line>
+        <line class="grid" x1="0" y1="50" x2="100" y2="50"></line>
+        ${lines}
+      </svg>
+      ${tags}
+    </div>
+    <div class="axis-row">${ticks.map((b) => `<span>${hour(b)}</span>`).join('')}</div>`;
 }
 
 /* --- dane ----------------------------------------------------------------- */

@@ -15,199 +15,204 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
 <style>
-/* Tokeny wzięte 1:1 z landingu (site/pl/index.html `:root`), nie z site/DESIGN.md,
-   który opisuje nieaktualną wersję ze złotym akcentem.
+/* Tokeny 1:1 z landingu (site/pl/index.html `:root`), nie z site/DESIGN.md.
+   Jedyny kolor to czerwień nagrywania i zapala się tylko, gdy ktoś mówi.
 
-   Ta strona jest EKRANEM ŚCIENNYM: tablet oparty o monitor albo telewizor
-   w tle pracy. Stąd dwie rzeczy, które rządzą całym układem — mieści się
-   w jednym widoku bez przewijania, a rozmiary idą z wysokości okna, żeby ten
-   sam plik czytał się z pół metra i z trzech.
-
-   Jedyny kolor to czerwień nagrywania i pojawia się wyłącznie wtedy, gdy ktoś
-   naprawdę mówi. */
+   UKŁAD: dwie kolumny — bloki po lewej, ranking po prawej. Wybrany przez Filipa
+   z Pinteresta, bo rozwiązuje konflikt, który poprzednia wersja przegrała:
+   kafelki i ranking nie walczą już o tę samą wysokość, więc jedno nie musi być
+   ściskane, żeby drugie się zmieściło. Z pinu wzięty jest wyłącznie układ —
+   kolory, marmur, typografia i zaokrąglenia zostają nasze. */
 :root{
   --bg:#0b0b0c; --surface:rgba(22,22,24,.72); --raised:#1e1e21;
   --text:#f5f5f7; --muted:#9a9aa2; --faint:#55555c; --border:#28282c;
   --rec:#ff453a;
-  /* Szarość słupków wykresu. Dobrana, nie zgadnięta: 4,6:1 wobec tła, czyli
-     powyżej progu 3:1, przy którym walidator palety zgłasza zbyt słaby mark. */
+  /* Szarość marków wykresu: 4,6:1 wobec tła, powyżej progu 3:1 z walidatora. */
   --mark:#7a7a82;
   --display:"Archivo",system-ui,sans-serif;
   --sans:"Inter",system-ui,sans-serif;
   --mono:"JetBrains Mono",ui-monospace,monospace;
-  /* Skala od wysokości okna: na tablecie i na telewizorze ma wyglądać tak samo,
-     tylko większe. */
-  --u:clamp(9px, 1.35vh, 18px);
+  --r:14px;
 }
 *{box-sizing:border-box}
 html,body{height:100%}
-body{
-  margin:0; background:var(--bg); color:var(--text);
-  font:400 16px/1.5 var(--sans);
-  -webkit-font-smoothing:antialiased; overflow:hidden;
-}
+body{margin:0; background:var(--bg); color:var(--text);
+  font:400 16px/1.5 var(--sans); -webkit-font-smoothing:antialiased; overflow:hidden}
 
 #bg{position:fixed;inset:-10vh 0;z-index:-2;pointer-events:none}
-#bg img{width:100%;height:120vh;object-fit:cover;opacity:.28}
+#bg img{width:100%;height:120vh;object-fit:cover;opacity:.3}
 #bg::after{content:"";position:absolute;inset:0;
   background:radial-gradient(120% 85% at 50% 0%,transparent 25%,rgba(11,11,12,.9) 80%,var(--bg) 100%)}
 .grain{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.45;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .05 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E")}
 
-.eyebrow{font-size:calc(var(--u)*.82); font-weight:600; letter-spacing:.2em;
-  text-transform:uppercase; color:var(--faint)}
+.eyebrow{font-size:.68rem; font-weight:600; letter-spacing:.2em; text-transform:uppercase;
+  color:var(--faint); margin:0}
+.card{border:1px solid var(--border); border-radius:var(--r); background:var(--surface);
+  backdrop-filter:blur(14px)}
 
-/* --- ekran ---------------------------------------------------------------
-   Trzy pasy: nagłówek, „teraz" z kafelkami, tablica. Tablica bierze resztę
-   i kurczy wiersze, więc pięć osób mieści się tak samo jak dwie. */
-#board{display:none; height:100dvh; padding:calc(var(--u)*1.6) calc(var(--u)*2);
-  padding-top:max(calc(var(--u)*1.6), env(safe-area-inset-top));
-  grid-template-rows:auto auto minmax(0,1fr) auto; gap:calc(var(--u)*1.2)}
+/* --- rusztowanie --------------------------------------------------------- */
+#board{display:none; height:100dvh; padding:clamp(16px,2.2vh,30px) clamp(18px,2vw,38px);
+  padding-top:max(clamp(16px,2.2vh,30px), env(safe-area-inset-top));
+  grid-template-rows:auto minmax(0,1fr) auto; gap:clamp(12px,1.8vh,22px)}
 #board[data-on="1"]{display:grid}
+.columns{display:grid; grid-template-columns:minmax(0,0.82fr) minmax(0,1.18fr);
+  gap:clamp(12px,1.6vw,24px); min-height:0}
+.col{display:flex; flex-direction:column; gap:clamp(10px,1.4vh,18px); min-height:0}
 
 /* --- nagłówek --- */
-.top{display:flex; align-items:center; gap:calc(var(--u)*1.4); flex-wrap:wrap}
+.top{display:flex; align-items:center; gap:clamp(10px,1.4vw,20px); flex-wrap:wrap}
 .room-name{font-family:var(--display); font-weight:700; letter-spacing:-.03em;
-  font-size:calc(var(--u)*2.4); line-height:1}
-.chip{font-family:var(--mono); font-size:calc(var(--u)*.9); letter-spacing:.2em;
-  color:var(--muted); border:1px solid var(--border); padding:calc(var(--u)*.4) calc(var(--u)*.8)}
+  font-size:clamp(1.5rem,2.9vh,2.3rem); line-height:1}
+.chip{font-family:var(--mono); font-size:.78rem; letter-spacing:.2em; color:var(--muted);
+  border:1px solid var(--border); border-radius:999px; padding:5px 12px; white-space:nowrap}
 .top .spacer{flex:1}
-.session-name{color:var(--muted); font-size:calc(var(--u)*1); max-width:28ch;
+.session-name{color:var(--muted); font-size:.92rem; max-width:24ch;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-.clock{font-family:var(--mono); font-size:calc(var(--u)*1.25); color:var(--text)}
-button{font:inherit; color:var(--text); background:var(--raised);
-  border:1px solid var(--border); border-radius:0; cursor:pointer;
-  padding:calc(var(--u)*.5) calc(var(--u)*1); font-size:calc(var(--u)*.92)}
+.clock{font-family:var(--mono); font-size:clamp(.95rem,1.9vh,1.25rem); color:var(--text)}
+button{font:inherit; color:var(--text); background:var(--raised); border:1px solid var(--border);
+  border-radius:10px; cursor:pointer; padding:8px 14px; font-size:.86rem}
 button:hover{border-color:rgba(255,255,255,.35)}
 
-/* --- „teraz mówi" + kafelki ---------------------------------------------
-   Kanty, nie pigułki: nigdzie indziej w tym interfejsie nie ma zaokrągleń,
-   więc okrągły kafelek muzyki wyglądał jak wklejony z innej strony. */
-.strip{display:grid; grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);
-  gap:calc(var(--u)*1.2); align-items:stretch}
-.now{position:relative; display:flex; align-items:center; gap:calc(var(--u)*1.2);
-  padding:calc(var(--u)*1.1) calc(var(--u)*1.4); border:1px solid var(--border);
-  background:var(--surface); overflow:hidden; transition:border-color .4s ease}
+/* --- „kto teraz mówi" ---------------------------------------------------- */
+.now{position:relative; display:flex; align-items:center; gap:clamp(12px,1.4vw,20px);
+  padding:clamp(14px,2vh,24px) clamp(16px,1.6vw,26px); overflow:hidden;
+  transition:border-color .4s ease}
 .now::before{content:""; position:absolute; inset:0; opacity:0; transition:opacity .5s ease;
-  background:linear-gradient(90deg, rgba(255,69,58,.16), transparent 60%)}
+  background:linear-gradient(90deg, rgba(255,69,58,.16), transparent 62%)}
 .now[data-live="1"]{border-color:rgba(255,69,58,.4)}
 .now[data-live="1"]::before{opacity:1}
 .now-text{position:relative; min-width:0}
 .now-title{font-family:var(--display); font-weight:700; letter-spacing:-.02em;
-  font-size:calc(var(--u)*2); line-height:1.05; overflow:hidden;
-  text-overflow:ellipsis; white-space:nowrap}
-.now-sub{color:var(--muted); font-size:calc(var(--u)*.88); margin-top:calc(var(--u)*.3)}
-.wave{position:relative; display:flex; align-items:center; gap:calc(var(--u)*.28);
-  height:calc(var(--u)*3); flex:none}
-.wave i{display:block; width:calc(var(--u)*.32); height:calc(var(--u)*.5);
-  background:var(--faint); transition:background .4s ease}
+  font-size:clamp(1.4rem,3.2vh,2.1rem); line-height:1.05;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin:2px 0 0}
+.now-sub{color:var(--muted); font-size:.82rem; margin:4px 0 0}
+.wave{position:relative; display:flex; align-items:center; gap:4px;
+  height:clamp(34px,5vh,52px); flex:none}
+.wave i{display:block; width:4px; height:8px; border-radius:2px; background:var(--faint);
+  transition:background .4s ease}
 .now[data-live="1"] .wave i{background:var(--rec); animation:pulse 1.05s ease-in-out infinite}
 .wave i:nth-child(1){animation-delay:-.9s} .wave i:nth-child(2){animation-delay:-.62s}
 .wave i:nth-child(3){animation-delay:-.34s} .wave i:nth-child(4){animation-delay:-.5s}
 .wave i:nth-child(5){animation-delay:-.15s}
-@keyframes pulse{0%,100%{height:calc(var(--u)*.4)}50%{height:calc(var(--u)*2.6)}}
+@keyframes pulse{0%,100%{height:7px}50%{height:clamp(28px,4.2vh,44px)}}
 
-/* Rząd kafelków. Dziś mieszka tu muzyka; miejsce jest przygotowane na kolejne. */
-.tiles{display:flex; flex-direction:column; gap:calc(var(--u)*.7); min-width:0}
-.tile{display:flex; align-items:center; gap:calc(var(--u)*.9); min-width:0;
-  padding:calc(var(--u)*.7) calc(var(--u)*1); border:1px solid var(--border);
-  background:var(--surface); flex:1}
-.tile img{width:calc(var(--u)*3); height:calc(var(--u)*3); object-fit:cover; flex:none;
-  background:var(--raised)}
-.tile-text{min-width:0}
-.tile-title{font-size:calc(var(--u)*1); font-weight:600; overflow:hidden;
-  text-overflow:ellipsis; white-space:nowrap}
-.tile-sub{font-size:calc(var(--u)*.8); color:var(--faint); overflow:hidden;
-  text-overflow:ellipsis; white-space:nowrap}
-.tile.empty{color:var(--faint); font-size:calc(var(--u)*.88); align-items:center;
-  justify-content:center; border-style:dashed}
+/* --- kafelki ------------------------------------------------------------- */
+.tiles{display:grid; grid-template-columns:1fr 1fr; gap:clamp(10px,1.2vh,16px);
+  min-height:0; align-content:start}
+.tile{padding:clamp(12px,1.7vh,20px) clamp(14px,1.4vw,20px); min-width:0;
+  display:flex; flex-direction:column; justify-content:center; gap:6px}
+.tile.wide{grid-column:1 / -1}
+.tile-value{font-family:var(--display); font-weight:700; letter-spacing:-.02em;
+  font-size:clamp(1.3rem,2.8vh,1.95rem); line-height:1.1;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+/* Dwie linijki zamiast urwania: „rekord: Poprawki na landingu — 21 400" niesie
+   treść, której wielokropek nie odda. */
+.tile-sub{color:var(--faint); font-size:.76rem; line-height:1.35;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden}
+.tile-sub.warm{color:var(--muted)}
+/* Kafelek muzyki: okładka obok tekstu, w tym samym prostokącie co reszta. */
+.tune{flex-direction:row; align-items:center; gap:clamp(10px,1.1vw,16px)}
+.tune img{width:clamp(38px,5.4vh,54px); height:clamp(38px,5.4vh,54px); border-radius:8px;
+  object-fit:cover; flex:none; background:var(--raised)}
+.tune .tune-text{min-width:0}
 
-/* --- tablica -------------------------------------------------------------
-   Jeden wiersz na osobę, wiersze dzielą dostępną wysokość po równo. */
-.board-head{display:flex; align-items:baseline; justify-content:space-between;
-  gap:calc(var(--u)*1); border-bottom:1px solid var(--border);
-  padding-bottom:calc(var(--u)*.5)}
-.rows{list-style:none; margin:0; padding:0; display:grid; gap:calc(var(--u)*.5);
-  grid-auto-rows:minmax(0,1fr); min-height:0; overflow:hidden}
-.row{position:relative; display:grid; align-items:center; min-height:0;
-  gap:0 calc(var(--u)*1.2);
-  grid-template-columns:calc(var(--u)*3.2) minmax(0,1.1fr) minmax(0,1.4fr) calc(var(--u)*5) calc(var(--u)*5);
-  border-bottom:1px solid rgba(255,255,255,.05); padding:calc(var(--u)*.3) 0}
+/* --- ranking ------------------------------------------------------------- */
+.board-head{display:flex; align-items:baseline; justify-content:space-between; gap:12px;
+  padding:0 4px 8px; border-bottom:1px solid var(--border)}
+/* Naturalne wysokości i wyrównanie do góry. Rozciąganie wierszy do pełnej
+   kolumny wyglądało na rozepchnięte, a sufit wysokości zostawiał po sobie
+   dziury — jedno i drugie gorsze niż trochę powietrza na dole. */
+.rows{list-style:none; margin:0; padding:0; overflow-y:auto; min-height:0; flex:1}
+.rows::-webkit-scrollbar{width:4px}
+.rows::-webkit-scrollbar-thumb{background:var(--border)}
+.row{position:relative; display:grid; align-items:center; gap:0 clamp(10px,1.2vw,18px);
+  grid-template-columns:clamp(46px,5vw,66px) minmax(0,1fr) auto;
+  padding:clamp(13px,1.9vh,22px) 4px;
+  border-bottom:1px solid rgba(255,255,255,.05)}
+.row:last-child{border-bottom:none}
 .pos{position:relative; z-index:0; text-align:center; font-family:var(--display);
-  font-weight:800; font-size:calc(var(--u)*2); line-height:1; letter-spacing:-.05em;
+  font-weight:800; font-size:clamp(1.5rem,3vh,2.2rem); line-height:1; letter-spacing:-.05em;
   color:transparent; -webkit-text-stroke:1.2px var(--faint); user-select:none}
 .row[data-lead="1"] .pos{-webkit-text-stroke:1.2px rgba(255,255,255,.6); color:rgba(255,255,255,.12)}
-.row[data-lead="1"] .pos::after{content:""; position:absolute; z-index:-1;
-  left:50%; top:50%; width:calc(var(--u)*5.2); height:calc(var(--u)*5.2);
-  transform:translate(-50%,-50%); pointer-events:none; opacity:.7;
-  background:url("/assets/laurel.webp") center/contain no-repeat}
+.row[data-lead="1"] .pos::after{content:""; position:absolute; z-index:-1; left:50%; top:50%;
+  width:clamp(66px,8vh,104px); height:clamp(66px,8vh,104px); transform:translate(-50%,-50%);
+  pointer-events:none; opacity:.7; background:url("/assets/laurel.webp") center/contain no-repeat}
 .who{min-width:0}
 .name{font-family:var(--display); font-weight:600; letter-spacing:-.02em;
-  font-size:calc(var(--u)*1.4); line-height:1.15;
+  font-size:clamp(1.05rem,2.2vh,1.5rem); line-height:1.15;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .row[data-speaking="1"] .name{color:#fff}
-.row[data-speaking="1"] .name::after{content:"mówi"; margin-left:calc(var(--u)*.6);
-  font-family:var(--sans); font-size:calc(var(--u)*.6); font-weight:600;
-  letter-spacing:.18em; text-transform:uppercase; color:var(--rec); vertical-align:middle}
-.meta{color:var(--faint); font-size:calc(var(--u)*.75); margin-top:calc(var(--u)*.15);
+.row[data-speaking="1"] .name::after{content:"mówi"; margin-left:9px; font-family:var(--sans);
+  font-size:.56rem; font-weight:600; letter-spacing:.18em; text-transform:uppercase;
+  color:var(--rec); vertical-align:middle}
+.bar{height:4px; margin-top:9px; border-radius:3px; background:rgba(255,255,255,.06); overflow:hidden}
+.bar i{display:block; height:100%; border-radius:3px; background:rgba(255,255,255,.3);
+  transition:width .9s cubic-bezier(.2,.7,.2,1), background .4s ease}
+.row[data-lead="1"] .bar i{background:rgba(255,255,255,.72)}
+.row[data-speaking="1"] .bar i{background:var(--rec)}
+.meta{color:var(--faint); font-size:.74rem; margin-top:6px;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-.stat{text-align:right}
+/* Liczby: szerokość z treści, nigdy łamane. „1 g 17 min" zawijało się na dwa
+   wiersze, bo kolumna miała sztywną szerokość węższą niż tekst. */
+.numbers{display:flex; gap:clamp(12px,1.4vw,24px); align-items:baseline}
+.stat{text-align:right; white-space:nowrap}
 .stat b{display:block; font-family:var(--display); font-weight:600;
-  font-size:calc(var(--u)*1.5); letter-spacing:-.02em; font-variant-numeric:tabular-nums}
-.stat small{display:block; font-size:calc(var(--u)*.6); letter-spacing:.16em;
+  font-size:clamp(1.05rem,2.2vh,1.55rem); letter-spacing:-.02em; font-variant-numeric:tabular-nums}
+.stat small{display:block; margin-top:2px; font-size:.56rem; letter-spacing:.16em;
   text-transform:uppercase; color:var(--faint)}
 
-/* Wykres: jeden pasek na osobę, w jej własnym wierszu. Tożsamość niesie podpis
-   wiersza, nie barwa — dlatego nie potrzeba tu palety kategorycznej i cała
-   tablica zostaje monochromatyczna. Wyróżniony jest wyłącznie ten, kto mówi. */
-.spark{width:100%; height:calc(var(--u)*2.6); display:block; overflow:visible}
-.spark rect{fill:var(--mark)}
-.row[data-speaking="1"] .spark rect{fill:var(--rec)}
-.spark .axis{fill:rgba(255,255,255,.07)}
+.empty-board{padding:28px 8px; color:var(--muted)}
+footer{display:flex; align-items:center; gap:8px; color:var(--faint); font-size:.74rem}
+.led{width:6px;height:6px;border-radius:50%;background:var(--faint);flex:none}
+.led.ok{background:rgba(255,255,255,.55)} .led.bad{background:var(--rec)}
 
-.empty-board{padding:calc(var(--u)*2); color:var(--muted); font-size:calc(var(--u)*1)}
-footer{display:flex; align-items:center; gap:calc(var(--u)*.7);
-  color:var(--faint); font-size:calc(var(--u)*.78)}
-.led{width:calc(var(--u)*.45); height:calc(var(--u)*.45); border-radius:50%;
-  background:var(--faint); flex:none}
-.led.ok{background:rgba(255,255,255,.55)}
-.led.bad{background:var(--rec)}
-
-/* --- przełącznik pokoju (PWA nie ma paska adresu) ------------------------ */
-#switcher{position:fixed; inset:0; z-index:20; display:none;
-  background:rgba(11,11,12,.88); backdrop-filter:blur(10px);
-  align-items:center; justify-content:center; padding:calc(var(--u)*2)}
-#switcher[data-on="1"]{display:flex}
-.sheet{width:min(46rem,100%); border:1px solid var(--border); background:var(--raised);
-  padding:calc(var(--u)*2)}
+/* --- nakładki: przełącznik pokoju i wykresy ------------------------------ */
+.overlay{position:fixed; inset:0; z-index:20; display:none; padding:clamp(16px,4vh,48px);
+  background:rgba(11,11,12,.9); backdrop-filter:blur(12px);
+  align-items:center; justify-content:center}
+.overlay[data-on="1"]{display:flex}
+.sheet{width:min(64rem,100%); max-height:100%; overflow:auto; padding:clamp(20px,3vh,34px);
+  border:1px solid var(--border); border-radius:var(--r); background:var(--raised)}
 .sheet h2{font-family:var(--display); font-weight:700; letter-spacing:-.02em;
-  font-size:calc(var(--u)*1.8); margin:calc(var(--u)*.4) 0 calc(var(--u)*1.4)}
-.sheet form{display:flex; gap:calc(var(--u)*.8); flex-wrap:wrap}
-input[type=text]{flex:1; min-width:10rem; background:var(--bg); color:var(--text);
-  border:1px solid var(--border); border-radius:0; padding:calc(var(--u)*.7) calc(var(--u)*1);
-  font:inherit; font-family:var(--mono); font-size:calc(var(--u)*1.1);
-  letter-spacing:.24em; text-transform:uppercase}
+  font-size:clamp(1.3rem,2.6vh,1.9rem); margin:6px 0 18px}
+.sheet form{display:flex; gap:10px; flex-wrap:wrap}
+input[type=text]{flex:1; min-width:9rem; background:var(--bg); color:var(--text);
+  border:1px solid var(--border); border-radius:10px; padding:10px 14px; font:inherit;
+  font-family:var(--mono); letter-spacing:.24em; text-transform:uppercase}
 input[type=text]:focus{outline:none; border-color:rgba(255,255,255,.4)}
-.recent{display:flex; flex-wrap:wrap; gap:calc(var(--u)*.6); margin-top:calc(var(--u)*1.4)}
-.recent button{font-family:var(--mono); letter-spacing:.18em}
+.recent{display:flex; flex-wrap:wrap; gap:8px; margin-top:18px}
+.recent button{font-family:var(--mono); letter-spacing:.16em}
+
+/* Wykres: jeden panel na osobę, wspólna skala i wspólna oś czasu pod spodem.
+   Tożsamość niesie podpis panelu, nie barwa — dlatego cała tablica zostaje
+   monochromatyczna i nie potrzeba palety kategorycznej. */
+.chart-row{display:grid; grid-template-columns:9rem minmax(0,1fr) 5rem; gap:14px;
+  align-items:center; padding:10px 0; border-bottom:1px solid rgba(255,255,255,.05)}
+.chart-name{font-family:var(--display); font-weight:600; font-size:1rem;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.chart{width:100%; height:56px; display:block}
+.chart rect{fill:var(--mark)}
+.chart .axis{fill:rgba(255,255,255,.08)}
+.axis-row{display:grid; grid-template-columns:9rem minmax(0,1fr) 5rem; gap:14px;
+  color:var(--faint); font-size:.68rem; font-family:var(--mono)}
+.axis-ticks{display:flex; justify-content:space-between}
 
 /* --- ekran bez pokoju --- */
-#no-room{display:none; height:100dvh; overflow:auto; padding:calc(var(--u)*3)}
+#no-room{display:none; height:100dvh; overflow:auto; padding:clamp(20px,5vh,60px)}
 #no-room[data-on="1"]{display:block}
-.setup{max-width:44rem; margin:0 auto}
-.setup h1{font-family:var(--display); font-weight:700; font-size:calc(var(--u)*3);
-  letter-spacing:-.03em; margin:calc(var(--u)*.6) 0 calc(var(--u)*1)}
-.lead{color:var(--muted); font-size:calc(var(--u)*1)}
-pre{background:rgba(0,0,0,.4); border:1px solid var(--border);
-  padding:calc(var(--u)*1); overflow-x:auto; font-family:var(--mono);
-  font-size:calc(var(--u)*.85); color:var(--muted)}
+.setup{max-width:42rem; margin:0 auto}
+.setup h1{font-family:var(--display); font-weight:700; font-size:clamp(2rem,5vh,3rem);
+  letter-spacing:-.03em; margin:8px 0 14px}
+.lead{color:var(--muted)}
+pre{background:rgba(0,0,0,.4); border:1px solid var(--border); border-radius:10px;
+  padding:14px; overflow-x:auto; font-family:var(--mono); font-size:.82rem; color:var(--muted)}
 
-@media (max-width:760px){
-  .strip{grid-template-columns:1fr}
-  .row{grid-template-columns:calc(var(--u)*2.6) minmax(0,1fr) calc(var(--u)*4.4)}
-  .row .spark, .row .stat:last-child{display:none}
+@media (max-width:900px){
+  .columns{grid-template-columns:1fr; overflow-y:auto}
+  .tiles{grid-template-columns:1fr 1fr}
 }
-@media (prefers-reduced-motion:reduce){*{animation:none !important; transition:none !important}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
 </style>
 </head>
 <body>
@@ -215,7 +220,6 @@ pre{background:rgba(0,0,0,.4); border:1px solid var(--border);
 <div id="bg"><img src="/assets/bg-relief.webp" alt="" aria-hidden="true"></div>
 <div class="grain" aria-hidden="true"></div>
 
-<!-- ================= ekran ścienny ================= -->
 <div id="board">
   <div class="top">
     <span class="room-name" id="room-name">Pokój</span>
@@ -223,34 +227,36 @@ pre{background:rgba(0,0,0,.4); border:1px solid var(--border);
     <span class="spacer"></span>
     <span class="session-name" id="session-name">—</span>
     <span class="clock" id="session-clock">—</span>
+    <button id="charts-open" type="button">Wykresy</button>
     <button id="switch-open" type="button">Zmień pokój</button>
   </div>
 
-  <div class="strip">
-    <section class="now" id="now" data-live="0">
-      <div class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
-      <div class="now-text">
-        <p class="eyebrow" id="now-eyebrow">Teraz</p>
-        <div class="now-title" id="now-title">Cisza</div>
-        <div class="now-sub" id="now-sub">Nikt nie dyktuje</div>
-      </div>
-    </section>
-    <div class="tiles" id="tiles"></div>
-  </div>
-
-  <section style="display:grid; grid-template-rows:auto minmax(0,1fr); min-height:0">
-    <div class="board-head">
-      <p class="eyebrow">Tablica sesji</p>
-      <p class="eyebrow" id="board-hint"></p>
+  <div class="columns">
+    <div class="col">
+      <section class="card now" id="now" data-live="0">
+        <div class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="now-text">
+          <p class="eyebrow" id="now-eyebrow">Teraz</p>
+          <div class="now-title" id="now-title">Cisza</div>
+          <div class="now-sub" id="now-sub">Nikt nie dyktuje</div>
+        </div>
+      </section>
+      <div class="tiles" id="tiles"></div>
     </div>
-    <ul class="rows" id="rows"></ul>
-  </section>
+
+    <div class="col">
+      <div class="board-head">
+        <p class="eyebrow">Tablica sesji</p>
+        <p class="eyebrow" id="board-hint"></p>
+      </div>
+      <ul class="rows" id="rows"></ul>
+    </div>
+  </div>
 
   <footer><span class="led" id="led"></span><span id="status">Łączenie…</span></footer>
 </div>
 
-<!-- ================= przełącznik ================= -->
-<div id="switcher">
+<div class="overlay" id="switcher">
   <div class="sheet">
     <p class="eyebrow">Pokój</p>
     <h2>Którą tablicę pokazać?</h2>
@@ -258,27 +264,34 @@ pre{background:rgba(0,0,0,.4); border:1px solid var(--border);
       <input type="text" id="switch-code" placeholder="KOD" maxlength="6"
              autocapitalize="characters" spellcheck="false" aria-label="Kod pokoju">
       <button type="submit">Pokaż</button>
-      <button type="button" id="switch-close">Anuluj</button>
+      <button type="button" data-close="switcher">Anuluj</button>
     </form>
     <div class="recent" id="recent"></div>
   </div>
 </div>
 
-<!-- ================= bez pokoju ================= -->
+<div class="overlay" id="charts">
+  <div class="sheet">
+    <p class="eyebrow">Sesja</p>
+    <h2>Kto kiedy dyktował</h2>
+    <div id="charts-body"></div>
+    <div style="margin-top:20px"><button type="button" data-close="charts">Zamknij</button></div>
+  </div>
+</div>
+
 <div id="no-room">
   <div class="setup">
     <p class="eyebrow">voiceflow</p>
     <h1>Pokoje</h1>
     <p class="lead">Tablica pokazuje, kto w pokoju właśnie dyktuje, i wynik bieżącej sesji.
       Podaj kod, żeby ją otworzyć — a potem przypnij tę stronę do ekranu.</p>
-    <form id="code-form" style="display:flex; gap:.8rem; margin:1.5rem 0; flex-wrap:wrap">
+    <form id="code-form" style="display:flex; gap:10px; margin:22px 0; flex-wrap:wrap">
       <input type="text" id="code-input" placeholder="KOD" maxlength="6"
              autocapitalize="characters" spellcheck="false" aria-label="Kod pokoju">
       <button type="submit">Pokaż tablicę</button>
     </form>
-    <p class="lead">Nie masz pokoju? Na komputerze, na którym dyktujesz:</p>
+    <p class="lead">Nie masz pokoju? W aplikacji: zakładka <b>Pokój</b> → Utwórz pokój. Albo:</p>
 <pre><code>voiceflow room create --as TwojeImie --name "Salon"</code></pre>
-    <p class="lead">Albo w aplikacji: zakładka <b>Pokój</b> → Utwórz pokój.</p>
   </div>
 </div>
 
@@ -291,21 +304,24 @@ let code = '';
 let socket = null;
 let speakingName = null;
 let sessionStartedAt = null;
-let document_ = {};
+let board = {};
+let roomHistory = {};
 let timeline = { points: [] };
+let tunes = [];
+let leaderSince = null;
+let lastLeader = null;
 
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g,
-  (character) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[character]));
+  (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 
-/* Polska odmiana przez liczbę; `many` obsługuje też 12–14, które mimo końcówki
-   idą jak 5+. */
 function plural(count, one, few, many) {
-  const number = Math.abs(count);
-  if (number === 1) return one;
-  const rest = number % 10, teens = number % 100;
+  const n = Math.abs(count);
+  if (n === 1) return one;
+  const rest = n % 10, teens = n % 100;
   return rest >= 2 && rest <= 4 && !(teens >= 12 && teens <= 14) ? few : many;
 }
-const wordWord = (count) => plural(count, 'słowo', 'słowa', 'słów');
+const wordWord = (n) => plural(n, 'słowo', 'słowa', 'słów');
+const minuteWord = (n) => plural(n, 'minuty', 'minut', 'minut');
 
 function formatDuration(seconds) {
   const minutes = Math.max(0, Math.round(seconds / 60));
@@ -315,31 +331,117 @@ function formatDuration(seconds) {
   return `${minutes} min`;
 }
 
-/* --- pamięć pokoi ---------------------------------------------------------
-   PWA startuje z `/`, bez paska adresu, więc ostatnio oglądany pokój musi
-   pamiętać sama strona — inaczej przypięta ikona otwierałaby pustkę. */
+/* --- pamięć pokoi (PWA startuje z `/`, bez paska adresu) ------------------ */
 function recentRooms() {
   try {
     const stored = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
-    return Array.isArray(stored) ? stored.filter((item) => typeof item === 'string') : [];
+    return Array.isArray(stored) ? stored.filter((i) => typeof i === 'string') : [];
   } catch { return []; }
 }
-
 function rememberRoom(wanted) {
-  const list = [wanted, ...recentRooms().filter((item) => item !== wanted)].slice(0, 6);
+  const list = [wanted, ...recentRooms().filter((i) => i !== wanted)].slice(0, 6);
   try { localStorage.setItem(RECENT_KEY, JSON.stringify(list)); } catch { /* tryb prywatny */ }
 }
 
-function renderRecent() {
-  const others = recentRooms().filter((item) => item !== code);
-  el('recent').innerHTML = others.length
-    ? `<span class="eyebrow" style="align-self:center">Ostatnie:</span>` + others
-        .map((item) => `<button type="button" data-code="${escapeHtml(item)}">${escapeHtml(item)}</button>`)
-        .join('')
-    : '';
+/* --- kafelki --------------------------------------------------------------
+   Wszystkie liczą się z danych, które i tak pobieramy. Żaden nie wprowadza
+   zależności od cudzej usługi, więc żaden nie może zgasnąć przez czyjąś awarię. */
+
+function tempoTile() {
+  const points = timeline.points ?? [];
+  if (!points.length) return null;
+  const bucketMinutes = Math.max(1, (timeline.bucketSeconds ?? 300) / 60);
+  const buckets = [...new Set(points.map((p) => p.at))].sort();
+  const last = buckets[buckets.length - 1];
+  const recent = points.filter((p) => p.at === last).reduce((sum, p) => sum + p.words, 0);
+  const perMinute = Math.round(recent / bucketMinutes);
+  const all = points.reduce((sum, p) => sum + p.words, 0);
+  const average = Math.round(all / Math.max(1, buckets.length * bucketMinutes));
+  const trend = !average ? '' : perMinute > average * 1.15 ? 'szybciej niż zwykle'
+    : perMinute < average * 0.85 ? 'wolniej niż zwykle' : 'w rytmie sesji';
+  return {
+    label: 'Tempo pokoju',
+    value: `${numbers.format(perMinute)} sł./min`,
+    sub: `średnia sesji ${numbers.format(average)} · ${trend}`,
+  };
 }
 
-/* --- rysowanie ------------------------------------------------------------ */
+function recordTile() {
+  const sessions = roomHistory.sessions ?? [];
+  if (sessions.length < 2) return null;
+  const current = sessions.find((s) => !s.endedAt);
+  const best = sessions.filter((s) => s.endedAt).reduce(
+    (top, s) => (!top || s.words > top.words ? s : top), null);
+  if (!best || !current) return null;
+  const gap = best.words - current.words;
+  return gap > 0
+    ? { label: 'Do rekordu pokoju', value: `${numbers.format(gap)} ${wordWord(gap)}`,
+        sub: `rekord: ${best.name || 'sesja bez nazwy'} — ${numbers.format(best.words)}` }
+    : { label: 'Rekord pokoju', value: 'Pobity',
+        sub: `poprzedni: ${numbers.format(best.words)} ${wordWord(best.words)}`, warm: true };
+}
+
+function leadTile() {
+  const ranking = board.ranking ?? [];
+  if (ranking.length < 2 || !ranking[0].words) return null;
+  const margin = ranking[0].words - ranking[1].words;
+  const minutes = leaderSince ? Math.round((Date.now() - leaderSince) / 60000) : 0;
+  return {
+    label: 'Prowadzenie',
+    value: escapeHtml(ranking[0].name ?? '—'),
+    sub: margin
+      ? `o ${numbers.format(margin)} ${wordWord(margin)}${minutes ? ` · od ${minutes} ${minuteWord(minutes)}` : ''}`
+      : 'remis co do słowa',
+  };
+}
+
+function totalsTile() {
+  const totals = roomHistory.totals;
+  if (!totals || !totals.words) return null;
+  return {
+    label: 'Razem w pokoju',
+    value: `${numbers.format(totals.words)} ${wordWord(totals.words)}`,
+    sub: `${numbers.format(totals.sessions)} ${plural(totals.sessions,'sesja','sesje','sesji')}`
+      + ` · ${formatDuration(totals.seconds)} mówienia`,
+  };
+}
+
+function silenceTile() {
+  const ranking = board.ranking ?? [];
+  const quiet = ranking.filter((entry) => !entry.words).length;
+  if (!quiet) return null;
+  return {
+    label: 'Jeszcze milczą',
+    value: `${quiet} ${plural(quiet, 'osoba', 'osoby', 'osób')}`,
+    sub: ranking.filter((e) => !e.words).map((e) => e.name).join(', '),
+  };
+}
+
+function renderTiles() {
+  const music = tunes.filter((item) => item.title);
+  const parts = [];
+  for (const item of music) {
+    parts.push(`<div class="card tile tune wide">
+      ${item.artUrl ? `<img src="${escapeHtml(item.artUrl)}" alt="">` : ''}
+      <div class="tune-text">
+        <p class="eyebrow">Teraz gra</p>
+        <div class="tile-value" style="font-size:1.05rem">${escapeHtml(item.title)}</div>
+        <div class="tile-sub">${escapeHtml([item.artist, item.player, item.name]
+          .filter(Boolean).join(' · '))}</div>
+      </div></div>`);
+  }
+  for (const tile of [tempoTile(), recordTile(), leadTile(), totalsTile(), silenceTile()]) {
+    if (!tile) continue;
+    parts.push(`<div class="card tile">
+      <p class="eyebrow">${escapeHtml(tile.label)}</p>
+      <div class="tile-value">${tile.value}</div>
+      <div class="tile-sub${tile.warm ? ' warm' : ''}">${escapeHtml(tile.sub)}</div></div>`);
+  }
+  el('tiles').innerHTML = parts.join('')
+    || '<div class="card tile wide"><div class="tile-sub">Kafelki pojawią się, gdy w sesji coś się wydarzy.</div></div>';
+}
+
+/* --- tablica -------------------------------------------------------------- */
 
 function renderSpeaker() {
   const live = Boolean(speakingName);
@@ -358,44 +460,17 @@ function renderSpeaker() {
 function tickClock() {
   if (!sessionStartedAt) return;
   const total = Math.max(0, Math.floor((Date.now() - sessionStartedAt) / 1000));
-  const pad = (value) => String(value).padStart(2, '0');
+  const pad = (v) => String(v).padStart(2, '0');
   el('session-clock').textContent =
     `${pad(Math.floor(total / 3600))}:${pad(Math.floor(total / 60) % 60)}:${pad(total % 60)}`;
 }
 
-/* Wykres „kto kiedy mówił": jeden pasek na osobę, wspólna skala pionowa, więc
-   wysokości da się porównywać między wierszami. Bez legendy — każdy pasek stoi
-   w wierszu podpisanym imieniem, więc barwa nie musi niczego identyfikować. */
-function sparkFor(deviceId) {
-  const points = timeline.points ?? [];
-  if (!points.length) return '';
-  const buckets = [...new Set(points.map((point) => point.at))].sort();
-  const ceiling = Math.max(...points.map((point) => point.words), 1);
-  const mine = new Map(points.filter((p) => p.deviceId === deviceId).map((p) => [p.at, p]));
-  const width = 100 / Math.max(buckets.length, 1);
-  const bars = buckets.map((bucket, index) => {
-    const point = mine.get(bucket);
-    const words = point ? point.words : 0;
-    const height = words ? Math.max(6, (words / ceiling) * 100) : 0;
-    const when = new Date(bucket);
-    const label = Number.isNaN(when.getTime())
-      ? '' : `${when.getHours()}:${String(when.getMinutes()).padStart(2, '0')} — ${words} ${wordWord(words)}`;
-    if (!height) return '';
-    // 2 px przerwy między słupkami: sąsiadujące wypełnienia muszą być rozdzielone
-    // powierzchnią, inaczej zlewają się w jeden blok.
-    return `<rect x="${index * width}%" y="${100 - height}%" width="${width}%" height="${height}%"
-      transform="translate(1,0)" style="width:calc(${width}% - 2px)"><title>${escapeHtml(label)}</title></rect>`;
-  }).join('');
-  return `<svg class="spark" preserveAspectRatio="none" aria-hidden="true">
-    <rect class="axis" x="0" y="99%" width="100%" height="1%"></rect>${bars}</svg>`;
-}
-
 function renderBoard() {
-  const room = document_.room ?? {};
+  const room = board.room ?? {};
   el('room-name').textContent = room.name || 'Pokój';
   el('room-code').textContent = room.code || code;
 
-  const session = document_.session;
+  const session = board.session;
   if (session) {
     sessionStartedAt = new Date(session.started_at).getTime();
     el('session-name').textContent = session.name || 'Sesja bez nazwy';
@@ -406,9 +481,11 @@ function renderBoard() {
     el('session-clock').textContent = '—';
   }
 
-  const ranking = document_.ranking ?? [];
-  const total = ranking.reduce((sum, entry) => sum + entry.words, 0);
+  const ranking = board.ranking ?? [];
   const leader = ranking[0];
+  if (leader && leader.name !== lastLeader) { lastLeader = leader.name; leaderSince = Date.now(); }
+
+  const total = ranking.reduce((sum, entry) => sum + entry.words, 0);
   el('board-hint').textContent = !leader ? ''
     : ranking.length < 2 ? 'sam na tablicy'
     : leader.words > ranking[1].words
@@ -416,19 +493,19 @@ function renderBoard() {
       : 'remis';
 
   if (!ranking.length) {
-    el('rows').innerHTML =
-      '<li class="empty-board">Nikogo jeszcze nie ma w tym pokoju.</li>';
+    el('rows').innerHTML = '<li class="empty-board">Nikogo jeszcze nie ma w tym pokoju.</li>';
     return;
   }
 
   el('rows').innerHTML = ranking.map((entry, index) => {
-    const behind = (leader.words - entry.words) || 0;
+    const behind = leader.words - entry.words;
     const share = total > 0 ? Math.round((entry.words / total) * 100) : 0;
     const meta = [
       `${numbers.format(entry.dictations)} dyktowań`,
       `${share}% sesji`,
       index > 0 && behind ? `brakuje ${numbers.format(behind)}` : '',
     ].filter(Boolean).join(' · ');
+    const width = leader.words > 0 ? (entry.words / leader.words) * 100 : 0;
     return `
       <li class="row" data-lead="${index === 0 ? '1' : '0'}"
           data-name="${escapeHtml(entry.name ?? '')}"
@@ -436,36 +513,72 @@ function renderBoard() {
         <div class="pos">${String(index + 1).padStart(2, '0')}</div>
         <div class="who">
           <div class="name">${escapeHtml(entry.name ?? '—')}</div>
+          <div class="bar"><i style="width:${width}%"></i></div>
           <div class="meta">${escapeHtml(meta)}</div>
         </div>
-        <div>${sparkFor(entry.deviceId)}</div>
-        <div class="stat"><b>${numbers.format(entry.words)}</b><small>słów</small></div>
-        <div class="stat"><b>${formatDuration(entry.seconds)}</b><small>mówienia</small></div>
+        <div class="numbers">
+          <div class="stat"><b>${numbers.format(entry.words)}</b><small>słów</small></div>
+          <div class="stat"><b>${formatDuration(entry.seconds)}</b><small>mówienia</small></div>
+        </div>
       </li>`;
   }).join('');
 }
 
-function renderTiles(playing) {
-  const tiles = (playing ?? []).filter((item) => item.title);
-  el('tiles').innerHTML = tiles.length
-    ? tiles.map((item) => `
-        <div class="tile">
-          ${item.artUrl ? `<img src="${escapeHtml(item.artUrl)}" alt="">` : ''}
-          <div class="tile-text">
-            <div class="tile-title">${escapeHtml(item.title)}</div>
-            <div class="tile-sub">${escapeHtml([item.artist, item.player, item.name]
-              .filter(Boolean).join(' · '))}</div>
-          </div>
-        </div>`).join('')
-    : '<div class="tile empty">Nic teraz nie gra</div>';
+/* --- wykresy (za kliknięciem, nie na tablicy) ----------------------------- */
+
+function renderCharts() {
+  const points = timeline.points ?? [];
+  if (!points.length) {
+    el('charts-body').innerHTML =
+      '<p class="lead">W tej sesji nie ma jeszcze czego rysować.</p>';
+    return;
+  }
+  const buckets = [...new Set(points.map((p) => p.at))].sort();
+  const ceiling = Math.max(...points.map((p) => p.words), 1);
+  const people = [...new Map(points.map((p) => [p.deviceId, p.name])).entries()];
+  const width = 100 / buckets.length;
+  const hour = (value) => {
+    const when = new Date(value);
+    return Number.isNaN(when.getTime()) ? '' :
+      `${when.getHours()}:${String(when.getMinutes()).padStart(2, '0')}`;
+  };
+
+  const rows = people.map(([deviceId, name]) => {
+    const mine = new Map(points.filter((p) => p.deviceId === deviceId).map((p) => [p.at, p.words]));
+    const words = buckets.reduce((sum, b) => sum + (mine.get(b) ?? 0), 0);
+    const bars = buckets.map((bucket, index) => {
+      const value = mine.get(bucket) ?? 0;
+      if (!value) return '';
+      const height = Math.max(4, (value / ceiling) * 100);
+      // 2 px przerwy: sąsiadujące wypełnienia muszą być rozdzielone powierzchnią.
+      return `<rect x="${index * width}%" y="${100 - height}%" height="${height}%"
+        style="width:calc(${width}% - 2px)"><title>${escapeHtml(
+          `${name} · ${hour(bucket)} · ${value} ${wordWord(value)}`)}</title></rect>`;
+    }).join('');
+    return `<div class="chart-row">
+      <div class="chart-name">${escapeHtml(name ?? '—')}</div>
+      <svg class="chart" preserveAspectRatio="none">
+        <rect class="axis" x="0" y="99%" width="100%" height="1%"></rect>${bars}</svg>
+      <div class="stat"><b>${numbers.format(words)}</b><small>słów</small></div>
+    </div>`;
+  }).join('');
+
+  const ticks = buckets.filter((_, index) =>
+    index === 0 || index === buckets.length - 1 || index % Math.ceil(buckets.length / 6) === 0);
+  el('charts-body').innerHTML = rows + `
+    <div class="axis-row" style="margin-top:8px">
+      <div></div>
+      <div class="axis-ticks">${ticks.map((b) => `<span>${hour(b)}</span>`).join('')}</div>
+      <div></div>
+    </div>`;
 }
+
+/* --- dane ----------------------------------------------------------------- */
 
 function setStatus(text, state) {
   el('status').textContent = text;
   el('led').className = `led ${state}`;
 }
-
-/* --- dane ----------------------------------------------------------------- */
 
 async function refresh() {
   try {
@@ -476,22 +589,30 @@ async function refresh() {
       return;
     }
     if (!response.ok) throw new Error(String(response.status));
-    document_ = await response.json();
+    board = await response.json();
     renderBoard();
     renderSpeaker();
+    renderTiles();
     setStatus('Na żywo', 'ok');
   } catch {
     setStatus('Brak połączenia z serwerem pokoi', 'bad');
   }
 }
 
-async function refreshTimeline() {
-  try {
-    const response = await fetch(`/api/rooms/${code}/timeline`);
-    if (!response.ok) return;   // wykres jest dodatkiem, nie warunkiem tablicy
-    timeline = await response.json();
-    if (document_.ranking) renderBoard();
-  } catch { /* cisza: ranking i tak powie o braku łączności */ }
+async function refreshSlow() {
+  // Historia i szereg czasowy zmieniają się wolno; kafelki i wykres nie
+  // potrzebują odświeżania co pięć sekund.
+  for (const [path, apply] of [
+    ['history?limit=20', (data) => { roomHistory = data; }],
+    ['timeline', (data) => { timeline = data; }],
+  ]) {
+    try {
+      const response = await fetch(`/api/rooms/${code}/${path}`);
+      if (response.ok) apply(await response.json());
+    } catch { /* dodatek, nie warunek działania tablicy */ }
+  }
+  renderTiles();
+  if (el('charts').dataset.on === '1') renderCharts();
 }
 
 function connect() {
@@ -500,7 +621,7 @@ function connect() {
   socket = new WebSocket(`${scheme}://${location.host}/ws?room=${code}&view=1`);
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data);
-    if (message.type === 'now_playing') { renderTiles(message.playing); return; }
+    if (message.type === 'now_playing') { tunes = message.playing ?? []; renderTiles(); return; }
     if (message.type === 'speaker_changed' || message.type === 'room_state') {
       speakingName = message.speaking?.name ?? null;
       renderSpeaker();
@@ -510,23 +631,24 @@ function connect() {
   socket.onclose = () => setTimeout(connect, 3000);
 }
 
-/* --- wejście i przełączanie ------------------------------------------------ */
+/* --- wejście i przełączanie ----------------------------------------------- */
 
 function showRoom(wanted, { push = true } = {}) {
   code = wanted.toUpperCase();
   rememberRoom(code);
-  if (push) history.pushState({ code }, '', `/room/${code}`);
+  if (push) pushRoomUrl(code);
   el('no-room').dataset.on = '0';
   el('board').dataset.on = '1';
   el('switcher').dataset.on = '0';
-  timeline = { points: [] };
-  document_ = {};
-  renderTiles([]);
+  board = {}; roomHistory = {}; timeline = { points: [] }; tunes = [];
+  lastLeader = null; leaderSince = null;
   renderSpeaker();
+  renderTiles();
   refresh();
-  refreshTimeline();
+  refreshSlow();
   connect();
 }
+function pushRoomUrl(value) { window.history.pushState({ code: value }, '', `/room/${value}`); }
 
 function showSetup() {
   el('board').dataset.on = '0';
@@ -534,23 +656,31 @@ function showSetup() {
 }
 
 el('switch-open').addEventListener('click', () => {
-  renderRecent();
+  const others = recentRooms().filter((item) => item !== code);
+  el('recent').innerHTML = others.length
+    ? '<span class="eyebrow" style="align-self:center">Ostatnie:</span>' + others
+        .map((i) => `<button type="button" data-code="${escapeHtml(i)}">${escapeHtml(i)}</button>`).join('')
+    : '';
   el('switcher').dataset.on = '1';
   el('switch-code').value = '';
   el('switch-code').focus();
 });
-el('switch-close').addEventListener('click', () => { el('switcher').dataset.on = '0'; });
-el('switcher').addEventListener('click', (event) => {
-  if (event.target === el('switcher')) el('switcher').dataset.on = '0';
+el('charts-open').addEventListener('click', () => {
+  renderCharts();
+  el('charts').dataset.on = '1';
 });
+for (const overlay of document.querySelectorAll('.overlay')) {
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay || event.target.dataset.close) overlay.dataset.on = '0';
+  });
+}
 el('switch-form').addEventListener('submit', (event) => {
   event.preventDefault();
   const wanted = el('switch-code').value.trim().toUpperCase();
   if (wanted) showRoom(wanted);
 });
 el('recent').addEventListener('click', (event) => {
-  const wanted = event.target.dataset?.code;
-  if (wanted) showRoom(wanted);
+  if (event.target.dataset?.code) showRoom(event.target.dataset.code);
 });
 el('code-form').addEventListener('submit', (event) => {
   event.preventDefault();
@@ -563,11 +693,11 @@ window.addEventListener('popstate', () => {
 });
 
 setInterval(() => { if (code) refresh(); }, 5000);
-setInterval(() => { if (code) refreshTimeline(); }, 30000);
+setInterval(() => { if (code) refreshSlow(); }, 30000);
 setInterval(tickClock, 1000);
 
-// Adres wygrywa z pamięcią: udostępniony link ma pokazać TEN pokój, a przypięta
-// ikona (start_url `/`) — ostatnio oglądany.
+// Adres wygrywa z pamięcią: udostępniony link prowadzi do TEGO pokoju, a
+// przypięta ikona (start_url `/`) — do ostatnio oglądanego.
 const fromUrl = decodeURIComponent(location.pathname.split('/').filter(Boolean)[1] ?? '');
 const remembered = recentRooms()[0];
 if (fromUrl) showRoom(fromUrl, { push: false });

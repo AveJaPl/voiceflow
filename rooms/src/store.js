@@ -94,6 +94,23 @@ export function historyRows(rows) {
   });
 }
 
+/**
+ * Dyktowania sesji pokrojone na kubełki czasu, per osoba.
+ *
+ * Do wykresu „kto kiedy mówił". Kubełek jest liczony w SQL, nie w JavaScripcie:
+ * inaczej trzeba by ściągnąć każde dyktowanie z osobna tylko po to, żeby je
+ * zaraz zsumować.
+ */
+export function timelineRows(rows) {
+  return rows.map((row) => ({
+    deviceId: row.device_id,
+    name: row.name,
+    at: row.bucket,
+    words: Number(row.words),
+    dictations: Number(row.dictations),
+  }));
+}
+
 /** Dorobek każdej osoby w pokoju przez WSZYSTKIE sesje, nie tylko bieżącą. */
 export function summaryRows(rows) {
   return rows
@@ -230,6 +247,28 @@ export function createStore(pool) {
         [roomId, limit + 1, offset],
       );
       return historyRows(rows);
+    },
+
+    /**
+     * Szereg czasowy sesji: ile kto powiedział w kolejnych kubełkach.
+     *
+     * Szerokość kubełka dobiera wywołujący, bo sesja pięciominutowa i
+     * pięciogodzinna potrzebują innej rozdzielczości, żeby wykres coś mówił.
+     */
+    async sessionTimeline(sessionId, bucketSeconds = 300) {
+      const { rows } = await pool.query(
+        `SELECT d.device_id, dev.name,
+                to_timestamp(floor(extract(epoch FROM d.at) / $2) * $2) AS bucket,
+                COALESCE(SUM(d.words), 0) AS words,
+                COUNT(*)                  AS dictations
+         FROM dictations d
+         JOIN devices dev ON dev.id = d.device_id
+         WHERE d.session_id = $1
+         GROUP BY d.device_id, dev.name, bucket
+         ORDER BY bucket`,
+        [sessionId, bucketSeconds],
+      );
+      return timelineRows(rows);
     },
 
     /** Ile sesji miał ten pokój w całości — niezależnie od strony wyników. */

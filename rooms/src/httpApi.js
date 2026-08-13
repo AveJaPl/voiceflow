@@ -10,7 +10,7 @@ import { historyTotals, withSilentMembers } from './store.js';
 
 // `/session/end` stoi przed `/session`, bo alternatywa jest uporządkowana —
 // odwrotna kolejność zjadałaby dłuższą trasę krótszym wariantem.
-const ROOM_PATH = /^\/api\/rooms\/([^/]+)(\/join|\/ranking|\/history|\/session\/end|\/session)?$/;
+const ROOM_PATH = /^\/api\/rooms\/([^/]+)(\/join|\/ranking|\/history|\/timeline|\/session\/end|\/session)?$/;
 
 export function routeFor(method, url) {
   if (method === 'GET' && url === '/health') return { name: 'health', code: null };
@@ -24,6 +24,7 @@ export function routeFor(method, url) {
   if (method === 'POST' && tail === '/join') return { name: 'join', code };
   if (method === 'GET' && tail === '/ranking') return { name: 'ranking', code };
   if (method === 'GET' && tail === '/history') return { name: 'history', code };
+  if (method === 'GET' && tail === '/timeline') return { name: 'timeline', code };
   if (method === 'POST' && tail === '/session/end') return { name: 'endSession', code };
   if (method === 'POST' && tail === '/session') return { name: 'startSession', code };
   return null;
@@ -138,6 +139,18 @@ export function createHttpApi({ store }) {
         // przewijanie historii zmieniałoby dorobek ludzi w locie.
         totals: historyTotals(sessionCount, people),
       });
+    }
+
+    if (route.name === 'timeline') {
+      const active = await store.activeSession(room.id);
+      if (!active) return sendJson(res, 200, { room, session: null, points: [] });
+      // Kubełek dobierany do długości sesji: przy pięciu minutach pracy wykres
+      // co pół godziny byłby jednym słupkiem, a przy ośmiu godzinach — ścianą.
+      const started = new Date(active.started_at).getTime();
+      const minutes = Math.max(1, (Date.now() - started) / 60000);
+      const bucket = minutes <= 30 ? 60 : minutes <= 180 ? 300 : 900;
+      const points = await store.sessionTimeline(active.id, bucket);
+      return sendJson(res, 200, { room, session: active, bucketSeconds: bucket, points });
     }
 
     if (route.name === 'ranking') {

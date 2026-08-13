@@ -184,18 +184,35 @@ input[type=text]:focus{outline:none; border-color:rgba(255,255,255,.4)}
 .recent{display:flex; flex-wrap:wrap; gap:8px; margin-top:18px}
 .recent button{font-family:var(--mono); letter-spacing:.16em}
 
+.total{font-family:var(--display); font-weight:600; font-size:.95rem; color:var(--muted);
+  font-variant-numeric:tabular-nums}
+
+/* Karta wykresu żyje w lewej kolumnie i bierze całą resztę jej wysokości.
+   Wcześniej siedziała pod przyciskiem, ale panel obok i tak był pusty — a to
+   jest rzecz, na którą się patrzy w trakcie pracy, nie po nią sięga. */
+/* Karta rośnie do swojej treści, tak jak wszystko inne w tej kolumnie.
+   Rozciąganie jej na resztę wysokości zostawiało wykres pływający w pustce. */
+.chart-card{display:flex; flex-direction:column;
+  padding:clamp(12px,1.7vh,20px) clamp(14px,1.4vw,20px); gap:10px}
+.chart-head{display:flex; align-items:baseline; justify-content:space-between; gap:10px}
+#charts-body{min-height:0}
+
 /* Wykres: jeden panel na osobę, wspólna skala i wspólna oś czasu pod spodem.
    Tożsamość niesie podpis panelu, nie barwa — dlatego cała tablica zostaje
    monochromatyczna i nie potrzeba palety kategorycznej. */
-.chart-row{display:grid; grid-template-columns:9rem minmax(0,1fr) 5rem; gap:14px;
-  align-items:center; padding:10px 0; border-bottom:1px solid rgba(255,255,255,.05)}
-.chart-name{font-family:var(--display); font-weight:600; font-size:1rem;
+.chart-row{display:grid; grid-template-columns:minmax(0,5.5rem) minmax(0,1fr) auto;
+  gap:10px; align-items:center; padding:clamp(5px,.9vh,10px) 0;
+  border-bottom:1px solid rgba(255,255,255,.05)}
+.chart-row:last-of-type{border-bottom:none}
+.chart-name{font-family:var(--display); font-weight:600; font-size:.92rem;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-.chart{width:100%; height:56px; display:block}
+.chart-total{font-family:var(--display); font-weight:600; font-size:.92rem;
+  color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap}
+.chart{width:100%; height:clamp(22px,4.2vh,40px); display:block}
 .chart rect{fill:var(--mark)}
 .chart .axis{fill:rgba(255,255,255,.08)}
-.axis-row{display:grid; grid-template-columns:9rem minmax(0,1fr) 5rem; gap:14px;
-  color:var(--faint); font-size:.68rem; font-family:var(--mono)}
+.axis-row{display:grid; grid-template-columns:minmax(0,5.5rem) minmax(0,1fr) auto;
+  gap:10px; color:var(--faint); font-size:.62rem; font-family:var(--mono)}
 .axis-ticks{display:flex; justify-content:space-between}
 
 /* --- ekran bez pokoju --- */
@@ -227,7 +244,7 @@ pre{background:rgba(0,0,0,.4); border:1px solid var(--border); border-radius:10p
     <span class="spacer"></span>
     <span class="session-name" id="session-name">—</span>
     <span class="clock" id="session-clock">—</span>
-    <button id="charts-open" type="button">Wykresy</button>
+    <span class="total" id="room-total"></span>
     <button id="switch-open" type="button">Zmień pokój</button>
   </div>
 
@@ -242,6 +259,13 @@ pre{background:rgba(0,0,0,.4); border:1px solid var(--border); border-radius:10p
         </div>
       </section>
       <div class="tiles" id="tiles"></div>
+      <section class="card chart-card">
+        <div class="chart-head">
+          <p class="eyebrow">Kto kiedy dyktował</p>
+          <p class="eyebrow" id="tempo"></p>
+        </div>
+        <div id="charts-body"></div>
+      </section>
     </div>
 
     <div class="col">
@@ -267,15 +291,6 @@ pre{background:rgba(0,0,0,.4); border:1px solid var(--border); border-radius:10p
       <button type="button" data-close="switcher">Anuluj</button>
     </form>
     <div class="recent" id="recent"></div>
-  </div>
-</div>
-
-<div class="overlay" id="charts">
-  <div class="sheet">
-    <p class="eyebrow">Sesja</p>
-    <h2>Kto kiedy dyktował</h2>
-    <div id="charts-body"></div>
-    <div style="margin-top:20px"><button type="button" data-close="charts">Zamknij</button></div>
   </div>
 </div>
 
@@ -347,98 +362,41 @@ function rememberRoom(wanted) {
    Wszystkie liczą się z danych, które i tak pobieramy. Żaden nie wprowadza
    zależności od cudzej usługi, więc żaden nie może zgasnąć przez czyjąś awarię. */
 
-function tempoTile() {
+/* Kafelki po lewej mają POKAZYWAĆ, co się w pokoju dzieje, a nie powtarzać
+   tablicę obok. „Prowadzenie", „jeszcze milczą" i „do rekordu" mówiły dokładnie
+   to, co widać w rankingu o dwadzieścia centymetrów w prawo — więc zniknęły.
+   Suma pokoju zeszła do nagłówka, bo jest ciekawostką, nie nagłówkiem sesji. */
+
+function tempoLabel() {
   const points = timeline.points ?? [];
-  if (!points.length) return null;
+  if (!points.length) return '';
   const bucketMinutes = Math.max(1, (timeline.bucketSeconds ?? 300) / 60);
   const buckets = [...new Set(points.map((p) => p.at))].sort();
   const last = buckets[buckets.length - 1];
   const recent = points.filter((p) => p.at === last).reduce((sum, p) => sum + p.words, 0);
   const perMinute = Math.round(recent / bucketMinutes);
-  const all = points.reduce((sum, p) => sum + p.words, 0);
-  const average = Math.round(all / Math.max(1, buckets.length * bucketMinutes));
-  const trend = !average ? '' : perMinute > average * 1.15 ? 'szybciej niż zwykle'
-    : perMinute < average * 0.85 ? 'wolniej niż zwykle' : 'w rytmie sesji';
-  return {
-    label: 'Tempo pokoju',
-    value: `${numbers.format(perMinute)} sł./min`,
-    sub: `średnia sesji ${numbers.format(average)} · ${trend}`,
-  };
-}
-
-function recordTile() {
-  const sessions = roomHistory.sessions ?? [];
-  if (sessions.length < 2) return null;
-  const current = sessions.find((s) => !s.endedAt);
-  const best = sessions.filter((s) => s.endedAt).reduce(
-    (top, s) => (!top || s.words > top.words ? s : top), null);
-  if (!best || !current) return null;
-  const gap = best.words - current.words;
-  return gap > 0
-    ? { label: 'Do rekordu pokoju', value: `${numbers.format(gap)} ${wordWord(gap)}`,
-        sub: `rekord: ${best.name || 'sesja bez nazwy'} — ${numbers.format(best.words)}` }
-    : { label: 'Rekord pokoju', value: 'Pobity',
-        sub: `poprzedni: ${numbers.format(best.words)} ${wordWord(best.words)}`, warm: true };
-}
-
-function leadTile() {
-  const ranking = board.ranking ?? [];
-  if (ranking.length < 2 || !ranking[0].words) return null;
-  const margin = ranking[0].words - ranking[1].words;
-  const minutes = leaderSince ? Math.round((Date.now() - leaderSince) / 60000) : 0;
-  return {
-    label: 'Prowadzenie',
-    value: escapeHtml(ranking[0].name ?? '—'),
-    sub: margin
-      ? `o ${numbers.format(margin)} ${wordWord(margin)}${minutes ? ` · od ${minutes} ${minuteWord(minutes)}` : ''}`
-      : 'remis co do słowa',
-  };
-}
-
-function totalsTile() {
-  const totals = roomHistory.totals;
-  if (!totals || !totals.words) return null;
-  return {
-    label: 'Razem w pokoju',
-    value: `${numbers.format(totals.words)} ${wordWord(totals.words)}`,
-    sub: `${numbers.format(totals.sessions)} ${plural(totals.sessions,'sesja','sesje','sesji')}`
-      + ` · ${formatDuration(totals.seconds)} mówienia`,
-  };
-}
-
-function silenceTile() {
-  const ranking = board.ranking ?? [];
-  const quiet = ranking.filter((entry) => !entry.words).length;
-  if (!quiet) return null;
-  return {
-    label: 'Jeszcze milczą',
-    value: `${quiet} ${plural(quiet, 'osoba', 'osoby', 'osób')}`,
-    sub: ranking.filter((e) => !e.words).map((e) => e.name).join(', '),
-  };
+  const average = Math.round(
+    points.reduce((sum, p) => sum + p.words, 0) / Math.max(1, buckets.length * bucketMinutes));
+  if (!perMinute && !average) return '';
+  const trend = !average ? '' : perMinute > average * 1.15 ? ' · szybciej niż zwykle'
+    : perMinute < average * 0.85 ? ' · wolniej niż zwykle' : ' · w rytmie sesji';
+  return `${numbers.format(perMinute)} sł./min${trend}`;
 }
 
 function renderTiles() {
   const music = tunes.filter((item) => item.title);
-  const parts = [];
-  for (const item of music) {
-    parts.push(`<div class="card tile tune wide">
+  el('tiles').innerHTML = music.map((item) => `
+    <div class="card tile tune wide">
       ${item.artUrl ? `<img src="${escapeHtml(item.artUrl)}" alt="">` : ''}
       <div class="tune-text">
         <p class="eyebrow">Teraz gra</p>
         <div class="tile-value" style="font-size:1.05rem">${escapeHtml(item.title)}</div>
         <div class="tile-sub">${escapeHtml([item.artist, item.player, item.name]
           .filter(Boolean).join(' · '))}</div>
-      </div></div>`);
-  }
-  for (const tile of [tempoTile(), recordTile(), leadTile(), totalsTile(), silenceTile()]) {
-    if (!tile) continue;
-    parts.push(`<div class="card tile">
-      <p class="eyebrow">${escapeHtml(tile.label)}</p>
-      <div class="tile-value">${tile.value}</div>
-      <div class="tile-sub${tile.warm ? ' warm' : ''}">${escapeHtml(tile.sub)}</div></div>`);
-  }
-  el('tiles').innerHTML = parts.join('')
-    || '<div class="card tile wide"><div class="tile-sub">Kafelki pojawią się, gdy w sesji coś się wydarzy.</div></div>';
+      </div>
+    </div>`).join('')
+    || '<div class="card tile wide"><p class="eyebrow">Teraz gra</p>'
+       + '<div class="tile-sub">Nic teraz nie leci</div></div>';
 }
 
 /* --- tablica -------------------------------------------------------------- */
@@ -480,6 +438,11 @@ function renderBoard() {
     el('session-name').textContent = 'Brak otwartej sesji';
     el('session-clock').textContent = '—';
   }
+
+  const totals = roomHistory.totals;
+  el('room-total').textContent = totals?.words
+    ? `${numbers.format(totals.words)} ${wordWord(totals.words)} w pokoju`
+    : '';
 
   const ranking = board.ranking ?? [];
   const leader = ranking[0];
@@ -559,7 +522,7 @@ function renderCharts() {
       <div class="chart-name">${escapeHtml(name ?? '—')}</div>
       <svg class="chart" preserveAspectRatio="none">
         <rect class="axis" x="0" y="99%" width="100%" height="1%"></rect>${bars}</svg>
-      <div class="stat"><b>${numbers.format(words)}</b><small>słów</small></div>
+      <div class="chart-total">${numbers.format(words)}</div>
     </div>`;
   }).join('');
 
@@ -612,7 +575,8 @@ async function refreshSlow() {
     } catch { /* dodatek, nie warunek działania tablicy */ }
   }
   renderTiles();
-  if (el('charts').dataset.on === '1') renderCharts();
+  renderCharts();
+  el('tempo').textContent = tempoLabel();
 }
 
 function connect() {
@@ -644,6 +608,7 @@ function showRoom(wanted, { push = true } = {}) {
   lastLeader = null; leaderSince = null;
   renderSpeaker();
   renderTiles();
+  renderCharts();
   refresh();
   refreshSlow();
   connect();
@@ -664,10 +629,6 @@ el('switch-open').addEventListener('click', () => {
   el('switcher').dataset.on = '1';
   el('switch-code').value = '';
   el('switch-code').focus();
-});
-el('charts-open').addEventListener('click', () => {
-  renderCharts();
-  el('charts').dataset.on = '1';
 });
 for (const overlay of document.querySelectorAll('.overlay')) {
   overlay.addEventListener('click', (event) => {

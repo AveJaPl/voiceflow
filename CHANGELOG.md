@@ -2,7 +2,7 @@
 
 Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[Web]**
 
-## Unreleased
+## 0.5.0 — 2026-08-14
 
 - **[Windows]** Music stays quiet for the whole dictation. Ducking used to be a
   single pass over the audio sessions that existed when the hotkey was pressed,

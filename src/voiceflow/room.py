@@ -165,6 +165,13 @@ class RoomClient:
         if not self._connected:
             self._connected = True
             self._publish_state()
+            # Zerwanie łącza kasuje mówiącego po stronie serwera (rozłączenie =
+            # wyjście z pokoju), a my w tym czasie mówimy dalej. Bez tego
+            # przypomnienia tablica gasła w połowie dyktowania i pokazywała
+            # ciszę, choć mikrofon pracował — a przy łączu rwącym się co kilka
+            # minut trafiało to w każde dłuższe dyktowanie.
+            if self._speaking_here:
+                self._send({"type": "speaking_started"})
         kind = payload.get("type")
         if kind == "speaking_denied":
             self._set_remote_speaker(payload.get("blockedBy"))

@@ -317,3 +317,29 @@ def test_reconnect_resends_the_track() -> None:
     client.report_now_playing({"title": "Numb"})
 
     assert transport.sent == [{"type": "now_playing", "track": {"title": "Numb"}}]
+
+
+def test_reconnect_reminds_the_room_that_we_are_still_speaking() -> None:
+    """Rozłączenie kasuje mówiącego po stronie serwera, a nagranie trwa dalej.
+
+    Bez tego przypomnienia tablica gasła w połowie dyktowania — przy łączu
+    rwącym się co kilka minut trafiało to w każde dłuższe.
+    """
+    client, transport, _states = _client_with_states()
+    client.report_started()
+    client.on_disconnected()
+    transport.sent.clear()
+
+    transport.deliver({"type": "room_state", "speaking": None})
+
+    assert {"type": "speaking_started"} in transport.sent
+
+
+def test_reconnect_stays_quiet_when_we_are_not_speaking() -> None:
+    client, transport, _states = _client_with_states()
+    client.on_disconnected()
+    transport.sent.clear()
+
+    transport.deliver({"type": "room_state", "speaking": None})
+
+    assert transport.sent == []

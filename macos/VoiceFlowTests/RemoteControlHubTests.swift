@@ -16,6 +16,8 @@ final class RemoteControlHubTests: XCTestCase {
         var ended = 0
         var cancelled = 0
         var pressedKeys: [KeyChord] = []
+        /// Kolejne wywolania obwodki; `nil` = schowanie znacznika.
+        var highlights: [String?] = []
         var focusResult = true
         var busy = false
         var snapshotGeneration = 1
@@ -49,6 +51,7 @@ final class RemoteControlHubTests: XCTestCase {
             endDictation: { [unowned self] in self.ended += 1 },
             cancelDictation: { [unowned self] in self.cancelled += 1 },
             postKey: { [unowned self] chord in self.pressedKeys.append(chord); return true },
+            highlightWindow: { [unowned self] window in self.highlights.append(window?.id) },
             sendFrame: { [unowned self] in self.sentFrames.append($0) },
             sendBinary: { [unowned self] in self.sentBinaries.append($0) },
             macName: "TestMac",
@@ -204,6 +207,31 @@ final class RemoteControlHubTests: XCTestCase {
         harness.focusResult = false
         await harness.hub.handle(.key(chord: .return_, target: nil, generation: nil))
         XCTAssertEqual(harness.pressedKeys, [.return_])
+    }
+
+    // MARK: - Obwódka na ekranie Maca
+
+    /// Pilot jest do sterowania Makiem, przy którym się SIEDZI — bez znacznika
+    /// na ekranie „terminal 7/8" na telefonie nic nie znaczy.
+    func testPrzeskokFokusuZaznaczaOknoNaEkranie() async {
+        let harness = Harness()
+        await harness.hub.handle(.focusWindow(id: "101", generation: 1))
+        XCTAssertEqual(harness.highlights, ["101"])
+    }
+
+    func testNieudanyFokusNiczegoNieZaznacza() async {
+        let harness = Harness()
+        harness.focusResult = false
+        await harness.hub.handle(.focusWindow(id: "101", generation: 1))
+        XCTAssertTrue(harness.highlights.isEmpty)
+    }
+
+    /// Telefon wyszedł z zakładki — znacznik znika, zamiast zostawać na ekranie.
+    func testWyjscieZPodgladuChowaZnacznik() async {
+        let harness = Harness()
+        await harness.hub.handle(.focusWindow(id: "101", generation: 1))
+        await harness.hub.handle(.unsubscribe)
+        XCTAssertEqual(harness.highlights, ["101", nil])
     }
 
     /// Każdy akord pilota musi mieć mapowanie na kod klawisza — inaczej Mac

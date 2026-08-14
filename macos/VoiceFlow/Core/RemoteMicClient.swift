@@ -68,6 +68,8 @@ final class RemoteMicClient: ObservableObject {
     /// zrzuty. Tworzony raz; wysyła przez AKTUALNY socket, więc przeżywa
     /// rekonekty.
     private lazy var snapshotter = WindowSnapshotter()
+    /// Obwódka na ekranie Maca pokazująca okno, którym steruje pilot.
+    private let highlighter = WindowHighlighter()
     private lazy var hub: RemoteControlHub = makeHub()
 
     /// Format wire dla audio od telefonu — patrz doc-comment pliku. Mono
@@ -274,6 +276,15 @@ final class RemoteMicClient: ObservableObject {
             endDictation: { [weak self] in self?.endRemoteUtterance() },
             cancelDictation: { [weak self] in self?.cancelRemoteUtterance() },
             postKey: { KeyChordSender.post($0) },
+            highlightWindow: { [weak self] window in
+                guard let self else { return }
+                guard let window else { return self.highlighter.hide() }
+                self.highlighter.show(
+                    windowID: window.id,
+                    frame: CGRect(x: window.x, y: window.y, width: window.w, height: window.h),
+                    label: self.highlightLabel(for: window)
+                )
+            },
             sendFrame: { [weak self] frame in self?.sendMacFrame(frame) },
             sendBinary: { [weak self] data in
                 guard let socket = self?.currentSocket else { return }
@@ -286,6 +297,19 @@ final class RemoteMicClient: ObservableObject {
                 move: true
             )
         ))
+    }
+
+    /// Plakietka obwódki: pozycja terminala w TEJ SAMEJ kolejności, którą
+    /// pokazuje pilot (góra→dół, lewo→prawo), więc „7/8" na telefonie i „7/8"
+    /// na ekranie to zawsze to samo okno.
+    private func highlightLabel(for window: WireWindow) -> String {
+        let terminals = (snapshotter.lastSnapshot?.windows ?? [])
+            .filter(\.isTerminal)
+            .sorted { ($0.y, $0.x, $0.id) < ($1.y, $1.x, $1.id) }
+        guard let index = terminals.firstIndex(where: { $0.id == window.id }) else {
+            return "PILOT"
+        }
+        return "PILOT \(index + 1)/\(terminals.count)"
     }
 
     private func sendMacFrame(_ frame: MacFrame) {
@@ -351,6 +375,9 @@ final class RemoteMicClient: ObservableObject {
     /// wstrzykiwać niekompletny tekst, i ZAWSZE czyścimy override, inaczej
     /// lokalny skrót zostaje uwięziony na atrapie mikrofonu do restartu apki.
     private func cancelStrandedUtteranceIfNeeded() {
+        // Telefon zniknął — obwódka nie ma czego pokazywać. Bez tego zostaje
+        // na ekranie po odłożeniu telefonu, aż do samoczynnego wygaśnięcia.
+        highlighter.hide()
         guard isRemoteUtteranceActive else { return }
         DebugLog.write("RemoteMic", "połączenie zerwane w trakcie dyktowania — anuluję sesję")
         isRemoteUtteranceActive = false

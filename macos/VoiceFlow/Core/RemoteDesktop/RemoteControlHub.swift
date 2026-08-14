@@ -37,6 +37,9 @@ final class RemoteControlHub {
         /// Wyślij skrót klawiszowy do aplikacji na froncie. `false` = akord
         /// spoza słownika tej wersji Maca.
         var postKey: (_ chord: KeyChord) -> Bool
+        /// Zaznacz okno na ekranie Maca (obwódka), żeby siedząc przy komputerze
+        /// było widać, którym oknem steruje pilot. `nil` = schowaj znacznik.
+        var highlightWindow: (_ window: WireWindow?) -> Void
         var sendFrame: (_ frame: MacFrame) -> Void
         var sendBinary: (_ data: Data) -> Void
         var macName: String
@@ -92,6 +95,7 @@ final class RemoteControlHub {
 
         case .unsubscribe:
             stopTerminalStream()
+            deps.highlightWindow(nil)
 
         case .focusWindow(let id, let generation):
             guard let window = deps.windowFor(id, generation) else {
@@ -101,6 +105,11 @@ final class RemoteControlHub {
             let focused = await deps.focusWindow(window)
             if !focused {
                 deps.sendFrame(.error(ErrorFrame(code: .focusFailed, target: id)))
+            } else {
+                // Znacznik NA EKRANIE Maca — pilot służy do sterowania z
+                // odległości wyciągniętej ręki, więc „terminal 7/8" na
+                // telefonie musi mieć odpowiednik w tym, na co patrzysz.
+                deps.highlightWindow(window)
             }
             deps.sendFrame(.windows(deps.snapshotWindows()))
 
@@ -138,6 +147,7 @@ final class RemoteControlHub {
                     deps.sendFrame(.error(ErrorFrame(code: .focusFailed, target: target)))
                     return
                 }
+                deps.highlightWindow(window)
             }
             if !deps.postKey(chord) {
                 deps.sendFrame(.error(ErrorFrame(
@@ -175,6 +185,7 @@ final class RemoteControlHub {
             return
         }
         activeTarget = window
+        deps.highlightWindow(window)
         deps.sendFrame(.started(target: target))
     }
 

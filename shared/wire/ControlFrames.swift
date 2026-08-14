@@ -133,11 +133,18 @@ struct MacHello: Codable, Equatable {
     let `protocol`: Int
     let mac: String
     let caps: MacCaps
+    /// Adresy IPv4 Maca w sieci lokalnej (np. `192.168.1.20`). Telefon
+    /// porównuje je ze swoimi, żeby rozpoznać „jestem w tej samej sieci co Mac"
+    /// i sam przełączyć się w tryb klawiatury. Świadomie BEZ pytania o
+    /// lokalizację (nazwa Wi-Fi wymaga zgody na lokalizację) i bez ruchu na
+    /// zewnątrz — obie strony i tak są połączone, wystarczy porównać prefiksy.
+    let lan: [String]
 
-    init(protocol proto: Int = Wire.protocolVersion, mac: String, caps: MacCaps) {
+    init(protocol proto: Int = Wire.protocolVersion, mac: String, caps: MacCaps, lan: [String] = []) {
         self.protocol = proto
         self.mac = mac
         self.caps = caps
+        self.lan = lan
     }
 
     init(from decoder: Decoder) throws {
@@ -145,6 +152,7 @@ struct MacHello: Codable, Equatable {
         `protocol` = c.wireValue(.protocol, default: 0)
         mac = c.wireValue(.mac, default: "Mac")
         caps = c.wireValue(.caps, default: MacCaps(screenshot: false, terminalText: false, move: false))
+        lan = c.wireValue(.lan, default: [])
     }
 }
 
@@ -295,6 +303,23 @@ struct TerminalFrame: Codable, Equatable {
     }
 }
 
+/// Który pulpit jest teraz aktywny na ekranie, którym steruje pilot —
+/// odpowiedź na ramkę `space`. Bez tego telefon nie ma jak pokazać, że coś się
+/// w ogóle stało: pulpity nie mają nazw, a podglądu ekranu w trybie klawiatury
+/// nie ma.
+struct SpacesFrame: Codable, Equatable {
+    let index: Int
+    let count: Int
+
+    init(index: Int, count: Int) { self.index = index; self.count = count }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        index = c.wireValue(.index, default: 0)
+        count = c.wireValue(.count, default: 0)
+    }
+}
+
 /// Istnieje w kodzie macOS OD DZIŚ (`RemoteMicClient.sendFocus`) — nie zmieniamy
 /// jej kształtu, żeby nowy telefon działał ze starszym Makiem.
 struct FocusFrame: Codable, Equatable {
@@ -387,6 +412,7 @@ enum MacFrame: Equatable {
     case started(target: String?)
     case preview(text: String)
     case injected(InjectedFrame)
+    case spaces(SpacesFrame)
     case error(ErrorFrame)
     /// Typ, którego ta wersja apki nie zna. Ignorujemy, nie wywracamy się.
     case unknown(type: String)
@@ -401,6 +427,7 @@ enum MacFrame: Equatable {
         case .started: "started"
         case .preview: "preview"
         case .injected: "injected"
+        case .spaces: "spaces"
         case .error: "error"
         case .unknown(let t): t
         }
@@ -422,6 +449,7 @@ extension MacFrame: Codable {
         case "started": self = .started(target: try? c.decodeIfPresent(String.self, forKey: .target))
         case "preview": self = .preview(text: (try? c.decode(String.self, forKey: .text)) ?? "")
         case "injected": self = .injected(try InjectedFrame(from: decoder))
+        case "spaces": self = .spaces(try SpacesFrame(from: decoder))
         case "error": self = .error(try ErrorFrame(from: decoder))
         default: self = .unknown(type: type)
         }
@@ -439,6 +467,7 @@ extension MacFrame: Codable {
         case .started(let target): try c.encodeIfPresent(target, forKey: .target)
         case .preview(let text): try c.encode(text, forKey: .text)
         case .injected(let p): try p.encode(to: encoder)
+        case .spaces(let p): try p.encode(to: encoder)
         case .error(let p): try p.encode(to: encoder)
         case .unknown: break
         }

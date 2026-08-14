@@ -39,13 +39,19 @@ final class RemoteControlHub {
         var postKey: (_ chord: KeyChord) -> Bool
         /// Zmień pulpit o `offset`. `false` = skrajny pulpit albo system nie
         /// pozwolił — telefon pokazuje wtedy komunikat zamiast udawać sukces.
-        var switchSpace: (_ offset: Int) -> Bool
+        /// Zmień pulpit o `offset` na ekranie, na którym stoi `window`
+        /// (zaznaczony terminal). Zwraca nową pozycję pulpitu albo `nil`, gdy
+        /// nie ma dokąd iść.
+        var switchSpace: (_ offset: Int, _ window: WireWindow?) -> (index: Int, count: Int)?
         /// Zaznacz okno na ekranie Maca (obwódka), żeby siedząc przy komputerze
         /// było widać, którym oknem steruje pilot. `nil` = schowaj znacznik.
         var highlightWindow: (_ window: WireWindow?) -> Void
         var sendFrame: (_ frame: MacFrame) -> Void
         var sendBinary: (_ data: Data) -> Void
         var macName: String
+        /// Adresy IPv4 Maca w sieci lokalnej — telefon rozpoznaje po nich
+        /// „jestem w domu" i sam wybiera tryb (patrz `LocalNetwork`).
+        var lanAddresses: [String] = []
         var capabilities: MacCaps
     }
 
@@ -55,6 +61,8 @@ final class RemoteControlHub {
     /// Subskrypcja podglądu terminala: id okna + generacja + licznik ramek.
     private var terminalSubscription: (id: String, generation: Int)?
     private var terminalSeq = 0
+    /// Ostatnie okno wskazane przez pilota — kotwica dla zmiany pulpitu.
+    private var lastHighlighted: WireWindow?
     private var terminalTimer: Timer?
 
     init(deps: Dependencies) {
@@ -67,10 +75,11 @@ final class RemoteControlHub {
 
     /// Telefon się połączył (jego `hello` doszło) — przedstawiamy się.
     func sendHello() {
-        deps.sendFrame(.hello(MacHello(mac: deps.macName, caps: deps.capabilities)))
+        deps.sendFrame(.hello(MacHello(mac: deps.macName, caps: deps.capabilities, lan: deps.lanAddresses)))
     }
 
     func handle(_ frame: PhoneFrame) async {
+        DebugLog.write("Hub", "obsługuję \(frame.type)")
         switch frame {
         case .hello:
             sendHello()
@@ -112,6 +121,7 @@ final class RemoteControlHub {
                 // Znacznik NA EKRANIE Maca — pilot służy do sterowania z
                 // odległości wyciągniętej ręki, więc „terminal 7/8" na
                 // telefonie musi mieć odpowiednik w tym, na co patrzysz.
+                lastHighlighted = window
                 deps.highlightWindow(window)
             }
             deps.sendFrame(.windows(deps.snapshotWindows()))
@@ -138,10 +148,16 @@ final class RemoteControlHub {
             deps.cancelDictation()
 
         case .space(let offset):
-            if !deps.switchSpace(offset) {
+            // Pulpit przełączamy na ekranie ZAZNACZONEGO terminala, nie tam,
+            // gdzie akurat leży kursor.
+            let anchor = lastHighlighted ?? activeTarget
+            let position = deps.switchSpace(offset, anchor)
+            DebugLog.write("Hub", "zmiana pulpitu o \(offset): \(position.map { "\($0.index)/\($0.count)" } ?? "nie udało się")")
+            guard let position else {
                 deps.sendFrame(.error(ErrorFrame(code: .unsupported, message: "Nie ma kolejnego pulpitu")))
                 return
             }
+            deps.sendFrame(.spaces(SpacesFrame(index: position.index, count: position.count)))
             // Po zmianie pulpitu lista okien wygląda inaczej (inne okna są na
             // wierzchu) — telefon dostaje ją od razu, bez pytania.
             deps.sendFrame(.windows(deps.snapshotWindows()))
@@ -159,6 +175,7 @@ final class RemoteControlHub {
                     deps.sendFrame(.error(ErrorFrame(code: .focusFailed, target: target)))
                     return
                 }
+                lastHighlighted = window
                 deps.highlightWindow(window)
             }
             if !deps.postKey(chord) {

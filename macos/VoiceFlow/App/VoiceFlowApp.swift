@@ -457,7 +457,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `setupSessionController()` (kolejność w `applicationDidFinishLaunching`).
     /// Domyślnie WYŁĄCZONE (`SettingsKeys.remoteMicEnabled`) — `start()` sam
     /// sprawdza ten toggle i nic nie robi, jeśli nie włączony.
+    /// Bez zgody „Nagrywanie ekranu" macOS nie oddaje TYTUŁÓW okien i nie
+    /// pozwala na zrzut. Objaw na telefonie: sześć terminali bez nazw i brak
+    /// podglądu pulpitu — czyli lista, z której nic nie wynika. Zgody nikt
+    /// nigdy nie prosił, więc prosimy raz, przy starcie, gdy zdalne sterowanie
+    /// jest włączone. Systemowe okno pojawia się tylko wtedy, gdy zgody
+    /// naprawdę nie ma; po jej przyznaniu macOS wymaga restartu aplikacji.
+    private func requestScreenRecordingIfNeeded() {
+        guard UserDefaults.standard.bool(forKey: SettingsKeys.remoteMicEnabled) else { return }
+        guard !CGPreflightScreenCaptureAccess() else {
+            DebugLog.write("App", "zgoda Nagrywanie ekranu: jest")
+            return
+        }
+        DebugLog.write("App", "zgoda Nagrywanie ekranu: BRAK — proszę o nią")
+        CGRequestScreenCaptureAccess()
+    }
+
     private func setupRemoteMic() {
+        requestScreenRecordingIfNeeded()
         guard let sessionController, let sharedAudioCapture else {
             log.error("setupRemoteMic wołane przed setupSessionController — pomijam")
             return

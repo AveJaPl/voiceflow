@@ -252,6 +252,11 @@ final class RemoteMicClient: ObservableObject {
         // stary telefon dekoduje się jako `.start(target: nil)` / `.end` i
         // przechodzi przez hub tą samą ścieżką co nowy, tyle że bez celu.
         if let frame = WireCodec.decodePhoneFrame(text) {
+            // Log KAŻDEJ ramki z telefonu. Bez tego „nie działa" jest nie do
+            // rozstrzygnięcia: nie wiadomo, czy telefon nie wysłał, czy relay
+            // nie doniósł, czy Mac odrzucił. Kosztuje jedną linijkę w pliku
+            // na stuknięcie, a oszczędza cały wieczór zgadywania.
+            DebugLog.write("RemoteMic", "ramka od telefonu: \(frame.type)")
             if case .start = frame {
                 // Stary telefon oczekuje ramki focus po starcie (§5a) — nowy ją
                 // ignoruje jako informacyjną.
@@ -303,7 +308,12 @@ final class RemoteMicClient: ObservableObject {
             endDictation: { [weak self] in self?.endRemoteUtterance() },
             cancelDictation: { [weak self] in self?.cancelRemoteUtterance() },
             postKey: { KeyChordSender.post($0) },
-            switchSpace: { offset in SpaceSwitcher.step(offset) },
+            switchSpace: { offset, window in
+                let anchor = window.map { CGPoint(x: Double($0.x + $0.w / 2), y: Double($0.y + $0.h / 2)) }
+                let point = anchor.flatMap { WindowHighlighter.screenRect(for: CGRect(origin: $0, size: .zero))?.origin }
+                guard SpaceSwitcher.step(offset, near: point) else { return nil }
+                return SpaceSwitcher.currentPosition(near: point)
+            },
             highlightWindow: { [weak self] window in
                 guard let self else { return }
                 guard let window else { return self.highlighter.hide() }
@@ -319,6 +329,7 @@ final class RemoteMicClient: ObservableObject {
                 Task { [weak socket] in try? await socket?.send(.data(data)) }
             },
             macName: Host.current().localizedName ?? "Mac",
+            lanAddresses: LocalNetwork.ipv4Addresses(),
             capabilities: MacCaps(
                 screenshot: ScreenshotProvider.isPermitted,
                 terminalText: true,

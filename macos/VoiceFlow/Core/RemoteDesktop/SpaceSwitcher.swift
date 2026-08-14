@@ -27,12 +27,10 @@ enum SpaceSwitcher {
     /// dokładnie jak przesunięcie palcami po gładziku, które na końcu po prostu
     /// nic nie robi.
     @discardableResult
-    static func step(_ offset: Int) -> Bool {
+    static func step(_ offset: Int, near point: CGPoint? = nil) -> Bool {
         guard offset != 0 else { return false }
         let connection = CGSDefaultConnection()
-        guard let display = displayUnderPointer(connection: connection) ?? managedDisplays(connection: connection).first else {
-            return false
-        }
+        guard let display = display(connection: connection, near: point) else { return false }
         guard let current = display.currentSpace,
               let index = display.spaces.firstIndex(of: current) else { return false }
         let target = index + offset
@@ -43,9 +41,9 @@ enum SpaceSwitcher {
 
     /// Ile pulpitów ma ekran, na który patrzysz, i który jest aktywny —
     /// do pokazania na telefonie („pulpit 2/3").
-    static func currentPosition() -> (index: Int, count: Int)? {
+    static func currentPosition(near point: CGPoint? = nil) -> (index: Int, count: Int)? {
         let connection = CGSDefaultConnection()
-        guard let display = displayUnderPointer(connection: connection) ?? managedDisplays(connection: connection).first,
+        guard let display = display(connection: connection, near: point),
               let current = display.currentSpace,
               let index = display.spaces.firstIndex(of: current) else { return nil }
         return (index + 1, display.spaces.count)
@@ -75,12 +73,18 @@ enum SpaceSwitcher {
         }
     }
 
-    /// Ekran z kursorem — najlepsze przybliżenie „ekranu, na który patrzysz",
-    /// to samo, którym posługuje się pill (`PillWindowController.targetScreen`).
-    private static func displayUnderPointer(connection: Int32) -> Display? {
-        let mouse = NSEvent.mouseLocation
+    /// Który ekran przełączamy. Kolejność NIE jest dowolna: najpierw ekran
+    /// OKNA, którym pilot steruje (`point`), bo to jest ten, na który patrzysz,
+    /// gdy trzymasz telefon; dopiero potem ekran z kursorem, który przy
+    /// sterowaniu z telefonu bywa zostawiony gdzie indziej — i wtedy pulpit
+    /// przełączał się na drugim monitorze, czyli „nic się nie działo".
+    private static func display(connection: Int32, near point: CGPoint?) -> Display? {
         let displays = managedDisplays(connection: connection)
-        return displays.first { $0.frame?.contains(mouse) == true }
+        if let point, let match = displays.first(where: { $0.frame?.contains(point) == true }) {
+            return match
+        }
+        let mouse = NSEvent.mouseLocation
+        return displays.first { $0.frame?.contains(mouse) == true } ?? displays.first
     }
 
     /// Ramka ekranu o danym UUID. `NSScreen` nie oddaje UUID wprost, więc

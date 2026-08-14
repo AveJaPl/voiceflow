@@ -115,6 +115,14 @@ final class RemoteSession: ObservableObject {
     /// w ogóle istnieje w pasku, a SwiftUI musi się o zmianie dowiedzieć.
     @Published private(set) var isPaired = false
 
+    /// Czy telefon jest w tej samej sieci lokalnej co Mac (porównanie podsieci
+    /// z `hello`). Od tego zależy DOMYŚLNY tryb ekranu: w domu klawiatura,
+    /// poza domem pełny pilot. `nil` = jeszcze nie wiadomo (brak `hello`).
+    @Published private(set) var isOnMacNetwork: Bool?
+
+    /// Który pulpit jest aktywny na ekranie sterowanym pilotem („2/3").
+    @Published private(set) var spaces: SpacesFrame?
+
     /// Poświadczenia tylko do odczytu. Pulpit i Historia wołają HTTP API konta
     /// (`AccountAPI`) TYM SAMYM tokenem, którym sesja rozmawia po WebSockecie —
     /// nie ma drugiego źródła prawdy o tym, kto jest zalogowany.
@@ -368,8 +376,12 @@ final class RemoteSession: ObservableObject {
 
     func handle(_ frame: MacFrame) {
         switch frame {
+        case .spaces(let payload):
+            spaces = payload
+
         case .hello(let hello):
             mac = hello
+            updateNetworkProximity()
             if hello.protocol != Wire.protocolVersion {
                 log.error("Mac mówi protokołem \(hello.protocol), telefon \(Wire.protocolVersion)")
             }
@@ -462,6 +474,13 @@ final class RemoteSession: ObservableObject {
         }
         pendingScreenshot = nil
         screenshotJPEG = data
+    }
+
+    /// Przeliczane przy każdym `hello` — Mac mógł zmienić sieć tak samo jak
+    /// telefon, a jedno i drugie zdarza się w środku dnia.
+    private func updateNetworkProximity() {
+        guard let mac else { return isOnMacNetwork = nil }
+        isOnMacNetwork = LocalNetwork.shareSubnet(mac.lan, LocalNetwork.ipv4Addresses())
     }
 
     private func handle(_ state: TransportState) {

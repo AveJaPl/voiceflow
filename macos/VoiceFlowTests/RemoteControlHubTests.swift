@@ -53,7 +53,10 @@ final class RemoteControlHubTests: XCTestCase {
             endDictation: { [unowned self] in self.ended += 1 },
             cancelDictation: { [unowned self] in self.cancelled += 1 },
             postKey: { [unowned self] chord in self.pressedKeys.append(chord); return true },
-            switchSpace: { [unowned self] offset in self.spaceSteps.append(offset); return self.spaceResult },
+            switchSpace: { [unowned self] offset, _ in
+                self.spaceSteps.append(offset)
+                return self.spaceResult ? (index: 2, count: 3) : nil
+            },
             highlightWindow: { [unowned self] window in self.highlights.append(window?.id) },
             sendFrame: { [unowned self] in self.sentFrames.append($0) },
             sendBinary: { [unowned self] in self.sentBinaries.append($0) },
@@ -256,6 +259,15 @@ final class RemoteControlHubTests: XCTestCase {
         XCTAssertEqual(harness.spaceSteps, [1])
         XCTAssertTrue(harness.pressedKeys.isEmpty)
         // Po zmianie pulpitu telefon dostaje świeżą listę okien bez pytania.
+        let spaces = harness.sentFrames.compactMap { frame -> SpacesFrame? in
+            if case .spaces(let payload) = frame { return payload } else { return nil }
+        }.first
+        guard let spaces else {
+            return XCTFail("brak ramki spaces — telefon nie ma czym pokazać, że pulpit się zmienił")
+        }
+        XCTAssertEqual(spaces.index, 2)
+        XCTAssertEqual(spaces.count, 3)
+        // Po zmianie pulpitu lecą też świeże okna — inne są na wierzchu.
         XCTAssertTrue(harness.sentFrames.contains { if case .windows = $0 { true } else { false } })
     }
 

@@ -76,13 +76,12 @@ struct MainTabView: View {
             // wcześniej znaczyłoby pokazywanie ekranu, który umie tylko
             // powiedzieć „najpierw się zaloguj" — a od tego są Ustawienia.
             if remote.isPaired {
-                NavigationStack { RemoteView(session: remote) }
+                // JEDEN ekran sterowania w dwóch trybach (klawiatura / pilot),
+                // przełączanych automatycznie po sieci — patrz `MacControlView`.
+                // Dwie osobne zakładki znaczyły dwa różne wyglądy tego samego
+                // sprzętu i tej samej sesji.
+                NavigationStack { MacControlView(session: remote) }
                     .tabItem { Label("Mac", systemImage: "macbook.and.iphone") }
-                // Pilot to ta sama sesja, inny sposób obsługi: „Mac" jest do
-                // patrzenia (podgląd, lista, treść terminala), „Pilot" do
-                // klikania nie patrząc — pięć wielkich pól w stałych miejscach.
-                NavigationStack { PilotView(session: remote) }
-                    .tabItem { Label("Pilot", systemImage: "dpad") }
             }
             NavigationStack { HistoryView(remote: remote) }
                 .tabItem { Label("Historia", systemImage: "clock") }

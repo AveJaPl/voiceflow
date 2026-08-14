@@ -172,7 +172,7 @@ struct MacControlView: View {
         if let data = session.screenshotJPEG, let image = UIImage(data: data) {
             MacScreenPreview(
                 image: image,
-                display: session.displays.first(where: \.main) ?? session.displays.first,
+                area: session.screenshotArea,
                 terminals: terminals,
                 selectedID: session.selectedWindowID,
                 onSelect: { pick($0) }

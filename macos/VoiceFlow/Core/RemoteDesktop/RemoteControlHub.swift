@@ -158,10 +158,15 @@ final class RemoteControlHub {
             activeTarget = nil
             deps.cancelDictation()
 
-        case .space(let offset):
+        case .space(let offset, let target, let generation):
             // Pulpit przełączamy na ekranie ZAZNACZONEGO terminala, nie tam,
-            // gdzie akurat leży kursor.
-            let anchor = lastHighlighted ?? activeTarget
+            // gdzie akurat leży kursor. Telefon podaje cel wprost — poleganie
+            // na „ostatnio podniesionym oknie" znaczyło, że zaraz po starcie
+            // apki (nic jeszcze nie podnoszono) przełączał się ekran z myszą,
+            // czyli zwykle ten drugi, na który nikt nie patrzy.
+            let anchor = target.flatMap { deps.windowFor($0, generation ?? -1) }
+                ?? lastHighlighted
+                ?? activeTarget
             let position = deps.switchSpace(offset, anchor)
             DebugLog.write("Hub", "zmiana pulpitu o \(offset): \(position.map { "\($0.index)/\($0.count)" } ?? "nie udało się")")
             guard let position else {

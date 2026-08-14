@@ -255,7 +255,7 @@ final class RemoteControlHubTests: XCTestCase {
     /// ⌃←/⌃→ WindowServer ignoruje — zmierzone na żywo 2026-08-14.
     func testZmianaPulpituNieIdziePrzezKlawiature() async {
         let harness = Harness()
-        await harness.hub.handle(.space(offset: 1))
+        await harness.hub.handle(.space(offset: 1, target: nil, generation: nil))
         XCTAssertEqual(harness.spaceSteps, [1])
         XCTAssertTrue(harness.pressedKeys.isEmpty)
         // Po zmianie pulpitu telefon dostaje świeżą listę okien bez pytania.
@@ -276,7 +276,7 @@ final class RemoteControlHubTests: XCTestCase {
     func testSkrajnyPulpitZglaszaBlad() async {
         let harness = Harness()
         harness.spaceResult = false
-        await harness.hub.handle(.space(offset: -1))
+        await harness.hub.handle(.space(offset: -1, target: nil, generation: nil))
         guard case .error(let error)? = harness.sentFrames.last else {
             return XCTFail("brak ramki error")
         }

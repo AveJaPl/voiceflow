@@ -264,12 +264,26 @@ struct WindowsFrame: Codable, Equatable {
 struct ScreenshotHeader: Codable, Equatable {
     let generation: Int
     let format: String
+    /// Rozmiar OBRAZKA w pikselach.
     let w: Int
     let h: Int
     let bytes: Int
+    /// Obszar biurka POKRYTY przez ten obrazek, w punktach i w globalnym
+    /// układzie CoreGraphics — czyli w tym samym, w którym przychodzą okna.
+    /// Zrzut obejmuje WSZYSTKIE ekrany naraz, więc bez tych czterech liczb
+    /// telefon nie ma jak przeliczyć położenia okna na piksel obrazka.
+    /// Zera = starszy Mac wysyłający sam ekran główny.
+    let areaX: Int
+    let areaY: Int
+    let areaW: Int
+    let areaH: Int
 
-    init(generation: Int, format: String = "jpeg", w: Int, h: Int, bytes: Int) {
+    init(
+        generation: Int, format: String = "jpeg", w: Int, h: Int, bytes: Int,
+        areaX: Int = 0, areaY: Int = 0, areaW: Int = 0, areaH: Int = 0
+    ) {
         self.generation = generation; self.format = format; self.w = w; self.h = h; self.bytes = bytes
+        self.areaX = areaX; self.areaY = areaY; self.areaW = areaW; self.areaH = areaH
     }
 
     init(from decoder: Decoder) throws {
@@ -279,6 +293,10 @@ struct ScreenshotHeader: Codable, Equatable {
         w = c.wireValue(.w, default: 0)
         h = c.wireValue(.h, default: 0)
         bytes = c.wireValue(.bytes, default: 0)
+        areaX = c.wireValue(.areaX, default: 0)
+        areaY = c.wireValue(.areaY, default: 0)
+        areaW = c.wireValue(.areaW, default: 0)
+        areaH = c.wireValue(.areaH, default: 0)
     }
 }
 
@@ -502,7 +520,7 @@ enum PhoneFrame: Equatable {
     /// OSOBNA ramka, a nie skrót klawiszowy: WindowServer nie honoruje
     /// syntetycznych ⌃←/⌃→ (zmierzone 2026-08-14), więc Mac musi to zrobić
     /// zupełnie inną drogą — patrz `SpaceSwitcher`.
-    case space(offset: Int)
+    case space(offset: Int, target: String?, generation: Int?)
 
     var type: String {
         switch self {
@@ -547,7 +565,12 @@ extension PhoneFrame: Codable {
             )
         case "end": self = .end
         case "cancel": self = .cancel
-        case "space": self = .space(offset: (try? c.decode(Int.self, forKey: .offset)) ?? 0)
+        case "space":
+            self = .space(
+                offset: (try? c.decode(Int.self, forKey: .offset)) ?? 0,
+                target: try? c.decodeIfPresent(String.self, forKey: .target),
+                generation: try? c.decodeIfPresent(Int.self, forKey: .generation)
+            )
         case "key":
             self = .key(
                 chord: (try? c.decode(KeyChord.self, forKey: .chord)) ?? .return_,
@@ -574,7 +597,10 @@ extension PhoneFrame: Codable {
         case .start(let target, let generation):
             try c.encodeIfPresent(target, forKey: .target)
             try c.encodeIfPresent(generation, forKey: .generation)
-        case .space(let offset): try c.encode(offset, forKey: .offset)
+        case .space(let offset, let target, let generation):
+            try c.encode(offset, forKey: .offset)
+            try c.encodeIfPresent(target, forKey: .target)
+            try c.encodeIfPresent(generation, forKey: .generation)
         case .key(let chord, let target, let generation):
             try c.encode(chord, forKey: .chord)
             try c.encodeIfPresent(target, forKey: .target)

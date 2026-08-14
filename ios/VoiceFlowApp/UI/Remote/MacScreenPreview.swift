@@ -8,16 +8,17 @@ import SwiftUI
 /// Maca — bez tego wiadomo, co jest zaznaczone, tylko na jednym z dwóch
 /// urządzeń (zgłoszone przez Wojtka 2026-08-14).
 ///
-/// PRZELICZENIE WSPÓŁRZĘDNYCH: zrzut obejmuje EKRAN GŁÓWNY, a `WireWindow`
-/// niesie globalne współrzędne CoreGraphics, w których ekran główny zaczyna się
-/// w (0,0). Wystarczy więc podzielić przez jego rozmiar i pomnożyć przez rozmiar
-/// obrazka — skalowanie zrzutu (Mac zsyła go zmniejszonego) nie ma znaczenia,
-/// bo liczymy na ułamkach. Okna z drugiego monitora wypadają poza 0…1 i są
-/// pomijane: nie ma ich na tym obrazku, więc nie ma czego podświetlać.
+/// PRZELICZENIE WSPÓŁRZĘDNYCH: zrzut obejmuje WSZYSTKIE ekrany złożone w jeden
+/// obrazek, a nagłówek niesie obszar biurka, który pokrywa (`area`, punkty w
+/// globalnym układzie CoreGraphics — tym samym, w którym przychodzą okna).
+/// Liczymy więc na ułamkach obszaru: skalowanie zrzutu nie ma znaczenia, a okna
+/// z drugiego monitora mają swoje miejsce tak samo jak z pierwszego.
 struct MacScreenPreview: View {
     let image: UIImage
-    /// Rozmiar ekranu głównego w punktach (z ramki `windows`).
-    let display: WireDisplay?
+    /// Obszar biurka pokryty obrazkiem (punkty, układ CG) — z nagłówka zrzutu.
+    /// Obejmuje WSZYSTKIE ekrany, więc okna z drugiego monitora też mają swoje
+    /// miejsce na podglądzie.
+    let area: CGRect?
     let terminals: [WireWindow]
     let selectedID: String?
     let onSelect: (WireWindow) -> Void
@@ -31,8 +32,11 @@ struct MacScreenPreview: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(width: geometry.size.width, height: geometry.size.height)
 
-                ForEach(Array(placements(in: frame).enumerated()), id: \.element.window.id) { index, placement in
-                    hotspot(placement, number: index + 1)
+                ForEach(placements(in: frame)) { placement in
+                    // Numer z PEŁNEJ listy terminali, nie z listy widocznych na
+                    // podglądzie — inaczej „3" na obrazku znaczyłoby co innego
+                    // niż „3" na liście i przy strzałkach.
+                    hotspot(placement, number: (terminals.firstIndex { $0.id == placement.window.id } ?? 0) + 1)
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
@@ -41,7 +45,8 @@ struct MacScreenPreview: View {
         .overlay(Rectangle().stroke(VFColor.border, lineWidth: 1))
     }
 
-    private struct Placement {
+    private struct Placement: Identifiable {
+        var id: String { window.id }
         let window: WireWindow
         let rect: CGRect
     }
@@ -62,13 +67,13 @@ struct MacScreenPreview: View {
     }
 
     private func placements(in frame: CGRect) -> [Placement] {
-        guard let display, display.w > 0, display.h > 0 else { return [] }
+        guard let area, area.width > 0, area.height > 0 else { return [] }
         return terminals.compactMap { window in
-            let x = CGFloat(window.x) / CGFloat(display.w)
-            let y = CGFloat(window.y) / CGFloat(display.h)
-            let w = CGFloat(window.w) / CGFloat(display.w)
-            let h = CGFloat(window.h) / CGFloat(display.h)
-            // Okno z drugiego monitora — na tym obrazku go nie ma.
+            let x = (CGFloat(window.x) - area.minX) / area.width
+            let y = (CGFloat(window.y) - area.minY) / area.height
+            let w = CGFloat(window.w) / area.width
+            let h = CGFloat(window.h) / area.height
+            // Okno poza kadrem (zwinięte, na pulpicie, którego nie widać).
             guard x > -0.2, y > -0.2, x < 1, y < 1, w > 0.01, h > 0.01 else { return nil }
             return Placement(window: window, rect: CGRect(
                 x: frame.minX + x * frame.width,

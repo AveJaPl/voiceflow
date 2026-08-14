@@ -123,6 +123,10 @@ final class RemoteSession: ObservableObject {
     /// Który pulpit jest aktywny na ekranie sterowanym pilotem („2/3").
     @Published private(set) var spaces: SpacesFrame?
 
+    /// Obszar biurka pokryty ostatnim zrzutem (punkty, układ CG) — telefon
+    /// przelicza po nim położenie okien na piksele obrazka.
+    @Published private(set) var screenshotArea: CGRect?
+
     /// Poświadczenia tylko do odczytu. Pulpit i Historia wołają HTTP API konta
     /// (`AccountAPI`) TYM SAMYM tokenem, którym sesja rozmawia po WebSockecie —
     /// nie ma drugiego źródła prawdy o tym, kto jest zalogowany.
@@ -291,7 +295,11 @@ final class RemoteSession: ObservableObject {
     /// Zmiana pulpitu na Macu. OSOBNA ramka, nie klawisz: syntetyczne ⌃←/⌃→
     /// nie przełączają pulpitów (zmierzone 2026-08-14) — Mac robi to inną drogą.
     func stepSpace(_ offset: Int) {
-        send(.space(offset: offset))
+        send(.space(
+            offset: offset,
+            target: selectedWindowID,
+            generation: selectedWindowID == nil ? nil : generation
+        ))
     }
 
     /// Przeskok fokusu na sąsiedni terminal (pilot: ◀ ▶). Zwraca okno, na które
@@ -471,6 +479,12 @@ final class RemoteSession: ObservableObject {
         guard pendingScreenshot != nil else {
             log.error("ramka binarna bez nagłówka `screenshot` — odrzucona (\(data.count) B)")
             return
+        }
+        if let header = pendingScreenshot, header.areaW > 0, header.areaH > 0 {
+            screenshotArea = CGRect(
+                x: Double(header.areaX), y: Double(header.areaY),
+                width: Double(header.areaW), height: Double(header.areaH)
+            )
         }
         pendingScreenshot = nil
         screenshotJPEG = data

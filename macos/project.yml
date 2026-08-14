@@ -46,7 +46,7 @@ targets:
         NSMicrophoneUsageDescription: "VoiceFlow potrzebuje mikrofonu, żeby transkrybować dyktowanie na żywo."
         NSSpeechRecognitionUsageDescription: "VoiceFlow potrzebuje rozpoznawania mowy Apple do transkrypcji polskiej i angielskiej."
         NSAppleEventsUsageDescription: "VoiceFlow wysyła zdarzenia klawiatury i schowka, żeby wstawić przetranskrybowany tekst w aktywnej aplikacji."
-        CFBundleShortVersionString: "0.5.1"
+        CFBundleShortVersionString: "0.5.2"
         CFBundleVersion: "1"
     entitlements:
       path: VoiceFlow/VoiceFlow.entitlements
@@ -59,7 +59,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.avejapl.voiceflow
         PRODUCT_NAME: VoiceFlow
         GENERATE_INFOPLIST_FILE: NO
-        MARKETING_VERSION: "0.5.1"
+        MARKETING_VERSION: "0.5.2"
         CURRENT_PROJECT_VERSION: "1"
         ENABLE_HARDENED_RUNTIME: NO
         # whisper.cpp (WhisperSpeechEngine) linkuje wprost przeciw bibliotece z

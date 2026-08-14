@@ -62,6 +62,7 @@ final class RemoteMicClient: ObservableObject {
     private var connectionTask: Task<Void, Never>?
     private var currentSocket: RemoteMicSocket?
     private var focusObserver: NSObjectProtocol?
+    private var wakeObserver: NSObjectProtocol?
     private var isRemoteUtteranceActive = false
 
     /// Strona Maca zdalnego sterowania (plan §Mac): okna, fokus, terminal,
@@ -110,6 +111,7 @@ final class RemoteMicClient: ObservableObject {
         guard connectionTask == nil else { return }
         connectionState = .connecting
         installFocusObserver()
+        installWakeObserver()
         // Potwierdzenie dla telefonu, że tekst dojechał (ramka `injected`) —
         // hub sam pilnuje, czy bieżąca wypowiedź w ogóle była zdalna
         // (`activeTarget`), więc lokalne dyktowania tego nie wysyłają.
@@ -163,6 +165,7 @@ final class RemoteMicClient: ObservableObject {
             DebugLog.write("RemoteMic", "połączono z relayem")
             backoff = 1
 
+            let heartbeat = startHeartbeat(for: socket)
             do {
                 while !Task.isCancelled {
                     let message = try await socket.receive()
@@ -171,6 +174,7 @@ final class RemoteMicClient: ObservableObject {
             } catch {
                 DebugLog.write("RemoteMic", "połączenie WS przerwane: \(error.localizedDescription)")
             }
+            heartbeat.cancel()
 
             // Sprzątamy TYLKO jeśli to wciąż nasz socket. Przy `restart()`
             // (np. po zalogowaniu kontem) stara, anulowana pętla budzi się z
@@ -185,10 +189,33 @@ final class RemoteMicClient: ObservableObject {
             }
 
             guard !Task.isCancelled else { break }
+            // Sufit 8 s zamiast 30: telefon w ręce czeka na Maca, a nie odwrotnie.
             try? await Task.sleep(nanoseconds: UInt64(backoff * 1_000_000_000))
-            backoff = min(backoff * 2, 30)
+            backoff = min(backoff * 2, 8)
         }
     }
+
+    /// Puls co `pingInterval`. Nieudany ping = połączenie jest martwe: ubijamy
+    /// gniazdo, przez co `receive()` rzuca i pętla łączy się od nowa. To jedyny
+    /// sposób, żeby wykryć połączenie, które umarło po cichu.
+    private func startHeartbeat(for socket: RemoteMicSocket) -> Task<Void, Never> {
+        Task { [weak self, weak socket] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(Self.pingInterval * 1_000_000_000))
+                guard !Task.isCancelled, let socket else { return }
+                do {
+                    try await socket.sendPing()
+                } catch {
+                    DebugLog.write("RemoteMic", "puls nie doszedł — zrywam martwe połączenie: \(error.localizedDescription)")
+                    socket.cancel(with: .abnormalClosure, reason: nil)
+                    _ = self
+                    return
+                }
+            }
+        }
+    }
+
+    static let pingInterval: TimeInterval = 20
 
     /// Bazowy adres relaya akceptuje zarówno pełny URL ze schematem
     /// (`wss://…` produkcyjnie, `ws://127.0.0.1:port` do testu lokalnego —
@@ -276,6 +303,7 @@ final class RemoteMicClient: ObservableObject {
             endDictation: { [weak self] in self?.endRemoteUtterance() },
             cancelDictation: { [weak self] in self?.cancelRemoteUtterance() },
             postKey: { KeyChordSender.post($0) },
+            switchSpace: { offset in SpaceSwitcher.step(offset) },
             highlightWindow: { [weak self] window in
                 guard let self else { return }
                 guard let window else { return self.highlighter.hide() }
@@ -374,6 +402,22 @@ final class RemoteMicClient: ObservableObject {
     /// Połączenie zerwane w trakcie zdalnej wypowiedzi — anulujemy zamiast
     /// wstrzykiwać niekompletny tekst, i ZAWSZE czyścimy override, inaczej
     /// lokalny skrót zostaje uwięziony na atrapie mikrofonu do restartu apki.
+    /// Po wybudzeniu Maca gniazdo sprzed uśpienia jest martwe, ale nic tego nie
+    /// zgłasza — bez tego telefon po otwarciu klapy trafia w pustkę aż do
+    /// pierwszego pulsu. Ubijamy je od razu, pętla łączy się na nowo.
+    private func installWakeObserver() {
+        guard wakeObserver == nil else { return }
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, let socket = currentSocket else { return }
+                DebugLog.write("RemoteMic", "wybudzenie Maca — łączę od nowa")
+                socket.cancel(with: .abnormalClosure, reason: nil)
+            }
+        }
+    }
+
     private func cancelStrandedUtteranceIfNeeded() {
         // Telefon zniknął — obwódka nie ma czego pokazywać. Bez tego zostaje
         // na ekranie po odłożeniu telefonu, aż do samoczynnego wygaśnięcia.
@@ -469,12 +513,32 @@ private struct LegacyFocusFrame: Encodable {
 /// wymaga żadnego dodatkowego kodu.
 protocol RemoteMicSocket: AnyObject {
     func resume()
+    /// Puls utrzymujący połączenie. Domyślnie no-op, żeby atrapy w testach
+    /// nie musiały nic o nim wiedzieć.
+    func sendPing() async throws
     func send(_ message: URLSessionWebSocketTask.Message) async throws
     func receive() async throws -> URLSessionWebSocketTask.Message
     func cancel(with closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?)
 }
 
-extension URLSessionWebSocketTask: RemoteMicSocket {}
+extension RemoteMicSocket {
+    func sendPing() async throws {}
+}
+
+extension URLSessionWebSocketTask: RemoteMicSocket {
+    /// Most na `async` z API opartego o callback. Bez pulsu zerwane połączenie
+    /// (uśpiony Wi-Fi, restart relaya, NAT) NIE daje żadnego błędu: `receive()`
+    /// wisi w nieskończoność, Mac uważa, że jest połączony, a telefon w tym
+    /// czasie widzi „łączę z Makiem" i nie doczeka się niczego. To była
+    /// najczęstsza awaria zgłaszana z użycia.
+    func sendPing() async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            sendPing { error in
+                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+            }
+        }
+    }
+}
 
 // MARK: - Token parowania (Keychain — NIE UserDefaults, §3 planu: to sekret)
 

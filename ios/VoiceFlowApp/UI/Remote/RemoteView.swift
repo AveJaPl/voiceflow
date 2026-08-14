@@ -80,7 +80,11 @@ struct RemoteView: View {
             session.setViewportActive(false)
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { session.enterBackground(); latchedTarget = nil }
+            if phase == .active {
+                session.wakeUp()
+            } else {
+                session.enterBackground(); latchedTarget = nil
+            }
         }
         .onChange(of: session.lastInjected) { _, injected in
             guard let injected else { return }

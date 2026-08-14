@@ -28,8 +28,16 @@ protocol ControlTransport: AnyObject {
 
     func connect()
     func disconnect()
+    /// „Spróbuj TERAZ" — przerywa odczekiwanie backoffu. Wołane, gdy apka wraca
+    /// na wierzch: człowiek patrzy w ekran i nie ma czekać 8 s tylko dlatego, że
+    /// poprzednia próba wypadła nieszczęśliwie.
+    func reconnectNow()
     func send(text: String)
     func send(binary: Data)
+}
+
+extension ControlTransport {
+    func reconnectNow() {}
 }
 
 /// WebSocket przez relay (`relay/src/relayHub.js`). Rola `phone`, token z
@@ -50,8 +58,12 @@ final class WebSocketTransport: ControlTransport {
     /// Rozróżnia „rozłączyło się samo" (reconnect) od „user wyszedł" (koniec).
     private var wantsConnection = false
     private var backoff: TimeInterval = 1
+    /// Ustawiane przez `reconnectNow()` — przerywa drzemkę między próbami.
+    private var retryNow = false
 
-    private static let maxBackoff: TimeInterval = 30
+    /// 8 s zamiast 30: telefon czeka na Maca w ręce użytkownika.
+    private static let maxBackoff: TimeInterval = 8
+    private static let pingInterval: TimeInterval = 20
 
     init(urlProvider: @escaping () -> URL?, session: URLSession? = nil) {
         self.urlProvider = urlProvider
@@ -82,6 +94,14 @@ final class WebSocketTransport: ControlTransport {
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
         onState?(.idle)
+    }
+
+    func reconnectNow() {
+        retryNow = true
+        guard wantsConnection else { return connect() }
+        // Gniazdo, które umarło po cichu (uśpiony telefon, zmiana sieci), nie
+        // zgłasza błędu — ubicie go wybija pętlę odbioru z zawieszenia.
+        task?.cancel(with: .abnormalClosure, reason: nil)
     }
 
     func send(text: String) {
@@ -136,6 +156,7 @@ final class WebSocketTransport: ControlTransport {
                 onState?(.connected)
             }
 
+            let heartbeat = startHeartbeat(for: socket)
             do {
                 while wantsConnection, !Task.isCancelled {
                     let message = try await socket.receive()
@@ -151,12 +172,45 @@ final class WebSocketTransport: ControlTransport {
                 }
             }
 
+            heartbeat.cancel()
             task = nil
             guard wantsConnection, !Task.isCancelled else { break }
 
             onState?(.waiting(retryIn: backoff))
-            try? await Task.sleep(nanoseconds: UInt64(backoff * 1_000_000_000))
+            await sleepBeforeRetry(backoff)
             backoff = min(backoff * 2, Self.maxBackoff)
+        }
+    }
+
+    /// Drzemka w kawałkach po 200 ms, żeby `reconnectNow()` mogło ją przerwać.
+    /// Prostsze i mniej zawodne niż budzenie uśpionego zadania kontynuacją.
+    private func sleepBeforeRetry(_ seconds: TimeInterval) async {
+        retryNow = false
+        var slept: TimeInterval = 0
+        while slept < seconds, wantsConnection, !Task.isCancelled, !retryNow {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            slept += 0.2
+        }
+        if retryNow { backoff = 1 }
+        retryNow = false
+    }
+
+    /// Puls: bez niego gniazdo po uśpieniu telefonu albo zmianie sieci umiera
+    /// po cichu — `receive()` wisi, ekran pokazuje „połączony", a nic nie leci.
+    private func startHeartbeat(for socket: URLSessionWebSocketTask) -> Task<Void, Never> {
+        Task { [weak self, weak socket] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(Self.pingInterval * 1_000_000_000))
+                guard !Task.isCancelled, let socket, let self else { return }
+                let alive: Bool = await withCheckedContinuation { continuation in
+                    socket.sendPing { error in continuation.resume(returning: error == nil) }
+                }
+                guard !alive else { continue }
+                log.error("puls nie doszedł — zrywam martwe połączenie")
+                _ = self
+                socket.cancel(with: .abnormalClosure, reason: nil)
+                return
+            }
         }
     }
 

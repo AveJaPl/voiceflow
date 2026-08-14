@@ -37,6 +37,9 @@ final class RemoteControlHub {
         /// Wyślij skrót klawiszowy do aplikacji na froncie. `false` = akord
         /// spoza słownika tej wersji Maca.
         var postKey: (_ chord: KeyChord) -> Bool
+        /// Zmień pulpit o `offset`. `false` = skrajny pulpit albo system nie
+        /// pozwolił — telefon pokazuje wtedy komunikat zamiast udawać sukces.
+        var switchSpace: (_ offset: Int) -> Bool
         /// Zaznacz okno na ekranie Maca (obwódka), żeby siedząc przy komputerze
         /// było widać, którym oknem steruje pilot. `nil` = schowaj znacznik.
         var highlightWindow: (_ window: WireWindow?) -> Void
@@ -133,6 +136,15 @@ final class RemoteControlHub {
         case .cancel:
             activeTarget = nil
             deps.cancelDictation()
+
+        case .space(let offset):
+            if !deps.switchSpace(offset) {
+                deps.sendFrame(.error(ErrorFrame(code: .unsupported, message: "Nie ma kolejnego pulpitu")))
+                return
+            }
+            // Po zmianie pulpitu lista okien wygląda inaczej (inne okna są na
+            // wierzchu) — telefon dostaje ją od razu, bez pytania.
+            deps.sendFrame(.windows(deps.snapshotWindows()))
 
         case .key(let chord, let target, let generation):
             // Klawisz leci do aplikacji NA FRONCIE, więc przy podanym celu

@@ -51,7 +51,11 @@ struct PilotView: View {
         }
         .onDisappear { session.setViewportActive(false) }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { session.enterBackground(); latched = false }
+            if phase == .active {
+                session.wakeUp()
+            } else {
+                session.enterBackground(); latched = false
+            }
         }
         .onChange(of: session.lastInjected) { _, injected in
             guard let injected else { return }
@@ -175,10 +179,10 @@ struct PilotView: View {
     private var desktopRow: some View {
         HStack(spacing: 12) {
             PadButton(glyph: "arrow.left.to.line", caption: "PULPIT") {
-                desktop(.ctrlLeft, label: "pulpit w lewo")
+                desktop(-1, label: "pulpit w lewo")
             }
             PadButton(glyph: "arrow.right.to.line", caption: "PULPIT") {
-                desktop(.ctrlRight, label: "pulpit w prawo")
+                desktop(1, label: "pulpit w prawo")
             }
         }
         .frame(height: 64)
@@ -220,11 +224,12 @@ struct PilotView: View {
         flash("cel: \(window.displayTitle)")
     }
 
-    /// Zmiana pulpitu leci BEZ celu: podniesienie okna przed naciśnięciem
-    /// przerzuciłoby nas z powrotem na pulpit tego okna.
-    private func desktop(_ chord: KeyChord, label: String) {
+    /// Zmiana pulpitu idzie WŁASNĄ ramką, nie klawiszem — patrz `SpaceSwitcher`
+    /// po stronie Maca. Skrajny pulpit wraca jako błąd „unsupported" i telefon
+    /// pokazuje go w pasku, zamiast udawać, że coś się stało.
+    private func desktop(_ offset: Int, label: String) {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        session.sendKey(chord, toSelectedWindow: false)
+        session.stepSpace(offset)
         flash(label)
     }
 

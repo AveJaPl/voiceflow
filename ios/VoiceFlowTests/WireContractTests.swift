@@ -190,6 +190,8 @@ final class WireContractTests: XCTestCase {
             .key(chord: .cmdV, target: "812:0", generation: 42),
             .key(chord: .ctrlU, target: "812:0", generation: 42),
             .key(chord: .cmdZ, target: nil, generation: nil),
+            .space(offset: 1),
+            .space(offset: -1),
         ]
         for frame in frames {
             let text = try WireCodec.encodeToString(frame)

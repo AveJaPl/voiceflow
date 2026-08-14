@@ -197,6 +197,15 @@ final class RemoteSession: ObservableObject {
         transport.connect()
     }
 
+    /// Apka wróciła na wierzch: gniazdo mogło umrzeć w tle bez żadnego błędu,
+    /// a odczekiwanie backoffu z ekranem w ręce wygląda jak awaria. Ponawiamy
+    /// natychmiast zamiast czekać.
+    func wakeUp() {
+        guard credentials != nil else { return }
+        transport.reconnectNow()
+        send(.requestWindows)
+    }
+
     func disconnect() {
         cancelDictation()
         transport.disconnect()
@@ -269,6 +278,12 @@ final class RemoteSession: ObservableObject {
     func sendKey(_ chord: KeyChord, toSelectedWindow: Bool = true) {
         let target = toSelectedWindow ? selectedWindowID : nil
         send(.key(chord: chord, target: target, generation: target == nil ? nil : generation))
+    }
+
+    /// Zmiana pulpitu na Macu. OSOBNA ramka, nie klawisz: syntetyczne ⌃←/⌃→
+    /// nie przełączają pulpitów (zmierzone 2026-08-14) — Mac robi to inną drogą.
+    func stepSpace(_ offset: Int) {
+        send(.space(offset: offset))
     }
 
     /// Przeskok fokusu na sąsiedni terminal (pilot: ◀ ▶). Zwraca okno, na które

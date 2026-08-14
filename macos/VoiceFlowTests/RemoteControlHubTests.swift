@@ -18,6 +18,8 @@ final class RemoteControlHubTests: XCTestCase {
         var pressedKeys: [KeyChord] = []
         /// Kolejne wywolania obwodki; `nil` = schowanie znacznika.
         var highlights: [String?] = []
+        var spaceSteps: [Int] = []
+        var spaceResult = true
         var focusResult = true
         var busy = false
         var snapshotGeneration = 1
@@ -51,6 +53,7 @@ final class RemoteControlHubTests: XCTestCase {
             endDictation: { [unowned self] in self.ended += 1 },
             cancelDictation: { [unowned self] in self.cancelled += 1 },
             postKey: { [unowned self] chord in self.pressedKeys.append(chord); return true },
+            switchSpace: { [unowned self] offset in self.spaceSteps.append(offset); return self.spaceResult },
             highlightWindow: { [unowned self] window in self.highlights.append(window?.id) },
             sendFrame: { [unowned self] in self.sentFrames.append($0) },
             sendBinary: { [unowned self] in self.sentBinaries.append($0) },
@@ -241,6 +244,31 @@ final class RemoteControlHubTests: XCTestCase {
         await harness.hub.handle(.focusWindow(id: "101", generation: 1))
         await harness.hub.handle(.unsubscribe)
         XCTAssertEqual(harness.highlights, ["101", nil])
+    }
+
+    // MARK: - Pulpity
+
+    /// Zmiana pulpitu idzie WŁASNĄ drogą (`SpaceSwitcher`), bo syntetyczne
+    /// ⌃←/⌃→ WindowServer ignoruje — zmierzone na żywo 2026-08-14.
+    func testZmianaPulpituNieIdziePrzezKlawiature() async {
+        let harness = Harness()
+        await harness.hub.handle(.space(offset: 1))
+        XCTAssertEqual(harness.spaceSteps, [1])
+        XCTAssertTrue(harness.pressedKeys.isEmpty)
+        // Po zmianie pulpitu telefon dostaje świeżą listę okien bez pytania.
+        XCTAssertTrue(harness.sentFrames.contains { if case .windows = $0 { true } else { false } })
+    }
+
+    /// Skrajny pulpit: telefon dostaje błąd zamiast ciszy, która wygląda
+    /// identycznie jak zepsuty przycisk.
+    func testSkrajnyPulpitZglaszaBlad() async {
+        let harness = Harness()
+        harness.spaceResult = false
+        await harness.hub.handle(.space(offset: -1))
+        guard case .error(let error)? = harness.sentFrames.last else {
+            return XCTFail("brak ramki error")
+        }
+        XCTAssertEqual(error.code, .unsupported)
     }
 
     /// Każdy akord pilota musi mieć mapowanie na kod klawisza — inaczej Mac

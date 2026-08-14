@@ -469,6 +469,11 @@ enum PhoneFrame: Equatable {
     /// `nil` zachowuje stare zachowanie („naciśnij na froncie") i zgodność ze
     /// starszym telefonem.
     case key(chord: KeyChord, target: String?, generation: Int?)
+    /// Zmiana pulpitu o `offset` (−1 / +1) na ekranie, na który patrzysz.
+    /// OSOBNA ramka, a nie skrót klawiszowy: WindowServer nie honoruje
+    /// syntetycznych ⌃←/⌃→ (zmierzone 2026-08-14), więc Mac musi to zrobić
+    /// zupełnie inną drogą — patrz `SpaceSwitcher`.
+    case space(offset: Int)
 
     var type: String {
         switch self {
@@ -483,12 +488,13 @@ enum PhoneFrame: Equatable {
         case .end: "end"
         case .cancel: "cancel"
         case .key: "key"
+        case .space: "space"
         }
     }
 }
 
 extension PhoneFrame: Codable {
-    private enum K: String, CodingKey { case type, id, generation, target, chord }
+    private enum K: String, CodingKey { case type, id, generation, target, chord, offset }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: K.self)
@@ -512,6 +518,7 @@ extension PhoneFrame: Codable {
             )
         case "end": self = .end
         case "cancel": self = .cancel
+        case "space": self = .space(offset: (try? c.decode(Int.self, forKey: .offset)) ?? 0)
         case "key":
             self = .key(
                 chord: (try? c.decode(KeyChord.self, forKey: .chord)) ?? .return_,
@@ -538,6 +545,7 @@ extension PhoneFrame: Codable {
         case .start(let target, let generation):
             try c.encodeIfPresent(target, forKey: .target)
             try c.encodeIfPresent(generation, forKey: .generation)
+        case .space(let offset): try c.encode(offset, forKey: .offset)
         case .key(let chord, let target, let generation):
             try c.encode(chord, forKey: .chord)
             try c.encodeIfPresent(target, forKey: .target)

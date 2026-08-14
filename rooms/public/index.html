@@ -56,7 +56,7 @@ body{margin:0; background:var(--bg); color:var(--text);
   padding-top:max(clamp(16px,2.2vh,30px), env(safe-area-inset-top));
   grid-template-rows:auto minmax(0,1fr) auto; gap:clamp(12px,1.8vh,22px)}
 #board[data-on="1"]{display:grid}
-.columns{display:grid; grid-template-columns:minmax(0,0.82fr) minmax(0,1.18fr);
+.columns{display:grid; grid-template-columns:minmax(0,1.65fr) minmax(0,1fr);
   gap:clamp(12px,1.6vw,24px); min-height:0}
 .col{display:flex; flex-direction:column; gap:clamp(10px,1.4vh,18px); min-height:0}
 
@@ -98,7 +98,7 @@ button:hover{border-color:rgba(255,255,255,.35)}
 @keyframes pulse{0%,100%{height:7px}50%{height:clamp(28px,4.2vh,44px)}}
 
 /* --- kafelki ------------------------------------------------------------- */
-.tiles{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,2fr);
+.tiles{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,2.2fr);
   gap:clamp(10px,1.2vh,16px); min-height:0; align-content:start}
 .tile{padding:clamp(12px,1.7vh,20px) clamp(14px,1.4vw,20px); min-width:0;
   display:flex; flex-direction:column; justify-content:center; gap:6px;
@@ -134,7 +134,7 @@ button:hover{border-color:rgba(255,255,255,.35)}
    Wiersz na osobę jest niski, więc trzy–pięć osób mieści się bez rozpychania
    kafelka w pionie. Tokeny zaokrąglone do tys./mln/mld. */
 .usage-table{display:grid; grid-template-columns:minmax(0,1fr) auto auto auto;
-  column-gap:clamp(10px,1.1vw,18px); row-gap:3px; width:100%; align-items:baseline}
+  column-gap:clamp(8px,.8vw,14px); row-gap:3px; width:100%; align-items:baseline}
 .u-head{font-size:.6rem; letter-spacing:.12em; text-transform:uppercase;
   color:var(--faint); text-align:right; white-space:nowrap}
 .usage-name{font-size:.78rem; color:var(--muted); min-width:0;
@@ -154,40 +154,35 @@ button:hover{border-color:rgba(255,255,255,.35)}
 .rows{list-style:none; margin:0; padding:0; overflow-y:auto; min-height:0; flex:1}
 .rows::-webkit-scrollbar{width:4px}
 .rows::-webkit-scrollbar-thumb{background:var(--border)}
-.row{position:relative; display:grid; align-items:center; gap:0 clamp(10px,1.2vw,18px);
-  grid-template-columns:clamp(46px,5vw,66px) minmax(0,1fr) auto;
-  padding:clamp(13px,1.9vh,22px) 4px;
+.row{position:relative; display:grid; align-items:center; gap:0 clamp(8px,.9vw,14px);
+  grid-template-columns:clamp(36px,3.6vw,50px) minmax(0,1fr) auto;
+  padding:clamp(12px,1.8vh,20px) 4px;
   border-bottom:1px solid rgba(255,255,255,.05)}
 .row:last-child{border-bottom:none}
 .pos{position:relative; z-index:0; text-align:center; font-family:var(--display);
-  font-weight:800; font-size:clamp(1.5rem,3vh,2.2rem); line-height:1; letter-spacing:-.05em;
+  font-weight:800; font-size:clamp(1.2rem,2.4vh,1.8rem); line-height:1; letter-spacing:-.05em;
   color:transparent; -webkit-text-stroke:1.2px var(--faint); user-select:none}
 .row[data-lead="1"] .pos{-webkit-text-stroke:1.2px rgba(255,255,255,.6); color:rgba(255,255,255,.12)}
 .row[data-lead="1"] .pos::after{content:""; position:absolute; z-index:-1; left:50%; top:50%;
-  width:clamp(66px,8vh,104px); height:clamp(66px,8vh,104px); transform:translate(-50%,-50%);
+  width:clamp(52px,6.4vh,84px); height:clamp(52px,6.4vh,84px); transform:translate(-50%,-50%);
   pointer-events:none; opacity:.7; background:url("/assets/laurel.webp") center/contain no-repeat}
 .who{min-width:0}
 .name{font-family:var(--display); font-weight:600; letter-spacing:-.02em;
-  font-size:clamp(1.05rem,2.2vh,1.5rem); line-height:1.15;
+  font-size:clamp(.95rem,2vh,1.3rem); line-height:1.15;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .row[data-speaking="1"] .name{color:#fff}
 .row[data-speaking="1"] .name::after{content:"mówi"; margin-left:9px; font-family:var(--sans);
   font-size:.56rem; font-weight:600; letter-spacing:.18em; text-transform:uppercase;
   color:var(--rec); vertical-align:middle}
-.bar{height:4px; margin-top:9px; border-radius:3px; background:rgba(255,255,255,.06); overflow:hidden}
-.bar i{display:block; height:100%; border-radius:3px; background:rgba(255,255,255,.3);
-  transition:width .9s cubic-bezier(.2,.7,.2,1), background .4s ease}
-.row[data-lead="1"] .bar i{background:rgba(255,255,255,.72)}
-.row[data-speaking="1"] .bar i{background:var(--rec)}
-.meta{color:var(--faint); font-size:.74rem; margin-top:6px;
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+/* Bez paska udziału i bez wiersza meta: na węższej kolumnie liczy się
+   miejsce, kto, słowa, czas i liczba dyktowań — nic więcej. */
 /* Liczby: szerokość z treści, nigdy łamane. „1 g 17 min" zawijało się na dwa
    wiersze, bo kolumna miała sztywną szerokość węższą niż tekst. */
-.numbers{display:flex; gap:clamp(12px,1.4vw,24px); align-items:baseline}
+.numbers{display:flex; gap:clamp(8px,1vw,18px); align-items:baseline}
 .stat{text-align:right; white-space:nowrap}
 .stat b{display:block; font-family:var(--display); font-weight:600;
-  font-size:clamp(1.05rem,2.2vh,1.55rem); letter-spacing:-.02em; font-variant-numeric:tabular-nums}
-.stat small{display:block; margin-top:2px; font-size:.56rem; letter-spacing:.16em;
+  font-size:clamp(.92rem,1.9vh,1.3rem); letter-spacing:-.02em; font-variant-numeric:tabular-nums}
+.stat small{display:block; margin-top:2px; font-size:.5rem; letter-spacing:.1em;
   text-transform:uppercase; color:var(--faint)}
 
 .empty-board{padding:28px 8px; color:var(--muted)}
@@ -215,15 +210,22 @@ input[type=text]:focus{outline:none; border-color:rgba(255,255,255,.4)}
 .total{font-family:var(--display); font-weight:600; font-size:.95rem; color:var(--muted);
   font-variant-numeric:tabular-nums}
 
-/* Karta wykresu żyje w lewej kolumnie i bierze całą resztę jej wysokości.
-   Wcześniej siedziała pod przyciskiem, ale panel obok i tak był pusty — a to
-   jest rzecz, na którą się patrzy w trakcie pracy, nie po nią sięga. */
-/* Karta rośnie do swojej treści, tak jak wszystko inne w tej kolumnie.
-   Rozciąganie jej na resztę wysokości zostawiało wykres pływający w pustce. */
+/* Górne piętro lewej kolumny: pion „Kto mówi" + kafelki, a obok — na całej
+   ich wysokości — wykres dobowy. Liniowy mieszka niżej i rośnie na resztę. */
+.left-top{display:grid; grid-template-columns:minmax(0,1.18fr) minmax(0,0.82fr);
+  gap:clamp(10px,1.4vh,18px); align-items:stretch}
+.stack{display:flex; flex-direction:column; gap:clamp(10px,1.4vh,18px); min-width:0}
 .chart-card{display:flex; flex-direction:column;
   padding:clamp(12px,1.7vh,20px) clamp(14px,1.4vw,20px); gap:10px}
 .chart-head{display:flex; align-items:baseline; justify-content:space-between; gap:10px}
-#charts-body{min-height:0}
+/* Wykres dobowy wypełnia wysokość sąsiedniego pionu... */
+#hours-card #hours-body{flex:1; min-height:0; display:flex; flex-direction:column;
+  justify-content:flex-end}
+#hours-card .hours{flex:1; height:auto; min-height:0}
+/* ...a liniowy całą resztę kolumny — to największa wolna płachta ekranu. */
+.chart-card.grow{flex:1; min-height:0}
+#charts-body{min-height:0; flex:1; display:flex; flex-direction:column}
+.chart-card.grow .plot{flex:1; height:auto; min-height:0}
 
 /* Wykres narastający: ile słów kto ma RAZEM w danym momencie sesji. Słupki
    mówiły „ile w tym kwadransie" — z tego nie widać, jak szło ani kto kogo
@@ -273,6 +275,7 @@ pre{background:rgba(0,0,0,.4); border:1px solid var(--border); border-radius:10p
 
 @media (max-width:900px){
   .columns{grid-template-columns:1fr; overflow-y:auto}
+  .left-top{grid-template-columns:1fr}
   .tiles{grid-template-columns:1fr 1fr}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
@@ -296,28 +299,32 @@ pre{background:rgba(0,0,0,.4); border:1px solid var(--border); border-radius:10p
 
   <div class="columns">
     <div class="col">
-      <section class="card now" id="now" data-live="0">
-        <div class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
-        <div class="now-text">
-          <p class="eyebrow" id="now-eyebrow">Teraz</p>
-          <div class="now-title" id="now-title">Cisza</div>
-          <div class="now-sub" id="now-sub">Nikt nie dyktuje</div>
+      <div class="left-top">
+        <div class="stack">
+          <section class="card now" id="now" data-live="0">
+            <div class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+            <div class="now-text">
+              <p class="eyebrow" id="now-eyebrow">Teraz</p>
+              <div class="now-title" id="now-title">Cisza</div>
+              <div class="now-sub" id="now-sub">Nikt nie dyktuje</div>
+            </div>
+          </section>
+          <div class="tiles" id="tiles"></div>
         </div>
-      </section>
-      <div class="tiles" id="tiles"></div>
-      <section class="card chart-card">
+        <section class="card chart-card" id="hours-card">
+          <div class="chart-head">
+            <p class="eyebrow">O której pracujecie</p>
+            <p class="eyebrow" id="hours-note"></p>
+          </div>
+          <div id="hours-body"></div>
+        </section>
+      </div>
+      <section class="card chart-card grow">
         <div class="chart-head">
           <p class="eyebrow">Kto kiedy dyktował</p>
           <p class="eyebrow" id="tempo"></p>
         </div>
         <div id="charts-body"></div>
-      </section>
-      <section class="card chart-card">
-        <div class="chart-head">
-          <p class="eyebrow">O której pracujecie</p>
-          <p class="eyebrow" id="hours-note"></p>
-        </div>
-        <div id="hours-body"></div>
       </section>
     </div>
 
@@ -438,8 +445,9 @@ function tempoLabel() {
 }
 
 /* „490 mln", nie „490 440 619": na ścianie liczy się rząd wielkości.
-   Poniżej dziesięciu jednostek zostaje jedno miejsce po przecinku (2,4 mld). */
-function formatTokens(value) {
+   Poniżej dziesięciu jednostek zostaje jedno miejsce po przecinku (2,4 mld).
+   Skraca i tokeny w kafelku Claude, i słowa w rankingu. */
+function formatShort(value) {
   const short = (scaled) => scaled >= 10
     ? String(Math.round(scaled))
     : (Math.round(scaled * 10) / 10).toString().replace('.', ',');
@@ -490,7 +498,7 @@ function renderTiles() {
         const pct = (value) => value == null ? '—' : `${value}%`;
         return `
         <span class="usage-name">${escapeHtml(item.name ?? '—')}</span>
-        <span class="u-tokens">${tokens > 0 ? formatTokens(tokens) : '—'}</span>
+        <span class="u-tokens">${tokens > 0 ? formatShort(tokens) : '—'}</span>
         <span class="u-pct${hot}">${pct(item.fiveHour)}</span>
         <span class="u-pct">${pct(item.sevenDay)}</span>`;
       }).join('')}
@@ -549,7 +557,6 @@ function renderBoard() {
   const leader = ranking[0];
   if (leader && leader.name !== lastLeader) { lastLeader = leader.name; leaderSince = Date.now(); }
 
-  const total = ranking.reduce((sum, entry) => sum + entry.words, 0);
   el('board-hint').textContent = !leader ? ''
     : ranking.length < 2 ? 'sam na tablicy'
     : leader.words > ranking[1].words
@@ -562,14 +569,6 @@ function renderBoard() {
   }
 
   el('rows').innerHTML = ranking.map((entry, index) => {
-    const behind = leader.words - entry.words;
-    const share = total > 0 ? Math.round((entry.words / total) * 100) : 0;
-    const meta = [
-      `${numbers.format(entry.dictations)} dyktowań`,
-      `${share}% sesji`,
-      index > 0 && behind ? `brakuje ${numbers.format(behind)}` : '',
-    ].filter(Boolean).join(' · ');
-    const width = leader.words > 0 ? (entry.words / leader.words) * 100 : 0;
     return `
       <li class="row" data-lead="${index === 0 ? '1' : '0'}"
           data-name="${escapeHtml(entry.name ?? '')}"
@@ -577,12 +576,11 @@ function renderBoard() {
         <div class="pos">${String(index + 1).padStart(2, '0')}</div>
         <div class="who">
           <div class="name">${escapeHtml(entry.name ?? '—')}</div>
-          <div class="bar"><i style="width:${width}%"></i></div>
-          <div class="meta">${escapeHtml(meta)}</div>
         </div>
         <div class="numbers">
-          <div class="stat"><b>${numbers.format(entry.words)}</b><small>słów</small></div>
+          <div class="stat"><b>${formatShort(entry.words)}</b><small>słów</small></div>
           <div class="stat"><b>${formatDuration(entry.seconds)}</b><small>mówienia</small></div>
+          <div class="stat"><b>${numbers.format(entry.dictations)}</b><small>dyktowań</small></div>
         </div>
       </li>`;
   }).join('');

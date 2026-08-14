@@ -69,6 +69,11 @@ final class RoomClient {
     private var ducked = false
     /// Ostatnio wysłane zużycie Claude Code — niezmienione nie jest powtarzane.
     private var lastUsage: NSDictionary?
+    /// Czy TA maszyna właśnie dyktuje — bramka pulsu łącza. Serwer rozumie
+    /// heartbeat jako „wciąż mówię" (odświeża nim wyłącznie wpis mówiącego),
+    /// więc puls wysyłany w ciszy podtrzymywał w nieskończoność wpis po
+    /// zgubionym speaking_ended.
+    private(set) var speakingHere = false
 
     init(
         config: RoomConfiguration,
@@ -93,10 +98,12 @@ final class RoomClient {
     }
 
     func reportStarted() {
+        speakingHere = true
         send(["type": "speaking_started"])
     }
 
     func reportFinished(words: Int, seconds: Double) {
+        speakingHere = false
         send(["type": "speaking_ended", "words": words, "seconds": seconds])
     }
 
@@ -107,6 +114,7 @@ final class RoomClient {
     /// wygaśnięcia pulsu dziesięć sekund później. Zero słów to sygnał dla
     /// serwera, żeby zwolnić głos i nie zapisywać wpisu.
     func reportCancelled() {
+        speakingHere = false
         send(["type": "speaking_ended", "words": 0, "seconds": 0])
     }
 

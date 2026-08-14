@@ -113,6 +113,7 @@ final class SessionController {
                 transport: link
             )
             self.roomLink = link
+            link.isSpeaking = { [weak self] in self?.room?.speakingHere ?? false }
             link.start()
             if configuration.isUsable, configuration.shareClaudeUsage {
                 // Kafelek zużycia Claude Code na tablicy pokoju. Czytanie

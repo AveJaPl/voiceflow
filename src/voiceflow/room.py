@@ -130,6 +130,16 @@ class RoomClient:
         self._claude_usage = usage
         self._send({"type": "claude_usage", "usage": usage})
 
+    @property
+    def speaking_here(self) -> bool:
+        """Czy TA maszyna właśnie dyktuje — bramka pulsu łącza.
+
+        Serwer rozumie puls jako „wciąż mówię" (odświeża nim wyłącznie wpis
+        mówiącego), więc puls wysyłany w ciszy podtrzymywał w nieskończoność
+        wpis po zgubionym speaking_ended.
+        """
+        return self._speaking_here
+
     def heartbeat(self) -> None:
         self._send({"type": "heartbeat"})
 
@@ -194,6 +204,14 @@ class RoomClient:
             # minut trafiało to w każde dłuższe dyktowanie.
             if self._speaking_here:
                 self._send({"type": "speaking_started"})
+            else:
+                # Odwrotny przypadek: łącze padło dokładnie między końcem
+                # mówienia a dostarczeniem speaking_ended. Serwer trzymał nas
+                # jako mówiącego w nieskończoność, a my widzieliśmy „siebie"
+                # jako cudze dyktowanie i blokowaliśmy własny skrót aż do
+                # restartu demona. Zwolnienie w ciemno jest dla serwera
+                # no-opem, chyba że wisi na nim właśnie nasz stary wpis.
+                self._send({"type": "speaking_ended", "words": 0, "seconds": 0})
         kind = payload.get("type")
         if kind == "speaking_denied":
             self._set_remote_speaker(payload.get("blockedBy"))

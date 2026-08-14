@@ -19,6 +19,10 @@ final class RoomLink: NSObject, RoomTransport, @unchecked Sendable {
 
     private let config: RoomConfiguration
     private let onDisconnected: () -> Void
+    /// Bramka pulsu: serwer rozumie heartbeat jako „wciąż mówię", więc
+    /// pulsujemy tylko podczas własnego dyktowania. Domyślnie zawsze —
+    /// brak pulsu ścinałby prawdziwego mówiącego po dziesięciu sekundach.
+    var isSpeaking: () -> Bool = { true }
     private var onMessageCallback: (([String: Any]) -> Void)?
 
     private let queue = DispatchQueue(label: "io.github.avejapl.voiceflow.room")
@@ -92,6 +96,12 @@ final class RoomLink: NSObject, RoomTransport, @unchecked Sendable {
         newTask.resume()
         startHeartbeat()
         receive()
+        // Łącze mogło paść dokładnie między końcem mówienia a dostarczeniem
+        // speaking_ended — serwer trzymałby nas jako mówiącego w nieskończoność.
+        // Zwolnienie w ciemno jest no-opem, chyba że wisi na nim nasz wpis.
+        if !isSpeaking() {
+            send(["type": "speaking_ended", "words": 0, "seconds": 0])
+        }
     }
 
     private func receive() {
@@ -123,7 +133,8 @@ final class RoomLink: NSObject, RoomTransport, @unchecked Sendable {
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + Self.heartbeatSeconds, repeating: Self.heartbeatSeconds)
         timer.setEventHandler { [weak self] in
-            self?.send(["type": "heartbeat"])
+            guard let self, self.isSpeaking() else { return }
+            self.send(["type": "heartbeat"])
         }
         timer.resume()
         heartbeatTimer = timer

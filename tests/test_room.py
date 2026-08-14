@@ -335,14 +335,18 @@ def test_reconnect_reminds_the_room_that_we_are_still_speaking() -> None:
     assert {"type": "speaking_started"} in transport.sent
 
 
-def test_reconnect_stays_quiet_when_we_are_not_speaking() -> None:
+def test_reconnect_without_speech_does_not_reclaim_the_voice() -> None:
+    """Dawniej: reconnect w ciszy nie wysyłał NIC. Reguła zmieniona 2026-08-14:
+    wysyła zwolnienie głosu (patrz test niżej), bo zgubione speaking_ended
+    zawieszało mówiącego na zawsze. Nadal jednak nie wolno mu wysłać
+    speaking_started — to zablokowałoby cudze dyktowanie."""
     client, transport, _states = _client_with_states()
     client.on_disconnected()
     transport.sent.clear()
 
     transport.deliver({"type": "room_state", "speaking": None})
 
-    assert transport.sent == []
+    assert not any(m.get("type") == "speaking_started" for m in transport.sent)
 
 
 # --- zgoda na kafelki ------------------------------------------------------
@@ -389,3 +393,44 @@ def test_reconnect_resends_claude_usage() -> None:
     client.report_claude_usage({"fiveHour": 58})
 
     assert transport.sent == [{"type": "claude_usage", "usage": {"fiveHour": 58}}]
+
+
+# --- zawieszony mówiący: zgubione speaking_ended -----------------------------
+
+
+def test_reconnect_without_local_speech_releases_the_voice() -> None:
+    """Łącze padło dokładnie między końcem mówienia a dostarczeniem
+    speaking_ended: serwer trzymał mówiącego w nieskończoność, a klient
+    widział „siebie" jako cudze dyktowanie i blokował własny skrót aż do
+    restartu demona. Po powrocie łącza klient, który NIE mówi, zwalnia głos
+    w ciemno — dla serwera to no-op, chyba że wisi na nim nasz stary wpis."""
+    client, transport, _states = _client_with_states()
+    client.on_disconnected()
+    transport.sent.clear()
+
+    transport.deliver({"type": "room_state", "speaking": {"name": "Filip"}})
+
+    assert {"type": "speaking_ended", "words": 0, "seconds": 0} in transport.sent
+
+
+def test_reconnect_while_speaking_does_not_release_the_voice() -> None:
+    client, transport, _states = _client_with_states()
+    client.report_started()
+    client.on_disconnected()
+    transport.sent.clear()
+
+    transport.deliver({"type": "room_state", "speaking": None})
+
+    assert {"type": "speaking_started"} in transport.sent
+    assert not any(m.get("type") == "speaking_ended" for m in transport.sent)
+
+
+def test_speaking_here_is_readable_for_the_heartbeat_gate() -> None:
+    client, _transport, _states = _client_with_states()
+    assert client.speaking_here is False
+
+    client.report_started()
+    assert client.speaking_here is True
+
+    client.report_finished(words=3, seconds=1)
+    assert client.speaking_here is False

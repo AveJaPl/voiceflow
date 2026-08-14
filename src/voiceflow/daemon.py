@@ -192,6 +192,7 @@ class VoiceflowDaemon:
                 on_state_changed=write_room_state,
             )
             link._on_disconnected = self.room.on_disconnected  # noqa: SLF001
+            link.is_speaking = lambda: self.room.speaking_here
             self._room_link = link
             link.start()
         if _WINDOWS and tray is None:

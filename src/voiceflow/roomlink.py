@@ -41,6 +41,11 @@ class WebSocketTransport:
         self.config = config
         self._on_message: Callable[[dict[str, Any]], None] | None = None
         self._on_disconnected = on_disconnected
+        #: Bramka pulsu: serwer rozumie heartbeat jako „wciąż mówię", więc
+        #: pulsujemy tylko w trakcie własnego dyktowania. Niepodpięta bramka
+        #: (inne wywołania niż demon) pulsuje zawsze — brak pulsu ścinałby
+        #: prawdziwego mówiącego po dziesięciu sekundach.
+        self.is_speaking: Callable[[], bool] | None = None
         self._socket: Any = None
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -138,7 +143,8 @@ class WebSocketTransport:
             try:
                 raw = socket.recv(timeout=HEARTBEAT_SECONDS)
             except TimeoutError:
-                socket.send(json.dumps({"type": "heartbeat"}))
+                if self.is_speaking is None or self.is_speaking():
+                    socket.send(json.dumps({"type": "heartbeat"}))
                 continue
             if raw is None:
                 return

@@ -7,12 +7,15 @@ import CoreGraphics
 enum KeyChordSender {
 
     /// Mapowanie na wirtualne kody klawiszy (Carbon `kVK_*`).
-    private static func mapping(for chord: KeyChord) -> (keyCode: CGKeyCode, flags: CGEventFlags)? {
+    static func mapping(for chord: KeyChord) -> (keyCode: CGKeyCode, flags: CGEventFlags)? {
         switch chord {
         case .return_: (36, [])
         case .escape: (53, [])
         case .cmdReturn: (36, .maskCommand)
         case .ctrlC: (8, .maskControl) // 8 = klawisz „C"
+        case .cmdZ: (6, .maskCommand)  // 6 = „Z"
+        case .cmdV: (9, .maskCommand)  // 9 = „V"
+        case .ctrlU: (32, .maskControl) // 32 = „U" — wyczyszczenie linii w powłoce
         default: nil
         }
     }

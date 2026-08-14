@@ -263,8 +263,23 @@ final class RemoteSession: ObservableObject {
         send(.requestScreenshot)
     }
 
-    func sendKey(_ chord: KeyChord) {
-        send(.key(chord: chord))
+    /// Naciśnięcie klawisza na Macu. Domyślnie leci do ZAZNACZONEGO okna —
+    /// Mac je najpierw podnosi i weryfikuje, więc ⌘V z pilota nie może wpaść
+    /// w cudze okno tylko dlatego, że coś przeskoczyło na front.
+    func sendKey(_ chord: KeyChord, toSelectedWindow: Bool = true) {
+        let target = toSelectedWindow ? selectedWindowID : nil
+        send(.key(chord: chord, target: target, generation: target == nil ? nil : generation))
+    }
+
+    /// Przeskok fokusu na sąsiedni terminal (pilot: ◀ ▶). Zwraca okno, na które
+    /// przeszliśmy — widok pokazuje jego nazwę bez czekania na ramkę z Maca.
+    @discardableResult
+    func stepTerminal(_ offset: Int) -> WireWindow? {
+        guard let window = TerminalOrder.step(from: selectedWindowID, in: windows, offset: offset) else {
+            return nil
+        }
+        focus(window)
+        return window
     }
 
     /// Początek wypowiedzi. `target == nil` = „dyktuj do tego, co na froncie"

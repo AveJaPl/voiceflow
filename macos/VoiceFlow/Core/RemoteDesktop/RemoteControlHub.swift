@@ -125,9 +125,24 @@ final class RemoteControlHub {
             activeTarget = nil
             deps.cancelDictation()
 
-        case .key(let chord):
+        case .key(let chord, let target, let generation):
+            // Klawisz leci do aplikacji NA FRONCIE, więc przy podanym celu
+            // najpierw go podnosimy i weryfikujemy. Inaczej ⌘V z pilota trafia
+            // w to, co akurat jest na wierzchu — czyli w cokolwiek.
+            if let target {
+                guard let window = deps.windowFor(target, generation ?? -1) else {
+                    deps.sendFrame(.error(ErrorFrame(code: .windowGone, target: target)))
+                    return
+                }
+                guard await deps.focusWindow(window) else {
+                    deps.sendFrame(.error(ErrorFrame(code: .focusFailed, target: target)))
+                    return
+                }
+            }
             if !deps.postKey(chord) {
-                deps.sendFrame(.error(ErrorFrame(code: .unsupported, message: "Nieznany akord: \(chord.rawValue)")))
+                deps.sendFrame(.error(ErrorFrame(
+                    code: .unsupported, message: "Nieznany akord: \(chord.rawValue)", target: target
+                )))
             }
         }
     }

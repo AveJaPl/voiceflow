@@ -139,7 +139,7 @@ export function handlePhoneFrame(state, frame) {
       return { state: { ...state, utterance: null }, actions: [{ kind: 'stopPreview' }] };
 
     case 'key':
-      return { state, actions: [{ kind: 'logKey', chord: frame.chord }] };
+      return { state, actions: [{ kind: 'logKey', chord: frame.chord, target: frame.target ?? null }] };
 
     default:
       return { state, actions };

@@ -78,6 +78,11 @@ struct MainTabView: View {
             if remote.isPaired {
                 NavigationStack { RemoteView(session: remote) }
                     .tabItem { Label("Mac", systemImage: "macbook.and.iphone") }
+                // Pilot to ta sama sesja, inny sposób obsługi: „Mac" jest do
+                // patrzenia (podgląd, lista, treść terminala), „Pilot" do
+                // klikania nie patrząc — pięć wielkich pól w stałych miejscach.
+                NavigationStack { PilotView(session: remote) }
+                    .tabItem { Label("Pilot", systemImage: "dpad") }
             }
             NavigationStack { HistoryView(remote: remote) }
                 .tabItem { Label("Historia", systemImage: "clock") }

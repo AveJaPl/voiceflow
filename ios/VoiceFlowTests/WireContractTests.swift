@@ -169,7 +169,7 @@ final class WireContractTests: XCTestCase {
         )
         XCTAssertEqual(
             WireCodec.decodePhoneFrame(try fixture("phone-key-return")),
-            .key(chord: .return_)
+            .key(chord: .return_, target: nil, generation: nil)
         )
     }
 
@@ -185,7 +185,11 @@ final class WireContractTests: XCTestCase {
             .start(target: "812:0", generation: 42),
             .start(target: nil, generation: nil),
             .end, .cancel,
-            .key(chord: .ctrlC),
+            .key(chord: .ctrlC, target: nil, generation: nil),
+            // Pilot: klawisz z celem — Mac ma podnieść okno, ZANIM naciśnie.
+            .key(chord: .cmdV, target: "812:0", generation: 42),
+            .key(chord: .ctrlU, target: "812:0", generation: 42),
+            .key(chord: .cmdZ, target: nil, generation: nil),
         ]
         for frame in frames {
             let text = try WireCodec.encodeToString(frame)

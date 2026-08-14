@@ -15,6 +15,7 @@ final class RemoteControlHubTests: XCTestCase {
         var began = 0
         var ended = 0
         var cancelled = 0
+        var pressedKeys: [KeyChord] = []
         var focusResult = true
         var busy = false
         var snapshotGeneration = 1
@@ -47,7 +48,7 @@ final class RemoteControlHubTests: XCTestCase {
             },
             endDictation: { [unowned self] in self.ended += 1 },
             cancelDictation: { [unowned self] in self.cancelled += 1 },
-            postKey: { _ in true },
+            postKey: { [unowned self] chord in self.pressedKeys.append(chord); return true },
             sendFrame: { [unowned self] in self.sentFrames.append($0) },
             sendBinary: { [unowned self] in self.sentBinaries.append($0) },
             macName: "TestMac",
@@ -162,5 +163,55 @@ final class RemoteControlHubTests: XCTestCase {
         }
         XCTAssertEqual(error.code, .notPermitted)
         XCTAssertTrue(harness.sentBinaries.isEmpty)
+    }
+
+    // MARK: - Pilot (klawisz z celem)
+
+    /// ⌘V z pilota MUSI trafić w okno, które user widzi na telefonie — czyli
+    /// najpierw podniesienie i weryfikacja, dopiero potem klawisz.
+    func testKlawiszZCelemNajpierwPodnosiOkno() async {
+        let harness = Harness()
+        await harness.hub.handle(.key(chord: .cmdV, target: "101", generation: 1))
+        XCTAssertEqual(harness.pressedKeys, [.cmdV])
+    }
+
+    /// Nieudany fokus = NIC nie zostało naciśnięte. Wciśnięcie ⌃C w losowym
+    /// oknie tylko dlatego, że cel uciekł, byłoby gorsze niż brak funkcji.
+    func testNieudanyFokusNieNaciskaKlawisza() async {
+        let harness = Harness()
+        harness.focusResult = false
+        await harness.hub.handle(.key(chord: .ctrlC, target: "101", generation: 1))
+        XCTAssertTrue(harness.pressedKeys.isEmpty)
+        guard case .error(let error)? = harness.sentFrames.last else {
+            return XCTFail("brak ramki error")
+        }
+        XCTAssertEqual(error.code, .focusFailed)
+    }
+
+    func testKlawiszDoZnikniętegoOknaZglaszaWindowGone() async {
+        let harness = Harness()
+        await harness.hub.handle(.key(chord: .return_, target: "101", generation: 99))
+        XCTAssertTrue(harness.pressedKeys.isEmpty)
+        guard case .error(let error)? = harness.sentFrames.last else {
+            return XCTFail("brak ramki error")
+        }
+        XCTAssertEqual(error.code, .windowGone)
+    }
+
+    /// Zgodność wsteczna: bez celu naciskamy na froncie, tak jak dotąd.
+    func testKlawiszBezCeluNaciskaNaFroncie() async {
+        let harness = Harness()
+        harness.focusResult = false
+        await harness.hub.handle(.key(chord: .return_, target: nil, generation: nil))
+        XCTAssertEqual(harness.pressedKeys, [.return_])
+    }
+
+    /// Każdy akord pilota musi mieć mapowanie na kod klawisza — inaczej Mac
+    /// odpowiada „unsupported", a przycisk na telefonie jest atrapą.
+    func testWszystkieAkordyPilotaMajaMapowanie() {
+        for chord: KeyChord in [.return_, .escape, .cmdReturn, .ctrlC, .cmdZ, .cmdV, .ctrlU] {
+            XCTAssertNotNil(KeyChordSender.mapping(for: chord), "brak mapowania dla \(chord.rawValue)")
+        }
+        XCTAssertNil(KeyChordSender.mapping(for: KeyChord(rawValue: "cmdShiftQ")))
     }
 }

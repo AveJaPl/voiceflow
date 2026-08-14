@@ -90,6 +90,14 @@ struct KeyChord: RawRepresentable, Codable, Equatable, Hashable {
     static let cmdReturn = KeyChord(rawValue: "cmdReturn")
     /// Przerwanie tego, co biegnie w terminalu.
     static let ctrlC = KeyChord(rawValue: "ctrlC")
+    /// Cofnięcie w edytorze / aplikacji okienkowej.
+    static let cmdZ = KeyChord(rawValue: "cmdZ")
+    /// Wklejenie schowka Maca — pilot nie przesyła treści, tylko naciska klawisz.
+    static let cmdV = KeyChord(rawValue: "cmdV")
+    /// „Cofnij" w powłoce: ⌘Z w terminalu nie robi nic, a wyczyszczenie linii
+    /// jest tym, czego się w tym miejscu naprawdę chce (skasowanie promptu,
+    /// który przed chwilą wpadł z dyktowania).
+    static let ctrlU = KeyChord(rawValue: "ctrlU")
 }
 
 // MARK: - Ładunki
@@ -449,7 +457,12 @@ enum PhoneFrame: Equatable {
     case start(target: String?, generation: Int?)
     case end
     case cancel
-    case key(chord: KeyChord)
+    /// Naciśnięcie klawisza na Macu. `target` = okno, które ma być przedtem
+    /// podniesione i zweryfikowane — bez tego klawisz leci do CZEGOKOLWIEK, co
+    /// akurat jest na froncie, a to przy pilocie w telefonie jest loteria.
+    /// `nil` zachowuje stare zachowanie („naciśnij na froncie") i zgodność ze
+    /// starszym telefonem.
+    case key(chord: KeyChord, target: String?, generation: Int?)
 
     var type: String {
         switch self {
@@ -493,7 +506,12 @@ extension PhoneFrame: Codable {
             )
         case "end": self = .end
         case "cancel": self = .cancel
-        case "key": self = .key(chord: (try? c.decode(KeyChord.self, forKey: .chord)) ?? .return_)
+        case "key":
+            self = .key(
+                chord: (try? c.decode(KeyChord.self, forKey: .chord)) ?? .return_,
+                target: try? c.decodeIfPresent(String.self, forKey: .target),
+                generation: try? c.decodeIfPresent(Int.self, forKey: .generation)
+            )
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: K.type, in: c, debugDescription: "Nieznany typ ramki telefonu: \(type)"
@@ -514,7 +532,10 @@ extension PhoneFrame: Codable {
         case .start(let target, let generation):
             try c.encodeIfPresent(target, forKey: .target)
             try c.encodeIfPresent(generation, forKey: .generation)
-        case .key(let chord): try c.encode(chord, forKey: .chord)
+        case .key(let chord, let target, let generation):
+            try c.encode(chord, forKey: .chord)
+            try c.encodeIfPresent(target, forKey: .target)
+            try c.encodeIfPresent(generation, forKey: .generation)
         case .unsubscribe, .requestWindows, .requestScreenshot, .end, .cancel: break
         }
     }

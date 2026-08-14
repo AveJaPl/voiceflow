@@ -375,11 +375,17 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
 }
 @media (max-width:760px){
   .wrap{padding:0 20px}
-  /* Stopka: jeden flex z auto-marginesem na logo zawijał się w chaotyczne
-     rzędy. Na telefonie: logo, pionowa lista linków, kredyty pod kreską. */
-  .foot{flex-direction:column;align-items:flex-start;gap:14px}
-  .foot .wordmark{margin-right:0;margin-bottom:6px}
-  .foot-credits{margin-top:16px;padding-top:20px;border-top:1px solid var(--border);width:100%}
+  /* Stopka: dwie wyjustowane kolumny — lewa do lewej, prawa do prawej.
+     Logo nad nimi, kredyty pod kreską rozepchnięte na boki. */
+  .foot{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .foot .wordmark{grid-column:1/-1;margin-right:0;margin-bottom:6px;justify-self:start}
+  /* nth-of-type liczy WSZYSTKIE <a>, z logo jako pierwszym — parzyste
+     (GitHub, Changelog, Prywatność) lądują w lewej kolumnie, nieparzyste
+     (Wydania, Issues) w prawej, dosunięte do prawej krawędzi. */
+  .foot > a:nth-of-type(odd):not(.wordmark){justify-self:end}
+  .foot-credits{grid-column:1/-1;margin-top:16px;padding-top:20px;
+    border-top:1px solid var(--border);width:100%}
+  .foot-credits a:first-of-type{margin-left:auto}
   footer{margin-top:110px}
   table{font-size:.85rem}
   th,td{padding:12px 10px}

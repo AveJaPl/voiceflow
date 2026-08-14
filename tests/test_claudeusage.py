@@ -190,7 +190,7 @@ def test_tokens_alone_still_make_a_payload_when_statusline_is_stale(tmp_path):
     payload = current_payload(path=tmp_path / "nie-ma.json", counter=counter, now=NOW)
 
     assert payload["tokensIn"] == 1110
-    assert payload["fiveHour"] == 0
+    assert payload["fiveHour"] is None, "brak snapshotu to niewiadoma, nie 0%"
 
 
 def test_nothing_at_all_means_no_payload(tmp_path):

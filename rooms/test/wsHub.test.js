@@ -296,3 +296,19 @@ test('stary klient bez pól tokenów nadal przechodzi', async () => {
   assert.equal(seen.people[0].tokensIn, 0);
   assert.equal(seen.people[0].tokensOut, 0);
 });
+
+test('nieznane procenty (null) docierają jako null, nie jako 0%', async () => {
+  const hub = createHub({ store: noopStore });
+  const filip = fakeConnection('dev-1', 'Filip');
+  await hub.handleMessage(filip, { type: 'hello' });
+  filip.sent.length = 0;
+
+  await hub.handleMessage(filip, {
+    type: 'claude_usage',
+    usage: { fiveHour: null, sevenDay: null, tokensIn: 500, tokensOut: 20 },
+  });
+
+  const seen = filip.sent.filter((m) => m.type === 'claude_usage').at(-1);
+  assert.equal(seen.people[0].fiveHour, null, '0% to zmyślona liczba, null to prawda');
+  assert.equal(seen.people[0].tokensIn, 500);
+});

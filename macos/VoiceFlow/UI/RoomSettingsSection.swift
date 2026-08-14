@@ -13,6 +13,7 @@ struct RoomSettingsSection: View {
     @AppStorage(SettingsKeys.roomCode) private var code = ""
     @AppStorage(SettingsKeys.roomDuckForOthers) private var duckForOthers = true
     @AppStorage(SettingsKeys.roomDisplayName) private var displayName = ""
+    @AppStorage(SettingsKeys.roomShareClaudeUsage) private var shareClaudeUsage = true
 
     @State private var joinCode = ""
     @State private var busy = false
@@ -31,6 +32,10 @@ struct RoomSettingsSection: View {
                      destination: URL(string: "\(httpServer)/room/\(code)") ?? URL(string: "https://voiceflow.pbdevs.com")!)
                 Toggle("Pozwól, by cudze dyktowanie ściszało dźwięk tutaj", isOn: $duckForOthers)
                 Text("Kiedy ktoś inny w pokoju mówi, Twój skrót nie zacznie nagrywać — dwa mikrofony naraz psują obie transkrypcje. Zmiana wymaga restartu VoiceFlow.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Toggle("Pokazuj w pokoju zużycie Claude Code", isOn: $shareClaudeUsage)
+                Text("Na tablicę pokoju trafiają wyłącznie liczby: tokeny z dzisiaj i procenty limitów. Nigdy nazwy sesji, katalogi ani treść. Zmiana wymaga restartu VoiceFlow.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Button("Wyjdź z pokoju") {

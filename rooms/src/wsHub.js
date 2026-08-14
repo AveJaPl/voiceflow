@@ -121,11 +121,16 @@ export function createHub({ store }) {
       }
 
       if (message.type === 'claude_usage') {
-        // Jak muzyka: przelotem, bez tabeli. Dzielenie się tym jest wyłączone
-        // domyślnie po stronie klienta — tu tylko rozsyłamy to, co przyszło.
+        // Jak muzyka: przelotem, bez tabeli. Klient może dzielenie się tym
+        // wyłączyć u siebie — tu tylko rozsyłamy to, co przyszło.
+        // null w procentach to „ta maszyna nie zna swoich limitów" (brak
+        // snapshotu paska statusu na Windowsie/macOS) — 0% byłoby zmyśleniem.
+        const pct = (value) => value == null
+          ? null
+          : Math.max(0, Math.min(100, Number(value) || 0));
         const usage = message.usage ? {
-          fiveHour: Math.max(0, Math.min(100, Number(message.usage.fiveHour) || 0)),
-          sevenDay: Math.max(0, Math.min(100, Number(message.usage.sevenDay) || 0)),
+          fiveHour: pct(message.usage.fiveHour),
+          sevenDay: pct(message.usage.sevenDay),
           resetsAt: Number(message.usage.resetsAt) || 0,
           tokensIn: Math.max(0, Math.floor(Number(message.usage.tokensIn) || 0)),
           tokensOut: Math.max(0, Math.floor(Number(message.usage.tokensOut) || 0)),

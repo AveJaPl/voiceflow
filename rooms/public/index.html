@@ -486,11 +486,13 @@ function renderTiles() {
         const tokens = (item.tokensIn ?? 0) + (item.tokensOut ?? 0);
         // Stary klient przysyła same procenty — kreska zamiast fałszywego zera.
         const hot = item.fiveHour >= 80 ? ' hot' : '';
+        // null = maszyna nie zna swoich limitów; kreska zamiast zmyślonego 0%.
+        const pct = (value) => value == null ? '—' : `${value}%`;
         return `
         <span class="usage-name">${escapeHtml(item.name ?? '—')}</span>
         <span class="u-tokens">${tokens > 0 ? formatTokens(tokens) : '—'}</span>
-        <span class="u-pct${hot}">${item.fiveHour}%</span>
-        <span class="u-pct">${item.sevenDay}%</span>`;
+        <span class="u-pct${hot}">${pct(item.fiveHour)}</span>
+        <span class="u-pct">${pct(item.sevenDay)}</span>`;
       }).join('')}
       </div>
     </div>`);

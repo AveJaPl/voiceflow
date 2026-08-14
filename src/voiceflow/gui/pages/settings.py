@@ -257,11 +257,19 @@ class SettingsPage(QWidget):
         self._notifications.toggled.connect(self._touch)
         card.body.addWidget(self._notifications)
 
+        # Dotyczy wyłącznie wspólnego pokoju: bez pokoju nic nigdzie nie leci.
+        self._share_claude = QCheckBox(
+            "Pokazuj w pokoju zużycie Claude Code (tokeny i limity)"
+        )
+        self._share_claude.toggled.connect(self._touch)
+        card.body.addWidget(self._share_claude)
+
         card.body.addWidget(
             _hint(
-                "Sprawdzanie aktualizacji to jedyne zapytanie sieciowe, jakie "
-                "wykonuje voiceflow. Nagrania i tekst nigdy nie opuszczają "
-                "tego komputera."
+                "Poza wspólnym pokojem (jeśli go włączysz) jedynym zapytaniem "
+                "sieciowym voiceflow jest sprawdzanie aktualizacji. Nagrania "
+                "i tekst nigdy nie opuszczają tego komputera; do pokoju idą "
+                "wyłącznie liczby."
             )
         )
         return card
@@ -354,6 +362,11 @@ class SettingsPage(QWidget):
 
             notifications = service.section(raw, "notifications")
             self._notifications.setChecked(service.bool_value(notifications, "enabled", True))
+
+            room = service.section(raw, "room")
+            self._share_claude.setChecked(
+                service.bool_value(room, "share_claude_usage", True)
+            )
         finally:
             self._loading = False
         self._set_dirty(False)
@@ -429,6 +442,9 @@ class SettingsPage(QWidget):
         service.mutable_section(raw, "notifications")[
             "enabled"
         ] = self._notifications.isChecked()
+        service.mutable_section(raw, "room")[
+            "share_claude_usage"
+        ] = self._share_claude.isChecked()
 
     def _save_config(self) -> None:
         self._save.setEnabled(False)

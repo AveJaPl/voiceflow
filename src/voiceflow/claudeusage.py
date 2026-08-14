@@ -210,12 +210,14 @@ def current_payload(
     path: Path | None = None,
     counter: TokenCounter | None = None,
     now: float | None = None,
-) -> dict[str, int] | None:
+) -> dict[str, int | None] | None:
     """The full room payload: limit percentages plus today's token counts.
 
     Still numbers only — a stale status line with fresh transcripts (or the
     other way round) yields a partial payload rather than none, because half
-    the picture is better than a missing tile.
+    the picture is better than a missing tile. Missing percentages travel as
+    None, never as 0: a machine without the status-line snapshot (Windows,
+    macOS) is "unknown", and 0% would be a made-up number.
     """
     global _COUNTER
     if counter is None:
@@ -226,7 +228,8 @@ def current_payload(
     tokens_in, tokens_out = counter.tokens_today(now=now)
     if usage is None and tokens_in == 0 and tokens_out == 0:
         return None
-    payload = usage.as_payload() if usage else {"fiveHour": 0, "sevenDay": 0, "resetsAt": 0}
+    payload: dict[str, int | None]
+    payload = usage.as_payload() if usage else {"fiveHour": None, "sevenDay": None, "resetsAt": 0}
     payload["tokensIn"] = tokens_in
     payload["tokensOut"] = tokens_out
     return payload

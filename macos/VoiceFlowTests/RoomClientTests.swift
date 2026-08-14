@@ -18,13 +18,15 @@ final class RoomClientTests: XCTestCase {
 
     private func makeClient(
         duckForOthers: Bool = true,
-        enabled: Bool = true
+        enabled: Bool = true,
+        shareClaudeUsage: Bool = true
     ) -> (RoomClient, FakeTransport, () -> [String]) {
         let transport = FakeTransport()
         var ducked: [String] = []
         let config = RoomConfiguration(
             enabled: enabled, server: "wss://example", code: "ROOM01",
-            token: "tok", duckForOthers: duckForOthers
+            token: "tok", duckForOthers: duckForOthers,
+            shareClaudeUsage: shareClaudeUsage
         )
         let client = RoomClient(
             config: config,
@@ -119,6 +121,41 @@ final class RoomClientTests: XCTestCase {
 
         XCTAssertTrue(client.mayStart().allowed)
         XCTAssertTrue(transport.sent.isEmpty)
+    }
+
+    func testZuzycieClaudeIdzieRazZmienioneIdzieZnowu() {
+        let (client, transport, _) = makeClient()
+        let usage: [String: Any] = ["fiveHour": 58, "tokensIn": 1110, "tokensOut": 50]
+
+        client.reportClaudeUsage(usage)
+        client.reportClaudeUsage(usage)
+        client.reportClaudeUsage(["fiveHour": 59, "tokensIn": 1110, "tokensOut": 50])
+
+        let sent = transport.sent.filter { $0["type"] as? String == "claude_usage" }
+        XCTAssertEqual(sent.count, 2, "niezmieniony payload nie jest powtarzany")
+    }
+
+    func testWylacznikZuzyciaJestBezwzglednieSkuteczny() {
+        let (client, transport, _) = makeClient(shareClaudeUsage: false)
+
+        client.reportClaudeUsage(["fiveHour": 58, "tokensIn": 1110])
+
+        XCTAssertTrue(transport.sent.isEmpty, "bez zgody nic nie wychodzi")
+    }
+
+    func testPoZerwaniuLaczaZuzycieJestWysylanePonownie() {
+        // Serwer trzyma kafelki w pamięci procesu; po restarcie (deploy) nie
+        // pamięta nic, więc pierwszy raport po ponownym połączeniu musi wyjść
+        // nawet z niezmienionymi liczbami.
+        let (client, transport, _) = makeClient()
+        let usage: [String: Any] = ["fiveHour": 58, "tokensIn": 1110]
+        client.reportClaudeUsage(usage)
+
+        client.onDisconnected()
+        client.reportClaudeUsage(usage)
+
+        let sent = transport.sent.filter { $0["type"] as? String == "claude_usage" }
+        XCTAssertEqual(sent.count, 2)
     }
 
     func testAdresRestJestWyprowadzanyZAdresuWebSocketu() throws {

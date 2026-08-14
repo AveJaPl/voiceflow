@@ -118,7 +118,8 @@ class RoomClient:
     def report_claude_usage(self, usage: dict[str, int] | None) -> None:
         """Publish this machine's Claude Code limit usage, when allowed.
 
-        Off unless `share_claude_usage` is on, and off by default: this says
+        On unless `share_claude_usage` was switched off — a room is a shared
+        table and the numbers say nothing about content. Still gated: this says
         something about how a person works, which is a step past the word counts
         the room exists to compare. Same transient treatment as the music.
         """

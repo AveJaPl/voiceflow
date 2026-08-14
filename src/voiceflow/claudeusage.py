@@ -5,9 +5,9 @@ its own status line. Only the two percentages and their reset times are taken �
 never the session name, the working directory, the cost in dollars or anything
 that could say what the person was working on.
 
-Sharing this with a room is **off by default** (`room.share_claude_usage`).
-It is more personal than a word count: it says something about how somebody
-works, not about what the room produced together.
+Sharing this with a room is on by default (`room.share_claude_usage`) —
+a room is a shared table, and these are bare numbers with nothing about what
+anyone worked on. The switch stays for whoever prefers to keep them private.
 
 Like the now-playing tile, the value travels over the room WebSocket and is
 never stored — there is no table for it.

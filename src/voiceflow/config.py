@@ -389,10 +389,10 @@ class RoomConfig:
     #: Czy pokój widzi, czego słuchasz. Osobna zgoda, bo to jest coś o Tobie,
     #: a nie o pracy — wejście do pokoju samo w sobie jej nie daje.
     share_music: bool = True
-    #: Czy pokój widzi Twoje zużycie limitów Claude Code. Domyślnie NIE:
-    #: to jest wyraźnie bardziej osobiste niż liczba słów i musi być włączone
-    #: świadomie, a nie odziedziczone po dołączeniu do pokoju.
-    share_claude_usage: bool = False
+    #: Czy pokój widzi Twoje zużycie Claude Code. Domyślnie TAK (decyzja
+    #: Filipa 2026-08-14): kto siedzi z kimś w pokoju, ten gra w otwarte
+    #: karty — a kto nie chce, wyłącza to u siebie jednym przełącznikiem.
+    share_claude_usage: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -708,7 +708,7 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
             ),
             share_music=_boolean(room.get("share_music", True), True, "room.share_music"),
             share_claude_usage=_boolean(
-                room.get("share_claude_usage", False), False, "room.share_claude_usage"
+                room.get("share_claude_usage", True), True, "room.share_claude_usage"
             ),
         ),
         log_level=log_level.upper() if isinstance(log_level, str) else "INFO",

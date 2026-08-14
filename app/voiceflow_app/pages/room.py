@@ -317,7 +317,7 @@ class RoomPage(Gtk.ScrolledWindow):
         # demona w kółko.
         loading, self._busy = self._busy, True
         self._share_music.set_active(services.bool_value(room, "share_music", True))
-        self._share_claude.set_active(services.bool_value(room, "share_claude_usage", False))
+        self._share_claude.set_active(services.bool_value(room, "share_claude_usage", True))
         self._busy = loading
 
         self._state = read_room_state(services.room_state_path())

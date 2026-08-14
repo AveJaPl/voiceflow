@@ -358,12 +358,16 @@ def test_music_is_not_shared_without_consent() -> None:
     assert transport.sent == []
 
 
-def test_claude_usage_needs_explicit_consent() -> None:
-    client, transport, _states = _client_with_states()   # domyślnie wyłączone
-
+def test_claude_usage_is_shared_by_default_but_the_off_switch_holds() -> None:
+    """Kto siedzi w pokoju, ten gra w otwarte karty (decyzja Filipa 2026-08-14)
+    — ale wyłączenie przełącznika ma być bezwzględnie skuteczne."""
+    client, transport, _states = _client_with_states()   # domyślnie włączone
     client.report_claude_usage({"fiveHour": 58, "sevenDay": 5})
+    assert len(transport.sent) == 1
 
-    assert transport.sent == []
+    quiet, silent_transport, _s = _client_with_states(share_claude_usage=False)
+    quiet.report_claude_usage({"fiveHour": 58, "sevenDay": 5})
+    assert silent_transport.sent == []
 
 
 def test_claude_usage_is_sent_once_when_allowed() -> None:

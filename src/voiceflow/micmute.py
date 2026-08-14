@@ -69,9 +69,12 @@ class MicMuter:
         self._muted: list[_Target] = []
         #: (target, original volume) pairs for playback streams we turned down.
         self._ducked: list[tuple[_Target, float]] = []
-        #: Węzły już ściszone. Drugie ściszenie tego samego zapamiętałoby
-        #: ściszony poziom jako „oryginalny" i zostawiło aplikację cicho na stałe.
-        self._ducked_ids: set[int] = set()
+        #: Węzły już ściszone -> poziom, do którego je ściszyliśmy. Sam zbiór id
+        #: nie wystarczy: Spotify przy zmianie utworu zostawia ten sam węzeł,
+        #: ale ustawia mu głośność od nowa — trzeba wiedzieć, dokąd dościszyć.
+        #: (Drugiego ściszenia „od zera" nadal nie robimy: zapamiętałoby ściszony
+        #: poziom jako oryginalny i zostawiło aplikację cicho na stałe.)
+        self._duck_targets: dict[int, float] = {}
         #: Ściszanie działa przez cały czas nagrywania, nie tylko w chwili startu,
         #: więc dogląda go osobny wątek. Blokada chroni listę współdzieloną z nim.
         self._duck_lock = threading.Lock()
@@ -145,7 +148,7 @@ class MicMuter:
                 )
                 self._pending_restores[target.app.casefold()] = (target.app, original)
         self._ducked = []
-        self._ducked_ids.clear()
+        self._duck_targets.clear()
 
     def _restore_by_app(self, app: str, original: float) -> bool:
         """Set ``original`` on every current playback stream of ``app``."""
@@ -216,7 +219,8 @@ class MicMuter:
 
     def _duck_streams(self, default: float, rules: dict[str, float]) -> None:
         for target in self._find_playback_streams():
-            if target.node_id in self._ducked_ids:
+            if target.node_id in self._duck_targets:
+                self._reduck_if_raised(target)
                 continue
             factor = min(rules.get(target.app.casefold(), default), 1.0)
             if factor >= 1.0:
@@ -232,7 +236,7 @@ class MicMuter:
                 continue
             if self._set_volume(target.node_id, duck_to):
                 self._ducked.append((target, original))
-                self._ducked_ids.add(target.node_id)
+                self._duck_targets[target.node_id] = duck_to
                 LOGGER.info(
                     "Ściszono %s z %.0f%% do %.0f%% (mnożnik %.2f, node %d)",
                     target.app,
@@ -241,6 +245,28 @@ class MicMuter:
                     factor,
                     target.node_id,
                 )
+
+    def _reduck_if_raised(self, target: _Target) -> None:
+        """Push a stream back down if its app raised the volume on its own.
+
+        Spotify does exactly that on every track change: same node, volume set
+        anew (measured live: our 0.10 was back at 0.41 within a second). The
+        original volume stays the one from the first duck — the app was only
+        restoring its idea of that same level, not choosing a new one.
+        """
+        duck_to = self._duck_targets[target.node_id]
+        current = self._get_volume(target.node_id)
+        if current is None or current <= duck_to + 0.01:
+            return
+        if self._set_volume(target.node_id, duck_to):
+            LOGGER.info(
+                "Aplikacja %s podniosła sobie głośność do %.0f%%; ściszam z powrotem "
+                "do %.0f%% (node %d)",
+                target.app,
+                current * 100,
+                duck_to * 100,
+                target.node_id,
+            )
 
     def _find_playback_streams(self) -> list[_Target]:
         """Every application playback stream — ducking is not limited to the

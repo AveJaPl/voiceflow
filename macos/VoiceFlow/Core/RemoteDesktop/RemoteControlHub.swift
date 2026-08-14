@@ -63,6 +63,11 @@ final class RemoteControlHub {
     private var terminalSeq = 0
     /// Ostatnie okno wskazane przez pilota — kotwica dla zmiany pulpitu.
     private var lastHighlighted: WireWindow?
+    /// Czy telefon chce widzieć pulpit. Podgląd jest teraz STAŁYM elementem
+    /// ekranu (decyzja Wojtka 2026-08-14: żadnych trybów, podgląd zawsze), więc
+    /// Mac sam dosyła kolejne klatki zamiast czekać na proszenie o każdą.
+    private var screenshotSubscribed = false
+    private var screenshotTimer: Timer?
     private var terminalTimer: Timer?
 
     init(deps: Dependencies) {
@@ -71,6 +76,7 @@ final class RemoteControlHub {
 
     deinit {
         terminalTimer?.invalidate()
+        screenshotTimer?.invalidate()
     }
 
     /// Telefon się połączył (jego `hello` doszło) — przedstawiamy się.
@@ -99,6 +105,7 @@ final class RemoteControlHub {
             if subscription.windows {
                 deps.sendFrame(.windows(deps.snapshotWindows()))
             }
+            setScreenshotStream(subscription.screenshot)
             if let terminalID = subscription.terminal {
                 startTerminalStream(id: terminalID)
             } else {
@@ -107,6 +114,7 @@ final class RemoteControlHub {
 
         case .unsubscribe:
             stopTerminalStream()
+            setScreenshotStream(false)
             deps.highlightWindow(nil)
 
         case .focusWindow(let id, let generation):
@@ -125,6 +133,9 @@ final class RemoteControlHub {
                 deps.highlightWindow(window)
             }
             deps.sendFrame(.windows(deps.snapshotWindows()))
+            // Podniesione okno zmienia obraz pulpitu — bez tego telefon jeszcze
+            // przez kilka sekund pokazuje układ sprzed kliknięcia.
+            await pushScreenshotIfSubscribed()
 
         case .moveWindow(let move):
             guard let window = deps.windowFor(move.id, move.generation) else {
@@ -158,6 +169,7 @@ final class RemoteControlHub {
                 return
             }
             deps.sendFrame(.spaces(SpacesFrame(index: position.index, count: position.count)))
+            await pushScreenshotIfSubscribed()
             // Po zmianie pulpitu lista okien wygląda inaczej (inne okna są na
             // wierzchu) — telefon dostaje ją od razu, bez pytania.
             deps.sendFrame(.windows(deps.snapshotWindows()))
@@ -231,6 +243,33 @@ final class RemoteControlHub {
                 target: activeTarget.id, text: text
             )))
         }
+    }
+
+    // MARK: - Strumień zrzutów
+
+    /// Zrzut co `screenshotInterval`, plus natychmiast po każdej akcji, która
+    /// zmienia obraz. Interwał jest kompromisem: 4 s to ~40 kB/s przy JPEG-u
+    /// skalowanym do 1200 px, czyli tyle, ile znosi komórka, a jednocześnie na
+    /// tyle często, żeby podgląd nie kłamał o tym, co jest na wierzchu.
+    static let screenshotInterval: TimeInterval = 4
+
+    private func setScreenshotStream(_ enabled: Bool) {
+        guard enabled != screenshotSubscribed else { return }
+        screenshotSubscribed = enabled
+        screenshotTimer?.invalidate()
+        screenshotTimer = nil
+        guard enabled else { return }
+        Task { [weak self] in await self?.pushScreenshotIfSubscribed() }
+        screenshotTimer = Timer.scheduledTimer(withTimeInterval: Self.screenshotInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in await self?.pushScreenshotIfSubscribed() }
+        }
+    }
+
+    private func pushScreenshotIfSubscribed() async {
+        guard screenshotSubscribed else { return }
+        guard let (header, data) = await deps.screenshot() else { return }
+        deps.sendFrame(.screenshot(header))
+        deps.sendBinary(data)
     }
 
     // MARK: - Strumień terminala

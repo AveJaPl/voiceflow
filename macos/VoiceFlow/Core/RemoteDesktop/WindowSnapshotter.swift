@@ -41,12 +41,19 @@ final class WindowSnapshotter {
     func snapshot() -> WindowsFrame {
         generation += 1
 
-        let displays = NSScreen.screens.enumerated().map { index, screen in
+        // `main` znaczy EKRAN GŁÓWNY (ten, w którym zaczyna się globalny
+        // układ współrzędnych i który trafia na zrzut), a NIE `NSScreen.main`
+        // — ta ostatnia oddaje ekran z aktywnym oknem i zmienia się przy każdym
+        // kliknięciu. Rozjazd zmierzony sondą 2026-08-14: zrzut przychodził z
+        // ekranu 3440×1440, a jako główny zgłaszany był wbudowany 1470×956, więc
+        // ramki okien na podglądzie w telefonie lądowałyby w złych miejscach.
+        let screens = NSScreen.screens
+        let displays = screens.enumerated().map { index, screen in
             WireDisplay(
                 id: index + 1,
                 w: Int(screen.frame.width),
                 h: Int(screen.frame.height),
-                main: screen == NSScreen.main
+                main: index == 0
             )
         }
 

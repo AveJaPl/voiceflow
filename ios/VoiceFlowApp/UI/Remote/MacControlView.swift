@@ -1,64 +1,49 @@
 import SwiftUI
 
-/// JEDEN ekran sterowania Makiem, w dwóch trybach (scalenie „Mac" + „Pilot",
-/// decyzja Wojtka 2026-08-14). Dwie osobne zakładki znaczyły dwa różne wyglądy
-/// i dwa różne zachowania tego samego przycisku — a to jest jeden sprzęt i
-/// jedna sesja.
+/// JEDEN ekran sterowania Makiem. Bez trybów (decyzja Wojtka 2026-08-14:
+/// „nie ma co rozdzielenia na klawiaturę albo pilot"), z podglądem pulpitu
+/// ZAWSZE na wierzchu — bo to jest ten element, po którym naprawdę się celuje.
 ///
-/// TRYBY:
-///   • KLAWIATURA — jesteś przy Macu (ten sam Wi-Fi). Liczy się szybkość:
-///     terminale, mikrofon, klawisze. Bez podglądu ekranu, bo patrzysz na
-///     ekran, a każdy zrzut to kilkaset kilobajtów przez serwer.
-///   • PILOT — jesteś poza domem. Dochodzi podgląd pulpitu i przełączanie
-///     pulpitów, czyli wszystko, czego nie da się zobaczyć własnymi oczami.
+/// PIONOWO: podgląd pulpitu, pod nim lista terminali (stuknięcie rozwija
+/// podsumowanie z ostatnimi liniami), na dole zwarty pad.
+/// POZIOMO: podgląd zajmuje cały lewy bok, pad chowa się w wąskiej kolumnie z
+/// prawej. Lista znika, bo w tym układzie listą JEST podgląd — okna stukasz
+/// bezpośrednio.
 ///
-/// Tryb wybiera się SAM: telefon porównuje swoją podsieć z adresami, które Mac
-/// przysyła w `hello` (`LocalNetwork`). Wyjście z domowego Wi-Fi przestawia go
-/// bez pytania. Ręczny wybór ma pierwszeństwo, ale tylko do najbliższej zmiany
-/// sieci — inaczej jedno stuknięcie sprzed tygodnia zostawałoby na zawsze.
-///
-/// UKŁAD (ten sam na małym i dużym telefonie): góra to PATRZENIE — lista
-/// terminali, po stuknięciu rozwinięta w podsumowanie z ostatnimi liniami. Dół
-/// to KLIKANIE — zwarty pad, przyciski o połowę niższe niż w pierwszej wersji
-/// pilota, w stałych miejscach.
+/// Zaznaczony terminal świeci w DWÓCH miejscach naraz: obwódką na ekranie Maca
+/// i ramką na podglądzie w telefonie. Jedno bez drugiego znaczy, że przy Macu
+/// wiadomo, co jest zaznaczone, a w telefonie nie — albo odwrotnie.
 struct MacControlView: View {
     @ObservedObject var session: RemoteSession
     @Environment(\.scenePhase) private var scenePhase
-
-    enum Mode: String { case keyboard, remote }
-
-    /// Ręczny wybór trybu i sieć, w której zapadł. Zapisany w tej samej sieci
-    /// obowiązuje; po zmianie sieci wraca automat.
-    @AppStorage("voiceflow.mode.manual") private var manualModeRaw = ""
-    @AppStorage("voiceflow.mode.manualNetwork") private var manualModeNetwork = ""
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     @State private var latched = false
     @State private var expandedTerminal: String?
     @State private var toast: String?
     @State private var toastToken = 0
 
+    /// Telefon położony poziomo = tryb „patrzę na ekran Maca".
+    private var isLandscape: Bool { verticalSizeClass == .compact }
+
     var body: some View {
-        VStack(spacing: 10) {
-            header
+        Group {
             if !session.isPaired {
-                signInCard
-                Spacer()
+                VStack(spacing: 12) { header; signInCard; Spacer() }
+            } else if isLandscape {
+                landscapeLayout
             } else {
-                if session.mac?.caps.screenshot == false {
-                    permissionHint
-                }
-                terminalPane
-                pad
+                portraitLayout
             }
-            statusLine
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 8)
-        .padding(.bottom, 10)
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(VFColor.background)
         .navigationTitle("Mac")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(isLandscape ? .hidden : .visible, for: .navigationBar)
         .onAppear {
             session.connect()
             session.setViewportActive(true)
@@ -97,83 +82,78 @@ struct MacControlView: View {
         }
     }
 
-    // MARK: - Tryb
+    // MARK: - Układy
 
-    /// Klucz sieci, w której zapadł ręczny wybór. `-` gdy jeszcze nie wiadomo.
-    private var networkKey: String {
-        switch session.isOnMacNetwork {
-        case true: "dom"
-        case false: "poza"
-        case nil: "-"
+    private var portraitLayout: some View {
+        VStack(spacing: 8) {
+            header
+            if session.mac?.caps.screenshot == false { permissionHint }
+            preview
+                .frame(height: 200)
+            terminalList
+            pad
+            statusLine
         }
     }
 
-    private var mode: Mode {
-        if manualModeNetwork == networkKey, let manual = Mode(rawValue: manualModeRaw) {
-            return manual
+    private var landscapeLayout: some View {
+        HStack(spacing: 10) {
+            preview
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(spacing: 6) {
+                compactHeader
+                pad
+                statusLine
+            }
+            .frame(width: 210)
         }
-        return session.isOnMacNetwork == true ? .keyboard : .remote
-    }
-
-    private func setMode(_ new: Mode) {
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        manualModeRaw = new.rawValue
-        manualModeNetwork = networkKey
-        // Podgląd pulpitu ma sens tylko w pilocie — subskrypcja idzie za trybem,
-        // żeby w trybie klawiatury nie płacić za nic transferem.
-        if new == .remote { session.requestScreenshot() }
     }
 
     // MARK: - Nagłówek
 
     private var header: some View {
         HStack(spacing: 10) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 7, height: 7)
+            Circle().fill(statusColor).frame(width: 7, height: 7)
             VStack(alignment: .leading, spacing: 1) {
                 Text(session.mac?.mac ?? "Mac")
                     .font(VFFont.body(14, weight: .semibold))
                     .foregroundStyle(VFColor.text)
                     .lineLimit(1)
-                Text(networkLabel)
+                Text(targetLabel)
                     .font(VFFont.mono(10))
                     .foregroundStyle(VFColor.faint)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
             Spacer(minLength: 8)
-            modeSwitch
+            if let spaces = session.spaces {
+                Text("PULPIT \(spaces.index)/\(spaces.count)")
+                    .font(VFFont.mono(9))
+                    .foregroundStyle(VFColor.muted)
+            }
         }
     }
 
-    private var networkLabel: String {
-        switch session.isOnMacNetwork {
-        case true: "ta sama sieć — tryb wybrany automatycznie"
-        case false: "poza siecią Maca — tryb wybrany automatycznie"
-        case nil: "sieć nieznana"
+    /// W poziomie nagłówek musi zmieścić się w wąskiej kolumnie, więc zostaje
+    /// sama kropka stanu i cel.
+    private var compactHeader: some View {
+        HStack(spacing: 6) {
+            Circle().fill(statusColor).frame(width: 6, height: 6)
+            Text(targetLabel)
+                .font(VFFont.mono(9))
+                .foregroundStyle(VFColor.muted)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
         }
     }
 
-    /// Dwa pola zamiast `Picker`: `Picker` w stylu segmentowym ignoruje własne
-    /// fonty i kolory, a ten ekran ma wyglądać jak reszta aplikacji.
-    private var modeSwitch: some View {
-        HStack(spacing: 0) {
-            modeTab("KLAWIATURA", .keyboard)
-            modeTab("PILOT", .remote)
+    private var targetLabel: String {
+        guard let selected = session.selectedWindow,
+              let index = terminals.firstIndex(where: { $0.id == selected.id }) else {
+            return "brak zaznaczonego terminala"
         }
-        .overlay(Rectangle().stroke(VFColor.border, lineWidth: 1))
-    }
-
-    private func modeTab(_ title: String, _ value: Mode) -> some View {
-        let active = mode == value
-        return Text(title)
-            .font(VFFont.mono(9))
-            .tracking(0.6)
-            .foregroundStyle(active ? VFColor.background : VFColor.muted)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(active ? VFColor.text : Color.clear)
-            .contentShape(Rectangle())
-            .onTapGesture { setMode(value) }
+        return "\(index + 1)/\(terminals.count) · \(TerminalTitle.short(selected.title) ?? selected.app)"
     }
 
     private var statusColor: Color {
@@ -184,45 +164,58 @@ struct MacControlView: View {
         }
     }
 
-    // MARK: - Górna połowa: terminale (i pulpit w trybie pilota)
+    // MARK: - Podgląd
 
     private var terminals: [WireWindow] { TerminalOrder.sorted(session.windows) }
 
-    @ViewBuilder private var terminalPane: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("TERMINALE \(terminals.count)").vfEyebrow()
-                Spacer()
-                if mode == .remote {
-                    Button {
-                        session.requestScreenshot()
-                        flash("pobieram podgląd ekranu")
-                    } label: {
-                        Text("EKRAN")
-                            .font(VFFont.mono(9))
-                            .foregroundStyle(VFColor.muted)
-                    }
-                }
+    @ViewBuilder private var preview: some View {
+        if let data = session.screenshotJPEG, let image = UIImage(data: data) {
+            MacScreenPreview(
+                image: image,
+                display: session.displays.first(where: \.main) ?? session.displays.first,
+                terminals: terminals,
+                selectedID: session.selectedWindowID,
+                onSelect: { pick($0) }
+            )
+        } else {
+            VStack(spacing: 8) {
+                Text(session.mac?.caps.screenshot == false
+                     ? "Brak zgody „Nagrywanie ekranu” na Macu"
+                     : "Czekam na podgląd pulpitu…")
+                    .font(VFFont.mono(10))
+                    .foregroundStyle(VFColor.faint)
+                Button("Odśwież") { session.requestScreenshot() }
+                    .font(VFFont.mono(10))
+                    .foregroundStyle(VFColor.muted)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(VFColor.surfaceSolid)
+            .overlay(Rectangle().stroke(VFColor.border, lineWidth: 1))
+        }
+    }
 
+    /// Stuknięcie w okno na podglądzie = przeniesienie fokusu na Macu. Tego
+    /// właśnie się od podglądu oczekuje: widzisz okno, stukasz, jest na wierzchu.
+    private func pick(_ window: WireWindow) {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        session.focus(window)
+        expandedTerminal = window.id
+        flash("cel: \(TerminalTitle.short(window.title) ?? window.app)")
+    }
+
+    // MARK: - Lista terminali (tylko pionowo)
+
+    private var terminalList: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("TERMINALE \(terminals.count)").vfEyebrow()
             ScrollView {
                 VStack(spacing: 4) {
-                    if mode == .remote, let data = session.screenshotJPEG, let image = UIImage(data: data) {
-                        Image(uiImage: image)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxWidth: .infinity)
-                            .overlay(Rectangle().stroke(VFColor.border, lineWidth: 1))
-                            .onTapGesture { session.requestScreenshot() }
-                    }
-
                     if terminals.isEmpty {
                         emptyState
                     } else {
                         ForEach(Array(terminals.enumerated()), id: \.element.id) { index, terminal in
                             TerminalCard(
                                 index: index + 1,
-                                total: terminals.count,
                                 terminal: terminal,
                                 isSelected: terminal.id == session.selectedWindowID,
                                 isExpanded: expandedTerminal == terminal.id,
@@ -234,66 +227,66 @@ struct MacControlView: View {
                     }
                 }
             }
-            .frame(maxHeight: .infinity)
         }
         .frame(maxHeight: .infinity)
     }
 
     private var emptyState: some View {
         Text(session.transportState == .connected
-             ? "Mac nie zgłasza żadnego terminala. Otwórz okno Terminala."
+             ? "Mac nie zgłasza żadnego terminala."
              : "Czekam na połączenie z Makiem…")
             .font(VFFont.body(12))
             .foregroundStyle(VFColor.faint)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
+            .padding(10)
             .background(VFColor.surfaceSolid)
             .overlay(Rectangle().stroke(VFColor.border, lineWidth: 1))
     }
 
-    /// Stuknięcie ZAZNACZA i rozwija podsumowanie. Podniesienie okna na Macu
-    /// idzie osobno (strzałki, start dyktowania), bo samo przeglądanie listy
-    /// nie ma przestawiać okien pod ręką Wojtka.
     private func tap(_ terminal: WireWindow) {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         session.select(windowID: terminal.id)
         expandedTerminal = expandedTerminal == terminal.id ? nil : terminal.id
     }
 
-    // MARK: - Dolna część: pad
+    private var permissionHint: some View {
+        Text("Mac nie ma zgody „Nagrywanie ekranu” — bez niej nie ma podglądu ani nazw terminali. Ustawienia systemowe → Prywatność → Nagrywanie ekranu → VoiceFlow, potem uruchom aplikację na Macu ponownie.")
+            .font(VFFont.mono(9))
+            .foregroundStyle(VFColor.muted)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(8)
+            .background(VFColor.surfaceSolid)
+            .overlay(Rectangle().stroke(VFColor.border, lineWidth: 1))
+    }
+
+    // MARK: - Pad
 
     private var pad: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 6) {
-                PadKey(glyph: "chevron.left", caption: nil, wide: false) { step(-1) }
+        VStack(spacing: 5) {
+            HStack(spacing: 5) {
+                PadKey(glyph: "chevron.left", caption: nil, small: true) { step(-1) }
                 micKey
-                PadKey(glyph: "chevron.right", caption: nil, wide: false) { step(1) }
+                PadKey(glyph: "chevron.right", caption: nil, small: true) { step(1) }
             }
-            .frame(height: 58)
+            .frame(height: isLandscape ? 50 : 56)
 
-            HStack(spacing: 6) {
-                PadKey(glyph: "return", caption: "WYŚLIJ", wide: true) { key(.return_, label: "⏎") }
-                PadKey(glyph: "arrow.uturn.backward", caption: "COFNIJ", wide: true) {
+            HStack(spacing: 5) {
+                PadKey(glyph: "return", caption: "WYŚLIJ", small: true) { key(.return_, label: "⏎") }
+                PadKey(glyph: "arrow.uturn.backward", caption: "COFNIJ", small: true) {
                     let isTerminal = session.selectedWindow?.isTerminal ?? true
                     key(isTerminal ? .ctrlU : .cmdZ, label: isTerminal ? "⌃U" : "⌘Z")
                 }
-                PadKey(glyph: "doc.on.clipboard", caption: "WKLEJ", wide: true) { key(.cmdV, label: "⌘V") }
-                PadKey(glyph: "escape", caption: "ESC", wide: true) { key(.escape, label: "esc") }
+                PadKey(glyph: "doc.on.clipboard", caption: "WKLEJ", small: true) { key(.cmdV, label: "⌘V") }
+                PadKey(glyph: "escape", caption: "ESC", small: true) { key(.escape, label: "esc") }
             }
-            .frame(height: 46)
+            .frame(height: 44)
 
-            if mode == .remote {
-                HStack(spacing: 6) {
-                    PadKey(glyph: "rectangle.portrait.and.arrow.forward", caption: "PULPIT ◀", wide: true) {
-                        desktop(-1, label: "pulpit w lewo")
-                    }
-                    PadKey(glyph: "rectangle.portrait.and.arrow.right", caption: "PULPIT ▶", wide: true) {
-                        desktop(1, label: "pulpit w prawo")
-                    }
-                    PadKey(glyph: "xmark.octagon", caption: "PRZERWIJ", wide: true) { key(.ctrlC, label: "⌃C") }
-                }
-                .frame(height: 46)
+            HStack(spacing: 5) {
+                PadKey(glyph: "arrow.left.square", caption: "PULPIT", small: true) { desktop(-1, label: "pulpit w lewo") }
+                PadKey(glyph: "arrow.right.square", caption: "PULPIT", small: true) { desktop(1, label: "pulpit w prawo") }
+                PadKey(glyph: "xmark.octagon", caption: "PRZERWIJ", small: true) { key(.ctrlC, label: "⌃C") }
             }
+            .frame(height: 44)
         }
     }
 
@@ -301,10 +294,11 @@ struct MacControlView: View {
         let recording = session.phase.isRecording
         return VStack(spacing: 3) {
             Image(systemName: recording ? "waveform" : "mic")
-                .font(.system(size: 20, weight: .regular))
+                .font(.system(size: 19, weight: .regular))
             Text(micCaption)
-                .font(VFFont.mono(9))
+                .font(VFFont.mono(8))
                 .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
         .foregroundStyle(recording ? VFColor.background : VFColor.text)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -320,7 +314,7 @@ struct MacControlView: View {
 
     private var micCaption: String {
         switch session.phase {
-        case .arming: "PODNOSZĘ OKNO"
+        case .arming: "PODNOSZĘ"
         case .streaming: latched ? "STUKNIJ, BY SKOŃCZYĆ" : "MÓWISZ"
         case .finishing: "PRZETWARZAM"
         default: "MÓW"
@@ -330,42 +324,22 @@ struct MacControlView: View {
     // MARK: - Pasek stanu
 
     private var statusLine: some View {
-        HStack(spacing: 8) {
-            Text(toast ?? spacesLabel ?? defaultStatus)
-                .font(VFFont.mono(10))
-                .foregroundStyle(toast == nil ? VFColor.faint : VFColor.muted)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 0)
-        }
+        Text(toast ?? defaultStatus)
+            .font(VFFont.mono(9))
+            .foregroundStyle(toast == nil ? VFColor.faint : VFColor.muted)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var defaultStatus: String {
         switch session.transportState {
-        case .connected:
-            if let target = session.selectedWindow {
-                return "cel: \(TerminalTitle.short(target.title) ?? target.app)"
-            }
-            return "połączony"
-        case .connecting: return "łączę…"
-        case .waiting(let retry): return "ponawiam za \(Int(retry.rounded())) s"
-        case .failed(let why): return why
-        case .idle: return "rozłączony"
+        case .connected: "połączony · \(terminals.count) terminali"
+        case .connecting: "łączę…"
+        case .waiting(let retry): "ponawiam za \(Int(retry.rounded())) s"
+        case .failed(let why): why
+        case .idle: "rozłączony"
         }
-    }
-
-    /// Brak zgody „Nagrywanie ekranu" na Macu jest widoczny WYŁĄCZNIE tutaj:
-    /// macOS bez niej nie oddaje tytułów okien ani zrzutu, więc lista terminali
-    /// robi się bezimienna, a podgląd pusty. To wygląda jak zepsuta apka, a
-    /// jest jedną zgodą do kliknięcia.
-    private var permissionHint: some View {
-        Text("Mac nie ma zgody „Nagrywanie ekranu” — stąd terminale bez nazw i brak podglądu. Ustawienia systemowe → Prywatność → Nagrywanie ekranu → VoiceFlow, potem uruchom aplikację na Macu ponownie.")
-            .font(VFFont.mono(9))
-            .foregroundStyle(VFColor.muted)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(8)
-            .background(VFColor.surfaceSolid)
-            .overlay(Rectangle().stroke(VFColor.border, lineWidth: 1))
     }
 
     private var signInCard: some View {
@@ -411,13 +385,6 @@ struct MacControlView: View {
         flash(label)
     }
 
-    /// Mac odsyła pozycję pulpitu po każdej zmianie — bez tego przycisk
-    /// wygląda identycznie, gdy zadziałał i gdy nie.
-    private var spacesLabel: String? {
-        guard let spaces = session.spaces else { return nil }
-        return "pulpit \(spaces.index)/\(spaces.count)"
-    }
-
     private func beginHold() {
         guard let id = session.selectedWindowID else {
             flash("najpierw wybierz terminal")
@@ -461,19 +428,17 @@ struct MacControlView: View {
     }
 }
 
-/// Wiersz terminala: numer, nazwa sesji, kropka aktywności. Po stuknięciu
-/// rozwija się w podsumowanie z ostatnimi liniami — na telefonie to jedyny
-/// sposób, żeby wiedzieć, CO tam się dzieje, bez podglądu całego ekranu.
+/// Wiersz terminala: numer TEN SAM co na podglądzie, nazwa sesji, stan. Po
+/// stuknięciu rozwija się w podsumowanie z ostatnimi liniami.
 private struct TerminalCard: View {
     let index: Int
-    let total: Int
     let terminal: WireWindow
     let isSelected: Bool
     let isExpanded: Bool
     let lines: [String]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 8) {
                 Text("\(index)")
                     .font(VFFont.mono(10))
@@ -498,7 +463,7 @@ private struct TerminalCard: View {
 
             if isExpanded {
                 if lines.isEmpty {
-                    Text("Brak podglądu treści — Mac czyta ją tylko z Terminala, i tylko dla zaznaczonego okna.")
+                    Text("Podgląd treści Mac czyta tylko dla zaznaczonego okna Terminala.")
                         .font(VFFont.mono(9))
                         .foregroundStyle(VFColor.faint)
                 } else {
@@ -516,7 +481,7 @@ private struct TerminalCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.vertical, 7)
         .background(isSelected ? VFColor.surfaceSolid : VFColor.surfaceSolid.opacity(0.55))
         .overlay(Rectangle().stroke(isSelected ? VFColor.text.opacity(0.5) : VFColor.border, lineWidth: 1))
     }
@@ -527,19 +492,20 @@ private struct TerminalCard: View {
 private struct PadKey: View {
     let glyph: String
     let caption: String?
-    let wide: Bool
+    let small: Bool
     let action: () -> Void
 
     @State private var pressed = false
 
     var body: some View {
-        VStack(spacing: 3) {
+        VStack(spacing: 2) {
             Image(systemName: glyph)
-                .font(.system(size: wide ? 15 : 19, weight: .regular))
+                .font(.system(size: small ? 15 : 19, weight: .regular))
             if let caption {
                 Text(caption)
                     .font(VFFont.mono(8))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
         }
         .foregroundStyle(pressed ? VFColor.background : VFColor.text)

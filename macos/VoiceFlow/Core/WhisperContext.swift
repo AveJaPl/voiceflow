@@ -183,17 +183,45 @@ final class WhisperContext {
                     }
                     guard rc == 0 else { return "" }
 
-                    var text = ""
+                    // Segmenty z metadanymi, żeby dało się uciąć zmyślone
+                    // pożegnania z końca (patrz `HallucinationFilter`).
+                    var segments: [HallucinationFilter.Segment] = []
                     let segmentCount = whisper_full_n_segments(ctx)
                     for i in 0..<segmentCount {
-                        if let segment = whisper_full_get_segment_text(ctx, i) {
-                            text += String(cString: segment)
-                        }
+                        guard let raw = whisper_full_get_segment_text(ctx, i) else { continue }
+                        segments.append(HallucinationFilter.Segment(
+                            text: String(cString: raw),
+                            noSpeechProbability: whisper_full_get_segment_no_speech_prob(ctx, i),
+                            averageLogProbability: Self.averageLogProbability(ctx: ctx, segment: i)
+                        ))
                     }
+                    let kept = HallucinationFilter.dropTrailingHallucinations(segments)
+                    if kept.count != segments.count {
+                        let dropped = segments.suffix(segments.count - kept.count)
+                            .map { $0.text.trimmingCharacters(in: .whitespaces) }
+                            .joined(separator: " ")
+                        DebugLog.write("WhisperEngine", "ucinam zmyślone pożegnanie: \"\(dropped)\"")
+                    }
+                    let text = kept.map(\.text).joined()
                     return text.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
             }
         }
+    }
+
+    /// Średni logarytm prawdopodobieństwa tokenów segmentu — whisper.cpp nie
+    /// wystawia `avg_logprob` wprost (w przeciwieństwie do faster-whispera,
+    /// którego używa wersja linuksowa), więc liczymy go z prawdopodobieństw
+    /// pojedynczych tokenów.
+    private static func averageLogProbability(ctx: OpaquePointer, segment: Int32) -> Float {
+        let tokens = whisper_full_n_tokens(ctx, segment)
+        guard tokens > 0 else { return 0 }
+        var sum: Float = 0
+        for token in 0..<tokens {
+            let probability = whisper_full_get_token_p(ctx, segment, token)
+            sum += log(max(probability, 1e-6))
+        }
+        return sum / Float(tokens)
     }
 
     func transcribe(samples: [Float], language: String, initialPrompt: String = "") -> String {

@@ -34,6 +34,8 @@ final class SessionController {
     /// obok.
     private let remoteDucker: AudioDucking
     private(set) var room: RoomClient!
+    private var roomTileTimer: Timer?
+    private let claudeUsage = ClaudeUsageCounter()
     private var roomLink: RoomLink?
     private var currentRoomConfiguration = RoomConfiguration()
     private var roomDefaultsObserver: NSObjectProtocol?
@@ -137,6 +139,9 @@ final class SessionController {
         let link = RoomLink(config: configuration) { [weak self] in
             Task { @MainActor in self?.room?.onDisconnected() }
         }
+        link.onConnected = { [weak self] in
+            Task { @MainActor in self?.room?.onReconnected() }
+        }
         room = RoomClient(
             config: configuration,
             onRemoteSpeaking: { [weak self] _ in self?.remoteDucker.start() },
@@ -154,6 +159,37 @@ final class SessionController {
         }
         DebugLog.write("Room", "łączę z pokojem \(configuration.code) na \(configuration.server)")
         link.start()
+        startRoomTiles()
+    }
+
+    /// Kafelki tablicy pokoju (co gra, zużycie Claude Code) co `roomTileInterval`
+    /// — ten sam rytm co w wersji linuksowej (`daemon.py`, `NOW_PLAYING_SECONDS`).
+    /// Osobny zegar, a nie doklejenie do pulsu: puls musi być krótki i pewny, a
+    /// to jest czytanie plików i pytanie odtwarzacza.
+    static let roomTileInterval: TimeInterval = 5
+
+    private func startRoomTiles() {
+        roomTileTimer?.invalidate()
+        roomTileTimer = Timer.scheduledTimer(withTimeInterval: Self.roomTileInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.pushRoomTiles() }
+        }
+        pushRoomTiles()
+    }
+
+    private func pushRoomTiles() {
+        guard room != nil, currentRoomConfiguration.isUsable else { return }
+        // Oba odczyty schodzą z głównego wątku: jeden pyta AppleScriptem
+        // odtwarzacz, drugi przechodzi po transkryptach Claude Code. Na głównym
+        // wątku byłoby to zacięcie interfejsu co pięć sekund.
+        Task.detached(priority: .utility) { [weak self] in
+            let track = NowPlaying.currentTrack()
+            let usage = await self?.claudeUsage.currentPayload()
+            await MainActor.run { [weak self] in
+                guard let self, let room else { return }
+                room.reportNowPlaying(track)
+                room.reportClaudeUsage(usage)
+            }
+        }
     }
 
     /// Dołączenie i wyjście z pokoju dzieje się w UI (zakładka Pokój albo

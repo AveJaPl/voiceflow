@@ -24,6 +24,9 @@ struct RoomConfiguration: Equatable {
     /// Czy czyjeś dyktowanie może ściszyć dźwięk NA TYM urządzeniu.
     /// Uprawnienie, nie skutek uboczny obecności w pokoju.
     var duckForOthers: Bool = true
+    /// Czy wysyłamy do pokoju zużycie Claude Code. Domyślnie TAK — parytet z
+    /// wersją linuksową (`room.share_claude_usage`).
+    var shareClaudeUsage: Bool = true
 
     /// Kanoniczny adres usługi pokoi — JEDNO miejsce.
     ///
@@ -49,7 +52,10 @@ struct RoomConfiguration: Equatable {
             token: defaults.string(forKey: SettingsKeys.roomToken) ?? "",
             duckForOthers: defaults.object(forKey: SettingsKeys.roomDuckForOthers) == nil
                 ? true
-                : defaults.bool(forKey: SettingsKeys.roomDuckForOthers)
+                : defaults.bool(forKey: SettingsKeys.roomDuckForOthers),
+            shareClaudeUsage: defaults.object(forKey: SettingsKeys.roomShareClaudeUsage) == nil
+                ? true
+                : defaults.bool(forKey: SettingsKeys.roomShareClaudeUsage)
         )
     }
 }
@@ -57,6 +63,13 @@ struct RoomConfiguration: Equatable {
 protocol RoomTransport: AnyObject {
     func send(_ payload: [String: Any])
     func onMessage(_ callback: @escaping ([String: Any]) -> Void)
+    /// Puls ma odświeżać pokój TYLKO w trakcie mówienia — patrz `RoomLink`.
+    /// Domyślnie nic, żeby atrapy w testach nie musiały o tym wiedzieć.
+    func setSpeaking(_ value: Bool)
+}
+
+extension RoomTransport {
+    func setSpeaking(_ value: Bool) {}
 }
 
 @MainActor
@@ -117,11 +130,20 @@ final class RoomClient {
         return (false, speaker)
     }
 
+    /// Czy TA maszyna mówi w tej chwili. Serwer nigdy nie odbija mówiącego do
+    /// niego samego, więc `remoteSpeaker` nie może tego nieść — trzeba
+    /// pamiętać osobno.
+    private(set) var speakingHere = false
+
     func reportStarted() {
+        speakingHere = true
+        transport?.setSpeaking(true)
         send(["type": "speaking_started"])
     }
 
     func reportFinished(words: Int, seconds: Double) {
+        speakingHere = false
+        transport?.setSpeaking(false)
         send(["type": "speaking_ended", "words": words, "seconds": seconds])
     }
 
@@ -132,7 +154,25 @@ final class RoomClient {
     /// wygaśnięcia pulsu dziesięć sekund później. Zero słów to sygnał dla
     /// serwera, żeby zwolnić głos i nie zapisywać wpisu.
     func reportCancelled() {
+        speakingHere = false
+        transport?.setSpeaking(false)
         send(["type": "speaking_ended", "words": 0, "seconds": 0])
+    }
+
+    /// Kafelki tablicy pokoju: co gra i ile Claude Code spalił dziś na tej
+    /// maszynie. Oba lecą PRZELOTEM — serwer je rozsyła i zapomina, nie ma na
+    /// nie tabeli i mieć nie będzie (`rooms/src/wsHub.js`). Zamknięcie sesji
+    /// nie zostawia śladu tego, czego kto słuchał.
+    func reportNowPlaying(_ track: NowPlaying.Track?) {
+        send(["type": "now_playing", "track": track?.asDictionary as Any? ?? NSNull()])
+    }
+
+    /// Dzielenie się zużyciem jest domyślnie WŁĄCZONE (jak u Filipa: pokój to
+    /// wspólny stół, a to są gołe liczby bez śladu tego, nad czym ktoś siedzi),
+    /// ale zostaje przełącznik dla tego, kto woli je zachować dla siebie.
+    func reportClaudeUsage(_ payload: ClaudeUsageCounter.Payload?) {
+        guard config.shareClaudeUsage else { return }
+        send(["type": "claude_usage", "usage": payload?.asDictionary as Any? ?? NSNull()])
     }
 
     func heartbeat() {
@@ -147,6 +187,15 @@ final class RoomClient {
     /// tego nie każe.
     func onDisconnected() {
         setRemoteSpeaker(nil)
+    }
+
+    /// Połączenie wróciło. Serwer kasuje mówiącego przy zamknięciu gniazda, więc
+    /// jeśli w tej luce dalej mówimy, musimy się zgłosić ponownie — inaczej
+    /// trwające dyktowanie znika z tablicy, a ktoś inny może zacząć równolegle.
+    func onReconnected() {
+        guard speakingHere else { return }
+        DebugLog.write("Room", "połączenie wróciło w trakcie mówienia — zgłaszam się do pokoju ponownie")
+        send(["type": "speaking_started"])
     }
 
     // MARK: - Plumbing

@@ -19,6 +19,9 @@ final class RoomLink: NSObject, RoomTransport, @unchecked Sendable {
 
     private let config: RoomConfiguration
     private let onDisconnected: () -> Void
+    /// Gniazdo zostało otwarte na nowo — wołający ma szansę zgłosić się
+    /// ponownie, jeśli w trakcie zerwania dalej mówił.
+    var onConnected: () -> Void = {}
     private var onMessageCallback: (([String: Any]) -> Void)?
 
     private let queue = DispatchQueue(label: "io.github.avejapl.voiceflow.room")
@@ -27,6 +30,28 @@ final class RoomLink: NSObject, RoomTransport, @unchecked Sendable {
     private var heartbeatTimer: DispatchSourceTimer?
     private var attempt = 0
     private var stopped = false
+
+    /// Czy TA maszyna właśnie mówi. Ustawia to `RoomClient`; link nie ma skąd
+    /// tego wiedzieć, a od tego zależy, czy w ogóle pulsować.
+    ///
+    /// Zwykły `Bool` za zamkiem, a NIE domknięcie pytające `RoomClient`:
+    /// puls chodzi na własnej kolejce, więc sięgnięcie stamtąd po stan
+    /// z głównego aktora wywracało proces (`MainActor.assumeIsolated` na wątku
+    /// pobocznym to pułapka, nie sprawdzenie — złapane testem 2026-08-14).
+    private let speakingLock = NSLock()
+    private var speakingHere = false
+
+    func setSpeaking(_ value: Bool) {
+        speakingLock.lock()
+        speakingHere = value
+        speakingLock.unlock()
+    }
+
+    private func isSpeakingNow() -> Bool {
+        speakingLock.lock()
+        defer { speakingLock.unlock() }
+        return speakingHere
+    }
 
     init(config: RoomConfiguration, onDisconnected: @escaping () -> Void) {
         self.config = config
@@ -95,6 +120,7 @@ final class RoomLink: NSObject, RoomTransport, @unchecked Sendable {
         newTask.resume()
         startHeartbeat()
         receive()
+        onConnected()
     }
 
     private func receive() {
@@ -126,6 +152,12 @@ final class RoomLink: NSObject, RoomTransport, @unchecked Sendable {
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + Self.heartbeatSeconds, repeating: Self.heartbeatSeconds)
         timer.setEventHandler { [weak self] in
+            // Puls WYŁĄCZNIE wtedy, gdy ta maszyna naprawdę mówi. Serwer
+            // odświeża nim aktywnego mówiącego, więc pulsowanie „zawsze"
+            // znaczyło, że zgubiona ramka `speaking_ended` trzyma blokadę
+            // pokoju w nieskończoność — inni nie mogą zacząć, a my nawet o tym
+            // nie wiemy (parytet z `roomlink.py`, `WebSocketTransport.is_speaking`).
+            guard self?.isSpeakingNow() == true else { return }
             self?.send(["type": "heartbeat"])
         }
         timer.resume()

@@ -11,7 +11,9 @@ final class RoomClientTests: XCTestCase {
         var sent: [[String: Any]] = []
         private var callback: (([String: Any]) -> Void)?
 
+        var speakingFlags: [Bool] = []
         func send(_ payload: [String: Any]) { sent.append(payload) }
+        func setSpeaking(_ value: Bool) { speakingFlags.append(value) }
         func onMessage(_ callback: @escaping ([String: Any]) -> Void) { self.callback = callback }
         func deliver(_ payload: [String: Any]) { callback?(payload) }
     }
@@ -172,5 +174,48 @@ final class RoomClientTests: XCTestCase {
         XCTAssertEqual(try RoomJoiner.httpBase("wss://rooms.pbdevs.com"), "https://rooms.pbdevs.com")
         XCTAssertEqual(try RoomJoiner.httpBase("ws://localhost:3000/"), "http://localhost:3000")
         XCTAssertThrowsError(try RoomJoiner.httpBase("nie-adres"))
+    }
+
+    // MARK: - Puls i powrót połączenia (parytet z wersją linuksową)
+
+    /// Puls odświeża na serwerze AKTYWNEGO mówiącego. Pulsowanie zawsze znaczy,
+    /// że jedna zgubiona ramka `speaking_ended` trzyma blokadę pokoju bez końca.
+    func testPulsChodziTylkoWTrakcieMowienia() {
+        let (client, transport, _) = makeClient()
+        XCTAssertEqual(transport.speakingFlags, [])
+
+        client.reportStarted()
+        XCTAssertEqual(transport.speakingFlags, [true])
+        XCTAssertTrue(client.speakingHere)
+
+        client.reportFinished(words: 12, seconds: 3)
+        XCTAssertEqual(transport.speakingFlags, [true, false])
+        XCTAssertFalse(client.speakingHere)
+    }
+
+    func testAnulowanieTezGasiPuls() {
+        let (client, transport, _) = makeClient()
+        client.reportStarted()
+        client.reportCancelled()
+        XCTAssertEqual(transport.speakingFlags, [true, false])
+    }
+
+    /// Serwer kasuje mówiącego przy zamknięciu gniazda. Jeśli w tej luce dalej
+    /// mówimy, musimy się zgłosić ponownie — inaczej trwające dyktowanie znika
+    /// z tablicy, a ktoś inny może zacząć równolegle.
+    func testPowrotPolaczeniaWTrakcieMowieniaZglaszaSiePonownie() {
+        let (client, transport, _) = makeClient()
+        client.reportStarted()
+        transport.sent.removeAll()
+
+        client.onReconnected()
+        XCTAssertEqual(transport.sent.count, 1)
+        XCTAssertEqual(transport.sent.first?["type"] as? String, "speaking_started")
+    }
+
+    func testPowrotPolaczeniaPozaMowieniemNicNieWysyla() {
+        let (client, transport, _) = makeClient()
+        client.onReconnected()
+        XCTAssertTrue(transport.sent.isEmpty)
     }
 }

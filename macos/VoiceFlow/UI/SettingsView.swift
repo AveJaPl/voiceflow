@@ -36,6 +36,7 @@ enum SettingsKeys {
     static let roomCode = "voiceflow.roomCode"
     static let roomToken = "voiceflow.roomToken"
     static let roomDuckForOthers = "voiceflow.roomDuckForOthers"
+    static let roomShareClaudeUsage = "voiceflow.roomShareClaudeUsage"
     static let roomDisplayName = "voiceflow.roomDisplayName"
     /// E-mail zalogowanego konta — czysto informacyjny (token mieszka w
     /// Keychainie); sidebar pokazuje go w lewym dolnym rogu.

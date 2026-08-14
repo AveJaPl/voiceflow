@@ -12,8 +12,11 @@ import SwiftUI
 /// podnosi go i weryfikuje przed każdym naciśnięciem — patrz `RemoteControlHub`
 /// obsługa `.key`):
 ///   ◀ ▶      — przeskok fokusu po terminalach w stałej kolejności ekranowej,
-///   MÓW      — przytrzymaj albo stuknij dwa razy (zatrzask), jak w „Mac",
+///   MÓW      — przytrzymaj (mówisz póki trzymasz) albo STUKNIJ raz
+///              (start/stop). Dwuklik wyleciał: dawał się włączyć, ale nie
+///              dawał wyłączyć — patrz `PushToTalkGesture`.
 ///   ⏎        — zatwierdzenie promptu, bez tego tekst zostaje w linii,
+///   PULPIT ◀ ▶ — przeskok między pulpitami (jak trzy palce po gładziku),
 ///   COFNIJ   — w terminalu ⌃U (czyszczenie linii), poza nim ⌘Z,
 ///   WKLEJ    — ⌘V ze SCHOWKA MACA; telefon nie przesyła tu żadnej treści.
 struct PilotView: View {
@@ -29,6 +32,7 @@ struct PilotView: View {
             targetBar
             padRow
             actionRow
+            desktopRow
             footer
         }
         .padding(16)
@@ -105,13 +109,13 @@ struct PilotView: View {
 
     private var subtitle: String {
         switch session.phase {
-        case .streaming: latched ? "mówisz — stuknij MÓW, aby zakończyć" : "mówisz — puść, aby wysłać"
+        case .streaming: latched ? "zatrzask — stuknij MÓW, aby skończyć" : "mówisz — puść, aby wysłać"
         case .arming: "podnoszę okno…"
         case .finishing: "przetwarzam…"
         case .connecting: "łączę z Makiem…"
         case .offline: "zaloguj się kontem w Ustawieniach"
         case .failed(let failure): failure.message
-        case .ready: session.selectedWindow?.app ?? "otwórz terminal na Macu"
+        case .ready: session.selectedWindow.map { _ in "stuknij = start/stop · przytrzymaj = mów" } ?? "otwórz terminal na Macu"
         }
     }
 
@@ -133,7 +137,7 @@ struct PilotView: View {
         return VStack(spacing: 8) {
             Image(systemName: recording ? "waveform" : "mic")
                 .font(.system(size: 34, weight: .regular))
-            Text(recording ? (latched ? "ZATRZASK" : "MÓWISZ") : "MÓW")
+            Text(recording ? (latched ? "STUKNIJ, BY SKOŃCZYĆ" : "MÓWISZ") : "MÓW")
                 .font(VFFont.mono(11))
         }
         .foregroundStyle(recording ? VFColor.background : VFColor.text)
@@ -141,11 +145,10 @@ struct PilotView: View {
         .background(recording ? VFColor.text : VFColor.surfaceSolid)
         .overlay(Rectangle().stroke(recording ? VFColor.text : VFColor.border, lineWidth: 1))
         .contentShape(Rectangle())
-        .windowGestures(
-            onTap: {},
+        .pushToTalkGesture(
+            onTap: { toggleLatch() },
             onHoldBegan: { beginHold() },
-            onHoldEnded: { endHold() },
-            onDoubleTap: { toggleLatch() }
+            onHoldEnded: { endHold() }
         )
         .animation(.easeOut(duration: 0.12), value: recording)
     }
@@ -164,6 +167,21 @@ struct PilotView: View {
             }
         }
         .frame(height: 96)
+    }
+
+    /// Przeskok między pulpitami — to samo, co przesunięcie trzema palcami po
+    /// gładziku. Bez tego terminale stojące na innym pulpicie są z telefonu
+    /// nieosiągalne, choć widać je na liście.
+    private var desktopRow: some View {
+        HStack(spacing: 12) {
+            PadButton(glyph: "arrow.left.to.line", caption: "PULPIT") {
+                desktop(.ctrlLeft, label: "pulpit w lewo")
+            }
+            PadButton(glyph: "arrow.right.to.line", caption: "PULPIT") {
+                desktop(.ctrlRight, label: "pulpit w prawo")
+            }
+        }
+        .frame(height: 64)
     }
 
     private var footer: some View {
@@ -202,6 +220,14 @@ struct PilotView: View {
         flash("cel: \(window.displayTitle)")
     }
 
+    /// Zmiana pulpitu leci BEZ celu: podniesienie okna przed naciśnięciem
+    /// przerzuciłoby nas z powrotem na pulpit tego okna.
+    private func desktop(_ chord: KeyChord, label: String) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        session.sendKey(chord, toSelectedWindow: false)
+        flash(label)
+    }
+
     private func key(_ chord: KeyChord, label: String) {
         guard session.selectedWindowID != nil else {
             flash("najpierw wybierz terminal")
@@ -225,15 +251,23 @@ struct PilotView: View {
         session.endDictation()
     }
 
+    /// Decyzja opiera się na STANIE SESJI, nie na lokalnej fladze `latched`.
+    /// Flaga potrafi się rozjechać z rzeczywistością (błąd z Maca, timeout,
+    /// apka w tle) i wtedy stuknięcie w mikrofon przestawało cokolwiek robić —
+    /// dokładnie to zgłosił Wojtek. Nagrywamy? To stuknięcie kończy. Kropka.
     private func toggleLatch() {
-        guard let id = session.selectedWindowID else { return }
-        if latched {
+        if session.phase.isBusy {
             latched = false
             session.endDictation()
-        } else {
-            latched = true
-            session.beginDictation(target: id)
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+            return
         }
+        guard let id = session.selectedWindowID else {
+            flash("najpierw wybierz terminal")
+            return
+        }
+        latched = true
+        session.beginDictation(target: id)
     }
 
     private func flash(_ message: String) {

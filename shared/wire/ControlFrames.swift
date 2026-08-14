@@ -98,6 +98,12 @@ struct KeyChord: RawRepresentable, Codable, Equatable, Hashable {
     /// jest tym, czego się w tym miejscu naprawdę chce (skasowanie promptu,
     /// który przed chwilą wpadł z dyktowania).
     static let ctrlU = KeyChord(rawValue: "ctrlU")
+    /// Przeskok na sąsiedni pulpit (Mission Control) — klawiaturowy odpowiednik
+    /// przesunięcia trzema palcami po gładziku. Wysyłane ZAWSZE bez celu:
+    /// podnoszenie okna przed zmianą pulpitu przeniosłoby nas z powrotem na ten
+    /// pulpit, na którym to okno stoi, czyli dokładnie odwrotnie do zamiaru.
+    static let ctrlLeft = KeyChord(rawValue: "ctrlLeft")
+    static let ctrlRight = KeyChord(rawValue: "ctrlRight")
 }
 
 // MARK: - Ładunki

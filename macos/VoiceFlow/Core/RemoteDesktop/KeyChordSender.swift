@@ -16,6 +16,11 @@ enum KeyChordSender {
         case .cmdZ: (6, .maskCommand)  // 6 = „Z"
         case .cmdV: (9, .maskCommand)  // 9 = „V"
         case .ctrlU: (32, .maskControl) // 32 = „U" — wyczyszczenie linii w powłoce
+        // Zmiana pulpitu: 123/124 = strzałki ←/→. Działa, o ile w Ustawieniach
+        // systemowych „Mission Control" skróty „Przejdź o jeden pulpit w lewo/
+        // prawo" są włączone — są domyślnie.
+        case .ctrlLeft: (123, .maskControl)
+        case .ctrlRight: (124, .maskControl)
         default: nil
         }
     }

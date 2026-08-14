@@ -201,6 +201,15 @@ final class RemoteControlHubTests: XCTestCase {
         XCTAssertEqual(error.code, .windowGone)
     }
 
+    /// Zmiana pulpitu leci BEZ celu — podniesienie okna przerzuciłoby nas z
+    /// powrotem na pulpit tego okna, czyli odwrotnie do zamiaru.
+    func testZmianaPulpituNiePodnosiZadnegoOkna() async {
+        let harness = Harness()
+        await harness.hub.handle(.key(chord: .ctrlRight, target: nil, generation: nil))
+        XCTAssertEqual(harness.pressedKeys, [.ctrlRight])
+        XCTAssertTrue(harness.highlights.isEmpty)
+    }
+
     /// Zgodność wsteczna: bez celu naciskamy na froncie, tak jak dotąd.
     func testKlawiszBezCeluNaciskaNaFroncie() async {
         let harness = Harness()
@@ -237,7 +246,7 @@ final class RemoteControlHubTests: XCTestCase {
     /// Każdy akord pilota musi mieć mapowanie na kod klawisza — inaczej Mac
     /// odpowiada „unsupported", a przycisk na telefonie jest atrapą.
     func testWszystkieAkordyPilotaMajaMapowanie() {
-        for chord: KeyChord in [.return_, .escape, .cmdReturn, .ctrlC, .cmdZ, .cmdV, .ctrlU] {
+        for chord: KeyChord in [.return_, .escape, .cmdReturn, .ctrlC, .cmdZ, .cmdV, .ctrlU, .ctrlLeft, .ctrlRight] {
             XCTAssertNotNil(KeyChordSender.mapping(for: chord), "brak mapowania dla \(chord.rawValue)")
         }
         XCTAssertNil(KeyChordSender.mapping(for: KeyChord(rawValue: "cmdShiftQ")))

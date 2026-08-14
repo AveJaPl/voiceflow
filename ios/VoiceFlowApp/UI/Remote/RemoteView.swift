@@ -320,11 +320,13 @@ struct RemoteView: View {
         .background(recording ? VFColor.text : VFColor.background)
         .overlay(Rectangle().stroke(recording ? VFColor.text : VFColor.border, lineWidth: 1))
         .contentShape(Rectangle())
-        .windowGestures(
-            onTap: {},
+        // Ten sam gest co w pilocie: stuknięcie start/stop, przytrzymanie
+        // „mów, póki trzymam". Dwuklik wyleciał z obu ekranów naraz, żeby
+        // przycisk od mikrofonu zachowywał się wszędzie tak samo.
+        .pushToTalkGesture(
+            onTap: { toggleLatch(on: session.selectedWindow) },
             onHoldBegan: { beginHold(on: session.selectedWindow) },
-            onHoldEnded: { endHold() },
-            onDoubleTap: { toggleLatch(on: session.selectedWindow) }
+            onHoldEnded: { endHold() }
         )
         .animation(.easeOut(duration: 0.12), value: recording)
     }
@@ -333,11 +335,11 @@ struct RemoteView: View {
         switch session.phase {
         case .failed(let failure): failure.message
         case .arming: "łączę z oknem…"
-        case .streaming: latchedTarget == nil ? "mówisz — puść, aby wysłać" : "mówisz — stuknij 2 razy, aby zakończyć"
+        case .streaming: latchedTarget == nil ? "mówisz — puść, aby wysłać" : "zatrzask — stuknij, aby zakończyć"
         case .finishing: "przetwarzam…"
         case .connecting: "łączę z Makiem…"
         case .offline: "zaloguj się kontem w Ustawieniach"
-        case .ready: session.selectedWindow == nil ? "zaznacz terminal na liście" : "Mów — przytrzymaj albo stuknij 2 razy"
+        case .ready: session.selectedWindow == nil ? "zaznacz terminal na liście" : "Mów — stuknij (start/stop) albo przytrzymaj"
         }
     }
 
@@ -373,7 +375,15 @@ struct RemoteView: View {
         session.endDictation()
     }
 
+    /// Decyzja z FAZY SESJI, nie z lokalnej flagi — flaga potrafi się rozjechać
+    /// (błąd z Maca, timeout, apka w tle) i wtedy stuknięcie przestaje kończyć
+    /// wypowiedź, co jest najgorszym możliwym zachowaniem przycisku mikrofonu.
     private func toggleLatch(on window: WireWindow?) {
+        if session.phase.isBusy {
+            latchedTarget = nil
+            session.endDictation()
+            return
+        }
         guard let window else { return }
         if latchedTarget != nil {
             latchedTarget = nil

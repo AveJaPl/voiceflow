@@ -117,6 +117,15 @@ button:hover{border-color:rgba(255,255,255,.35)}
 .tune img{width:clamp(38px,5.4vh,54px); height:clamp(38px,5.4vh,54px); border-radius:8px;
   object-fit:cover; flex:none; background:var(--raised)}
 .tune .tune-text{min-width:0}
+/* Znak integracji rysowany u nas, nie pobierany od dostawcy.
+   claude.ai odpowiada nagłówkiem `cross-origin-resource-policy: same-origin`,
+   czyli wprost zabrania przeglądarce pokazać swoją ikonę na cudzej stronie —
+   `curl` ją pobiera, przeglądarka odmawia. Pozostawało przepuścić ją przez nasz
+   serwer, ale wtedy to MY serwowalibyśmy cudzy znak towarowy, więc dopóki nie
+   ma na to zgody, stoi tu neutralna iskra w naszej kresce. */
+.tile-mark{width:clamp(26px,3.8vh,34px); height:clamp(26px,3.8vh,34px); flex:none;
+  color:var(--muted)}
+
 /* Zużycie Claude Code: pasek na okno pięciogodzinne, bo to ono uwiera w pracy.
    Tydzień jako liczba obok — ważny, ale nie z minuty na minutę. */
 .usage-row{display:flex; align-items:baseline; gap:8px; width:100%}
@@ -442,7 +451,13 @@ function renderTiles() {
 
   if (usage.length) {
     parts.push(`<div class="card tile${alone ? ' wide' : ''}">
-      <p class="eyebrow">Claude Code</p>
+      <div style="display:flex; align-items:center; gap:10px; width:100%">
+        <svg class="tile-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3v18M3 12h18M6.5 6.5l11 11M17.5 6.5l-11 11"></path>
+        </svg>
+        <p class="eyebrow" style="margin:0">Claude Code</p>
+      </div>
       ${usage.map((item) => `
         <div style="width:100%">
           <div class="usage-row">

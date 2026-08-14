@@ -32,7 +32,7 @@ from voiceflow.presence import DiscordPresence
 from voiceflow.preview import PreviewLoop
 from voiceflow.recorder import Recorder
 from voiceflow.room import RoomClient
-from voiceflow.claudeusage import current_usage
+from voiceflow.claudeusage import current_payload
 from voiceflow.nowplaying import current_track
 from voiceflow.roomstate import write_room_state
 from voiceflow.roomlink import WebSocketTransport
@@ -497,8 +497,7 @@ class VoiceflowDaemon:
                     continue
                 track = current_track()
                 self.room.report_now_playing(track.as_payload() if track else None)
-                usage = current_usage()
-                self.room.report_claude_usage(usage.as_payload() if usage else None)
+                self.room.report_claude_usage(current_payload())
             except Exception:
                 LOGGER.debug("Nie udało się zgłosić odtwarzanego utworu", exc_info=True)
 

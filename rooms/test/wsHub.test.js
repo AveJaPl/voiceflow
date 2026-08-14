@@ -267,3 +267,32 @@ test('bzdurne procenty są przycinane, nie przepisywane', async () => {
   assert.equal(seen.people[0].fiveHour, 100);
   assert.equal(seen.people[0].sevenDay, 0);
 });
+
+test('liczby tokenów wędrują dalej; bzdurne stają się zerem', async () => {
+  const hub = createHub({ store: noopStore });
+  const filip = fakeConnection('dev-1', 'Filip');
+  await hub.handleMessage(filip, { type: 'hello' });
+  filip.sent.length = 0;
+
+  await hub.handleMessage(filip, {
+    type: 'claude_usage',
+    usage: { fiveHour: 21, tokensIn: 490440619.9, tokensOut: -7 },
+  });
+
+  const seen = filip.sent.filter((m) => m.type === 'claude_usage').at(-1);
+  assert.equal(seen.people[0].tokensIn, 490440619);
+  assert.equal(seen.people[0].tokensOut, 0);
+});
+
+test('stary klient bez pól tokenów nadal przechodzi', async () => {
+  const hub = createHub({ store: noopStore });
+  const filip = fakeConnection('dev-1', 'Filip');
+  await hub.handleMessage(filip, { type: 'hello' });
+  filip.sent.length = 0;
+
+  await hub.handleMessage(filip, { type: 'claude_usage', usage: { fiveHour: 58, sevenDay: 5 } });
+
+  const seen = filip.sent.filter((m) => m.type === 'claude_usage').at(-1);
+  assert.equal(seen.people[0].tokensIn, 0);
+  assert.equal(seen.people[0].tokensOut, 0);
+});

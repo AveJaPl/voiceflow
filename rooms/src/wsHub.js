@@ -127,6 +127,8 @@ export function createHub({ store }) {
           fiveHour: Math.max(0, Math.min(100, Number(message.usage.fiveHour) || 0)),
           sevenDay: Math.max(0, Math.min(100, Number(message.usage.sevenDay) || 0)),
           resetsAt: Number(message.usage.resetsAt) || 0,
+          tokensIn: Math.max(0, Math.floor(Number(message.usage.tokensIn) || 0)),
+          tokensOut: Math.max(0, Math.floor(Number(message.usage.tokensOut) || 0)),
         } : null;
         entry.usage.set(connection.deviceId, { name: connection.name, usage });
         broadcastUsage(connection.roomCode);

@@ -126,17 +126,19 @@ button:hover{border-color:rgba(255,255,255,.35)}
 .tile-mark{width:clamp(24px,3.4vh,30px); height:clamp(24px,3.4vh,30px); flex:none;
   color:var(--text)}
 
-/* Zużycie Claude Code: pasek na okno pięciogodzinne, bo to ono uwiera w pracy.
-   Tydzień jako liczba obok — ważny, ale nie z minuty na minutę. */
-.usage-row{display:flex; align-items:baseline; gap:8px; width:100%}
-.usage-name{font-size:.78rem; color:var(--muted); min-width:0;
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1}
-.usage-value{font-family:var(--display); font-weight:600; font-size:.95rem;
+/* Zużycie Claude Code: osoby obok siebie (lewo/prawo), nie jedna pod drugą —
+   wiersze z paskami rozpychały kafelek w pionie na tablecie. Zamiast procentów
+   limitu: ile tokenów kto dziś przerobił, zaokrąglone do tys./mln/mld. */
+.usage-cols{display:flex; width:100%; gap:clamp(10px,1.2vw,18px)}
+.usage-person{flex:1; min-width:0}
+.usage-person + .usage-person{border-left:1px solid var(--border);
+  padding-left:clamp(10px,1.2vw,18px)}
+.usage-name{font-size:.72rem; color:var(--muted); letter-spacing:.06em;
+  text-transform:uppercase; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.usage-value{font-family:var(--display); font-weight:700; letter-spacing:-.02em;
+  font-size:clamp(1.05rem,2.2vh,1.5rem); line-height:1.15; white-space:nowrap;
   font-variant-numeric:tabular-nums}
-.usage-bar{height:4px; border-radius:3px; background:rgba(255,255,255,.07);
-  overflow:hidden; width:100%; margin-top:4px}
-.usage-bar i{display:block; height:100%; border-radius:3px; background:var(--mark)}
-.usage-bar i.hot{background:var(--rec)}
+.usage-value.hot{color:var(--rec)}
 
 /* --- ranking ------------------------------------------------------------- */
 .board-head{display:flex; align-items:baseline; justify-content:space-between; gap:12px;
@@ -430,6 +432,18 @@ function tempoLabel() {
   return `${numbers.format(perMinute)} sł./min${trend}`;
 }
 
+/* „490 mln", nie „490 440 619": na ścianie liczy się rząd wielkości.
+   Poniżej dziesięciu jednostek zostaje jedno miejsce po przecinku (2,4 mld). */
+function formatTokens(value) {
+  const short = (scaled) => scaled >= 10
+    ? String(Math.round(scaled))
+    : (Math.round(scaled * 10) / 10).toString().replace('.', ',');
+  if (value >= 1e9) return `${short(value / 1e9)} mld`;
+  if (value >= 1e6) return `${short(value / 1e6)} mln`;
+  if (value >= 1e3) return `${short(value / 1e3)} tys.`;
+  return String(value);
+}
+
 function renderTiles() {
   const music = tunes.filter((item) => item.title);
   const usage = claudeUsage.filter((item) => item.fiveHour !== undefined);
@@ -458,17 +472,19 @@ function renderTiles() {
         </svg>
         <p class="eyebrow" style="margin:0">Claude Code</p>
       </div>
-      ${usage.map((item) => `
-        <div style="width:100%">
-          <div class="usage-row">
-            <span class="usage-name">${escapeHtml(item.name ?? '—')}</span>
-            <span class="usage-value">${item.fiveHour}%</span>
-          </div>
-          <div class="usage-bar"><i class="${item.fiveHour >= 80 ? 'hot' : ''}"
-            style="width:${item.fiveHour}%"></i></div>
-        </div>`).join('')}
-      <div class="tile-sub">okno 5-godzinne · tydzień ${usage
-        .map((item) => `${item.sevenDay}%`).join(' / ')}</div>
+      <div class="usage-cols">
+      ${usage.map((item) => {
+        const tokens = (item.tokensIn ?? 0) + (item.tokensOut ?? 0);
+        // Stary klient przysyła same procenty — wtedy pokazujemy je, a nie zero.
+        const value = tokens > 0 ? formatTokens(tokens) : `${item.fiveHour}%`;
+        return `
+        <div class="usage-person">
+          <div class="usage-name">${escapeHtml(item.name ?? '—')}</div>
+          <div class="usage-value${item.fiveHour >= 80 ? ' hot' : ''}">${value}</div>
+        </div>`;
+      }).join('')}
+      </div>
+      <div class="tile-sub">tokenów dziś</div>
     </div>`);
   }
   el('tiles').innerHTML = parts.join('');

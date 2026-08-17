@@ -9,18 +9,19 @@ $ErrorActionPreference = "Stop"
 $Root = Join-Path $env:LOCALAPPDATA "voiceflow"
 $Dest = Join-Path $Root "app"
 
-# An update must not fight the running copy for its own files: a live daemon
-# holds .venv\Scripts\python.exe open and the extraction fails half-way.
 Write-Host "==> Stopping a running voiceflow (if any)" -ForegroundColor Cyan
-$Existing = Join-Path $Dest ".venv\Scripts\voiceflow.exe"
-if (Test-Path $Existing) {
-    try { & $Existing quit 2>$null | Out-Null } catch {}
+$Installed = Join-Path $Dest "windows\common.ps1"
+if (Test-Path $Installed) {
+    . $Installed
+    Stop-Voiceflow -Dest $Dest
+} else {
+    # First install: nothing is running, and the helpers arrive with the code.
+    Get-Process -Name "pythonw", "python" -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path.StartsWith($Dest, [StringComparison]::OrdinalIgnoreCase) } |
+        ForEach-Object {
+            try { $_.Kill(); $_.WaitForExit(5000) } catch {}
+        }
 }
-Get-Process -Name "pythonw", "python" -ErrorAction SilentlyContinue |
-    Where-Object { $_.Path -and $_.Path.StartsWith($Dest, [StringComparison]::OrdinalIgnoreCase) } |
-    ForEach-Object {
-        try { $_.Kill(); $_.WaitForExit(5000) } catch {}
-    }
 
 Write-Host "==> Downloading voiceflow" -ForegroundColor Cyan
 $Tarball = Join-Path $env:TEMP "voiceflow.tar.gz"
@@ -45,39 +46,15 @@ Pop-Location
 # Everything below runs the venv directly. Resolving uv at *launch* time was
 # fragile: the shortcut inherits whatever PATH the shell had at login, and a
 # freshly installed uv is not on it until the next sign-in.
+. (Join-Path $Dest "windows\common.ps1")
 $Pythonw = Join-Path $Dest ".venv\Scripts\pythonw.exe"
 if (-not (Test-Path $Pythonw)) { throw "uv sync did not produce $Pythonw" }
 
+Write-Host "==> Making the windowless launcher windowless" -ForegroundColor Cyan
+Repair-VenvLauncher -Dest $Dest
+
 Write-Host "==> Creating Start Menu entry and autostart" -ForegroundColor Cyan
-# Two different things, deliberately:
-#   Start Menu -> the desktop window, because that is what clicking an app icon
-#                 must do. Pointing it at the daemon meant clicking it did
-#                 nothing at all once the daemon was already running.
-#   Startup    -> the daemon, headless, via pythonw.exe so no console exists to
-#                 flash or to hide.
-$Ico = Join-Path $Dest "windows\voiceflow.ico"
-$Shell = New-Object -ComObject WScript.Shell
-
-$StartMenu = Join-Path ([Environment]::GetFolderPath("Programs")) "voiceflow.lnk"
-$Link = $Shell.CreateShortcut($StartMenu)
-$Link.TargetPath = Join-Path $Dest ".venv\Scripts\voiceflow-app.exe"
-$Link.WorkingDirectory = $Dest
-if (Test-Path $Ico) { $Link.IconLocation = $Ico }
-$Link.Description = "voiceflow - ustawienia, historia i statystyki dyktowania"
-$Link.Save()
-
-$Startup = Join-Path ([Environment]::GetFolderPath("Startup")) "voiceflow.lnk"
-$Link = $Shell.CreateShortcut($Startup)
-$Link.TargetPath = $Pythonw
-$Link.Arguments = "-m voiceflow daemon"
-$Link.WorkingDirectory = $Dest
-if (Test-Path $Ico) { $Link.IconLocation = $Ico }
-$Link.Description = "voiceflow - dyktowanie glosowe (Ctrl+Shift+Space)"
-$Link.Save()
-# Superseded by the direct pythonw launch; leaving it behind would keep an
-# older, uv-dependent path alive in anyone's Startup folder.
-$LegacyVbs = Join-Path $Root "voiceflow-hidden.vbs"
-if (Test-Path $LegacyVbs) { Remove-Item $LegacyVbs -Force }
+Set-VoiceflowShortcuts -Dest $Dest
 
 Write-Host "==> Downloading the speech model (~1.6 GB) - progress below" -ForegroundColor Cyan
 Push-Location $Dest

@@ -13,6 +13,92 @@ Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[
   recording ends: a stream found above its target is pushed back down, a new
   application is ducked like any other, and the level restored afterwards is
   still the one the user had set before dictating.
+- **[All]** Only one daemon can start, including during the half-minute the
+  first one spends loading its model. The old guard asked whether anything was
+  answering the control channel — but that channel is opened at the *end* of
+  startup, so for thirty seconds voiceflow looked exactly like nothing was
+  running. Seven daemons were found doing this at once: each loaded its own copy
+  of the model, which made every one of them slower to start, which kept the
+  window reporting that nothing was running, which invited another click. Only
+  the first held the dictation shortcut, so the other six reported it as taken
+  by "another application" — it was, by voiceflow. A daemon now claims an
+  OS-level lock before it touches anything at all (no model, no microphone, no
+  room), and the operating system drops that claim when the process dies, so a
+  crash cannot leave voiceflow locked out. The desktop window also stops
+  offering to start a second one and says **Demon się uruchamia** while it waits.
+- **[All]** A long dictation no longer means a long wait. What has already been
+  said is transcribed during the pauses, so after the hotkey only the stretch
+  since the last pause is left to do — measured on an i7-1260P, 50 s of Polish
+  went from 24.7 s of waiting to 10.1 s, and the text came out the same.
+  The cut is made in silence the speaker meant (0.7 s, never a breath) and keeps
+  a margin past the last word, because at 0.15 s a rehearsal cut "zbliżającym"
+  into "zbli za jacym" — the VAD ends a word where its energy stops, which is
+  slightly before the word does. Nothing is committed below 25 s of audio, and
+  that number is Whisper's, not a preference: its encoder always processes a
+  30-second window, so decoding 6 s costs 7.6 s while decoding 29 s costs 11.8 s.
+  Committing in small pieces does not divide the work between the pauses, it
+  multiplies it — the first version of this shortened nothing and made a 29 s
+  dictation wait 16 s instead of 11.8 s. Shorter dictations are transcribed in
+  one pass exactly as before; `incremental.enabled: false` restores the old
+  behaviour outright.
+- **[All]** Transcription on the CPU uses the whole processor. CTranslate2 takes
+  four threads regardless of what the machine has, which on a laptop left two
+  thirds of it idle while its owner waited for their text; the model is now given
+  one thread per physical core (hyperthreads excluded — they measured slower on a
+  memory-bound int8 matrix multiply). Measured on an i7-1260P, 20 s of Polish:
+  12.2 s → 9.8 s. `model.cpu_threads` overrides the count for anyone who wants
+  to leave the machine room to breathe; 0, the default, means "read the machine".
+- **[Windows]** Dictation lands in the focused window again. The preview card is
+  marked `WS_EX_NOACTIVATE` precisely so it cannot take the focus, but tkinter
+  takes the foreground the moment it *realizes* its window — before there is a
+  handle to put that style on. So from the first word spoken the card was the
+  window in front, and the paste chord went to it instead of the terminal or
+  editor the user was dictating into: the text reached the clipboard, the
+  history recorded it as injected, and nothing appeared anywhere. The card now
+  remembers which window was in front before it starts and hands the foreground
+  straight back — its own theft and nothing else, so a window the user chose in
+  the meantime is left alone.
+- **[Windows]** No console window any more — not at login, not when the Start
+  Menu icon is clicked. The daemon and the desktop window are started through
+  `pythonw.exe` precisely so that none exists, but uv builds
+  `.venv\Scripts\pythonw.exe` as a trampoline that re-launches the *console*
+  interpreter, and a console program whose parent has no console is given a
+  brand-new console window of its own: a black window of log lines over the
+  user's work, with the desktop window opening behind it. Both installers now
+  replace that trampoline with the real `pythonw.exe`, so the window is never
+  created; `python.exe` keeps its console, because the command line needs one.
+  Copies installed before this fix are covered too — the daemon and the window
+  free a console of their own at startup, while a console shared with a shell
+  (`voiceflow daemon` typed into a terminal) is left alone, log output included.
+- **[Windows]** `windows\install-local.ps1` installs the working copy as the
+  installed one, keeping the environment and the downloaded model, so the Start
+  Menu icon opens the application being worked on instead of the last release.
+- **[Windows]** The desktop window is now the same window as on Linux, not a
+  Qt-flavoured relative of it. It was two pages behind and looked like a
+  different product: red accent buttons where GTK has white ones, no Pokój and
+  no Sesje tab at all, ducking edited as a comma-separated list of executables
+  in a text box, and no way to see which application was holding the microphone.
+  Ported across, group for group: the sidebar with its brand mark and selection
+  indicator, the page title in the window bar, one shared **Niezapisane zmiany**
+  bar with Cofnij/Zastosuj instead of per-page save buttons, and all seven pages
+  — Przegląd, Historia, Statystyki, Pokój, Sesje, Słownik, Ustawienia.
+- **[Windows]** Ducking and microphone muting are edited the way they are on
+  Linux: every detected application is a row with its own volume slider ("60%
+  obecnej", "100% · nie ściszaj"), applications holding the microphone right now
+  are switches marked *nagrywa teraz*, and a rule for an application that is no
+  longer running stays visible as *zapamiętana · niedziałająca* with a button to
+  forget it. Moving the default slider moves every application that has no rule
+  of its own, and leaves the ones that do alone.
+- **[Windows]** Rooms are reachable without a terminal, including discovery on
+  the local network. Linux announces a room over Avahi; Windows has no Avahi, so
+  it speaks the same mDNS protocol through `zeroconf` — the wire format is
+  identical, so a room advertised from a Linux laptop appears in the Windows
+  window and the other way round. Creating, joining and leaving now restart the
+  daemon themselves, because it reads its configuration only at startup.
+- **[Windows]** The icons the GTK application takes from the desktop icon theme
+  are drawn as vector strokes instead, since Windows has no icon theme to borrow
+  from: sharp at any scale, and the same colour as the text beside them.
+
 - **[All]** Shared dictation rooms. Two people in one room stop talking over each
   other: whoever is speaking blocks the others, and their speaking quietens audio
   on every machine in the room, not just their own. Sessions are measured — who

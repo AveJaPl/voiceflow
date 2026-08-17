@@ -78,6 +78,21 @@ class RoomClient:
         self._publish_state()
         self._send({"type": "speaking_started"})
 
+    def report_released(self) -> None:
+        """Capture has ended; let the room speak while this machine transcribes.
+
+        Transcription can take longer than the dictation itself — a large model
+        on a processor runs slower than real time — and the room used to stay
+        locked for all of it by somebody who had already stopped talking. The
+        room's rule is "one microphone at a time", and a microphone that is no
+        longer recording is not one of them.
+
+        Zero words frees the slot without writing a row. The real numbers
+        follow from :meth:`report_finished`, which the service records even
+        though this device is no longer the speaker by then.
+        """
+        self._release()
+
     def report_finished(self, *, words: int, seconds: float) -> None:
         self._speaking_here = False
         self._publish_state()
@@ -91,6 +106,10 @@ class RoomClient:
         kept everybody else blocked until the heartbeat expired ten seconds
         later. Zero words is how the server knows not to write a row for it.
         """
+        self._release()
+
+    def _release(self) -> None:
+        """Give the room's single microphone back, recording nothing."""
         self._speaking_here = False
         self._publish_state()
         self._send({"type": "speaking_ended", "words": 0, "seconds": 0})

@@ -40,9 +40,14 @@ class _BlockingTranscriber:
     def __init__(self) -> None:
         self.release = threading.Event()
 
-    def transcribe(self, _audio_path: Path) -> TranscriptionResult:
+    def transcribe(
+        self, _audio_path: Path, *, start_sample: int = 0, spoken: str = ""
+    ) -> TranscriptionResult:
         self.release.wait(timeout=2)
         return TranscriptionResult("Zażółć gęślą jaźń", "pl", 1.0, 0.1)
+
+    def transcribe_chunk(self, _audio: object) -> str:
+        return ""
 
     def transcribe_preview(self, _audio: object) -> str | None:
         return None
@@ -173,8 +178,13 @@ class _SilentTranscriber:
     device = "cuda"
     compute_type = "float16"
 
-    def transcribe(self, _audio_path: Path) -> TranscriptionResult:
+    def transcribe(
+        self, _audio_path: Path, *, start_sample: int = 0, spoken: str = ""
+    ) -> TranscriptionResult:
         return TranscriptionResult("", "pl", 1.0, 0.1)
+
+    def transcribe_chunk(self, _audio: object) -> str:
+        return ""
 
     def transcribe_preview(self, _audio: object) -> str | None:
         return None
@@ -275,8 +285,13 @@ class _ThreeWordTranscriber:
     device = "cuda"
     compute_type = "float16"
 
-    def transcribe(self, _audio_path: Path) -> TranscriptionResult:
+    def transcribe(
+        self, _audio_path: Path, *, start_sample: int = 0, spoken: str = ""
+    ) -> TranscriptionResult:
         return TranscriptionResult("trzy słowa tutaj", "pl", 60.0, 0.1)
+
+    def transcribe_chunk(self, _audio: object) -> str:
+        return ""
 
     def transcribe_preview(self, _audio: object) -> str | None:
         return None
@@ -362,6 +377,9 @@ class _Room:
 
     def report_started(self):
         self.reports.append(("started",))
+
+    def report_released(self):
+        self.reports.append(("released",))
 
     def report_finished(self, *, words, seconds):
         self.reports.append(("finished", words, seconds))
@@ -458,3 +476,64 @@ def test_silence_releases_the_room_too(tmp_path: Path) -> None:
     daemon._executor.shutdown(wait=True)  # noqa: SLF001
 
     assert ("cancelled",) in room.reports, "cisza też musi zwolnić pokój"
+
+
+def test_the_room_is_freed_before_transcription_not_after(tmp_path: Path) -> None:
+    """Transcription is slower than speech on a processor; the room cannot wait.
+
+    Holding the room's single microphone through a transcription blocks
+    everybody else on behalf of somebody who has already stopped talking.
+    """
+    room = _Room()
+    daemon = VoiceflowDaemon(
+        Config(),
+        recorder=_Recorder(tmp_path / "recording.wav"),
+        transcriber=_BlockingTranscriber(),
+        injector=_Injector(),  # type: ignore[arg-type]
+        notifier=_Notifier(),  # type: ignore[arg-type]
+        overlay=_Overlay(),  # type: ignore[arg-type]
+        history=History(HistoryConfig(), tmp_path / "history.jsonl"),
+        micmuter=_Muter(),  # type: ignore[arg-type]
+        room=room,  # type: ignore[arg-type]
+    )
+
+    daemon.handle_command("start")
+    daemon.handle_command("stop")
+    daemon._executor.shutdown(wait=True)  # noqa: SLF001
+
+    kinds = [report[0] for report in room.reports]
+    assert kinds.index("released") < kinds.index("finished"), (
+        "miejsce w pokoju zwalniamy, gdy kończy się mówienie, a nie gdy kończy "
+        "się przetwarzanie"
+    )
+
+
+def test_a_room_that_cannot_be_told_anything_does_not_eat_the_dictation(
+    tmp_path: Path,
+) -> None:
+    """A cosmetic room failure must not cost the user the words they just said."""
+    room = _Room()
+
+    def explode() -> None:
+        raise OSError("serwer pokoi odpadł")
+
+    room.report_released = explode  # type: ignore[method-assign]
+    history_path = tmp_path / "history.jsonl"
+    daemon = VoiceflowDaemon(
+        Config(),
+        recorder=_Recorder(tmp_path / "recording.wav"),
+        transcriber=_BlockingTranscriber(),
+        injector=_Injector(),  # type: ignore[arg-type]
+        notifier=_Notifier(),  # type: ignore[arg-type]
+        overlay=_Overlay(),  # type: ignore[arg-type]
+        history=History(HistoryConfig(), history_path),
+        micmuter=_Muter(),  # type: ignore[arg-type]
+        room=room,  # type: ignore[arg-type]
+    )
+
+    daemon.handle_command("start")
+    daemon.handle_command("stop")
+    daemon._executor.shutdown(wait=True)  # noqa: SLF001
+
+    assert history_path.exists(), "dyktowanie musi trafić do historii mimo awarii pokoju"
+    assert ("finished", 3, 1.0) in room.reports

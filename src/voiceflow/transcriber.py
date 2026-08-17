@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     import numpy as np
 
 from voiceflow.config import ModelConfig
+from voiceflow.pcm import SAMPLE_RATE
 
 LOGGER = logging.getLogger(__name__)
 
@@ -60,6 +61,42 @@ def build_initial_prompt(vocabulary: tuple[str, ...]) -> str | None:
     return ", ".join(kept) + "."
 
 
+def resolve_cpu_threads(configured: int, physical: int | None, logical: int | None) -> int:
+    """How many threads should the CPU transcription use?
+
+    A configured number wins outright — someone who wrote it there wants it,
+    including on a machine we would have guessed differently about.
+
+    Otherwise one thread per *physical* core. CTranslate2's own default is four
+    no matter what the machine has, which on a laptop leaves most of the CPU
+    idle while its owner waits for their text; measured on an i7-1260P (4+8
+    cores), twelve threads transcribe a fifth faster than four. Hyperthreads are
+    left out on purpose: they add memory pressure to an already memory-bound
+    matrix multiply and measured slower than the physical count.
+    """
+    if configured > 0:
+        return configured
+    if physical and physical > 0:
+        return physical
+    if logical and logical > 1:
+        # Physical cores are unknowable here (psutil is a Windows dependency
+        # only), and half the logical count is the usual truth on x86.
+        return max(4, logical // 2)
+    return 0  # let CTranslate2 decide; anything else would be a worse guess
+
+
+def _cpu_thread_count(configured: int) -> int:
+    """``resolve_cpu_threads`` applied to the machine this is running on."""
+    physical: int | None = None
+    try:
+        import psutil
+
+        physical = psutil.cpu_count(logical=False)
+    except Exception:  # noqa: BLE001 - psutil is optional outside Windows
+        physical = None
+    return resolve_cpu_threads(configured, physical, os.cpu_count())
+
+
 @dataclass(frozen=True, slots=True)
 class TranscriptionResult:
     """Text and performance metadata returned by the recognizer."""
@@ -78,6 +115,7 @@ class Transcriber:
         self.model: Any = None
         self.device = ""
         self.compute_type = ""
+        self.cpu_threads = 0
         self.load_seconds = 0.0
         self.warmup_seconds = 0.0
         # One model, two callers: the final pass and the live preview. The final
@@ -102,12 +140,16 @@ class Transcriber:
         if requested_device == "cpu" and requested_compute == "float16":
             requested_compute = "int8"
             LOGGER.warning("float16 nie jest obsługiwane na CPU; używam int8")
+        # Computed once and reused by every fallback below, so a CPU model born
+        # out of a failed GPU start is as fast as one asked for directly.
+        self.cpu_threads = _cpu_thread_count(self.config.cpu_threads)
         started = time.perf_counter()
         try:
             self.model = WhisperModel(
                 self.config.name,
                 device=requested_device,
                 compute_type=requested_compute,
+                cpu_threads=self.cpu_threads,
             )
             self.device = requested_device
             self.compute_type = requested_compute
@@ -119,7 +161,12 @@ class Transcriber:
                 exc,
             )
             try:
-                self.model = WhisperModel(self.config.name, device="cpu", compute_type="int8")
+                self.model = WhisperModel(
+                    self.config.name,
+                    device="cpu",
+                    compute_type="int8",
+                    cpu_threads=self.cpu_threads,
+                )
                 self.device = "cpu"
                 self.compute_type = "int8"
             except Exception as cpu_exc:
@@ -128,11 +175,12 @@ class Transcriber:
                 ) from cpu_exc
         self.load_seconds = time.perf_counter() - started
         LOGGER.info(
-            "Załadowano model %s na %s/%s w %.2f s",
+            "Załadowano model %s na %s/%s w %.2f s%s",
             self.config.name,
             self.device,
             self.compute_type,
             self.load_seconds,
+            f" ({self.cpu_threads} wątków)" if self.device == "cpu" and self.cpu_threads else "",
         )
 
     def _warmup(self) -> None:
@@ -163,7 +211,12 @@ class Transcriber:
                 cuda_fallback_attempted = True
                 from faster_whisper import WhisperModel
 
-                self.model = WhisperModel(self.config.name, device="cpu", compute_type="int8")
+                self.model = WhisperModel(
+                    self.config.name,
+                    device="cpu",
+                    compute_type="int8",
+                    cpu_threads=self.cpu_threads,
+                )
                 self.device = "cpu"
                 self.compute_type = "int8"
                 self._consume_warmup(silence_path)
@@ -193,31 +246,78 @@ class Transcriber:
         )
         list(segments)
 
-    def transcribe(self, audio_path: Path) -> TranscriptionResult:
-        """Transcribe a WAV file and return stripped text with diagnostics."""
+    def transcribe(
+        self, audio_path: Path, *, start_sample: int = 0, spoken: str = ""
+    ) -> TranscriptionResult:
+        """Transcribe a WAV file and return stripped text with diagnostics.
+
+        ``start_sample`` and ``spoken`` are how an incrementally transcribed
+        dictation finishes: everything before that sample was already decoded
+        during the pauses and is handed back in ``spoken``, so only the tail is
+        left to do. ``audio_seconds`` still describes the whole recording, while
+        the measured time is what the user actually waited for — which is the
+        point of doing it this way.
+        """
         if self.model is None:
             raise RuntimeError("Model Whisper nie został załadowany")
         audio_seconds = _wav_duration(audio_path)
         started = time.perf_counter()
+        source: Any = str(audio_path)
+        if start_sample > 0:
+            from voiceflow.pcm import read_range
+
+            samples = read_range(audio_path, start_sample)
+            # The pauses may have swallowed the lot: a dictation that ended on
+            # silence has nothing left to decode, only the text already spoken.
+            source = samples if samples.size else None
         with self._lock:
-            segments, info = self.model.transcribe(
-                str(audio_path),
-                language=self.config.language,
-                vad_filter=True,
-                condition_on_previous_text=False,
-                initial_prompt=self.initial_prompt,
-                beam_size=self.config.beam_size,
-            )
-            text = " ".join(segment.text.strip() for segment in segments if segment.text.strip()).strip()
+            tail, info = ("", None) if source is None else self._decode(source)
+            text = " ".join(part for part in (spoken.strip(), tail) if part).strip()
         elapsed = time.perf_counter() - started
-        language = getattr(info, "language", self.config.language)
+        language = getattr(info, "language", None) or self.config.language
         LOGGER.info(
-            "Transkrypcja %.2f s audio zajęła %.2f s (język: %s)",
+            "Transkrypcja %.2f s audio zajęła %.2f s (język: %s)%s",
             audio_seconds,
             elapsed,
             language,
+            f", z czego {start_sample / SAMPLE_RATE:.1f} s domknięto w trakcie mówienia"
+            if start_sample > 0
+            else "",
         )
         return TranscriptionResult(text, language, audio_seconds, elapsed)
+
+    def _decode(self, source: Any) -> tuple[str, Any]:
+        """One full-quality pass over a file path or a buffer of samples.
+
+        The options are the contract between the final pass and the pieces
+        committed while the user was still speaking: they must not drift apart,
+        or a dictation would be transcribed by two slightly different models.
+        """
+        segments, info = self.model.transcribe(
+            source,
+            language=self.config.language,
+            vad_filter=True,
+            condition_on_previous_text=False,
+            initial_prompt=self.initial_prompt,
+            beam_size=self.config.beam_size,
+        )
+        text = " ".join(
+            segment.text.strip() for segment in segments if segment.text.strip()
+        ).strip()
+        return text, info
+
+    def transcribe_chunk(self, audio: "np.ndarray") -> str:
+        """Transcribe one finished piece of a dictation, at full quality.
+
+        Unlike a preview this waits its turn for the model: the text it produces
+        is going to be injected, so dropping it would lose words rather than a
+        frame of a display.
+        """
+        if self.model is None:
+            raise RuntimeError("Model Whisper nie został załadowany")
+        with self._lock:
+            text, _info = self._decode(audio)
+        return text
 
     def transcribe_preview(self, audio: "np.ndarray") -> str | None:
         """Transcribe raw samples for the live preview, or skip if the model is busy.

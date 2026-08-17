@@ -23,13 +23,14 @@ from typing import Any, Protocol
 
 from voiceflow.config import Config
 from voiceflow.history import History, Record, read_records
+from voiceflow.incremental import Committer, DictationLoop
 from voiceflow.injector import InjectionResult, Injector
+from voiceflow.instance import InstanceLock, holder_pid
 from voiceflow.micmute import MicMuter
 from voiceflow.notifier import NotifierLike, build_notifier
 from voiceflow.overlay import Overlay
 from voiceflow.paths import daemon_endpoint_path, daemon_socket_path, runtime_dir
 from voiceflow.presence import DiscordPresence
-from voiceflow.preview import PreviewLoop
 from voiceflow.recorder import Recorder
 from voiceflow.room import RoomClient
 from voiceflow.roomstate import write_room_state
@@ -75,8 +76,11 @@ class TranscriberLike(Protocol):
 
     device: str
     compute_type: str
-    def transcribe(self, audio_path: Path) -> TranscriptionResult: ...
+    def transcribe(
+        self, audio_path: Path, *, start_sample: int = 0, spoken: str = ""
+    ) -> TranscriptionResult: ...
     def transcribe_preview(self, audio: Any) -> str | None: ...
+    def transcribe_chunk(self, audio: Any) -> str: ...
 
 
 class _RequestHandler(socketserver.StreamRequestHandler):
@@ -148,6 +152,13 @@ class VoiceflowDaemon:
     ) -> None:
         self.config = config
         self.state = State.IDLE
+        #: Held for as long as this process is the daemon; see voiceflow.instance.
+        #: Claimed before anything else happens — an instance that is not going
+        #: to be the daemon must not open a microphone, announce itself to a
+        #: room, or spend a second of a laptop's battery on a model.
+        self._instance_lock: InstanceLock | None = (
+            _claim_instance() if transcriber is None else None
+        )
         self._lock = threading.RLock()
         self._shutdown_requested = threading.Event()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="voiceflow-worker")
@@ -206,7 +217,10 @@ class VoiceflowDaemon:
         else:
             self.injector = injector or Injector(config.inject)
         if transcriber is None:
-            # Refuse a second instance before downloading/loading a large model.
+            # The lock above has already turned away a second launch; this
+            # clears an endpoint file left behind by a daemon that crashed, and
+            # is the check that produces the friendly "already running" answer
+            # for anyone whose lock somehow outlived them.
             _ensure_single_instance()
             _remove_orphan_recordings(runtime_dir())
             self.transcriber = Transcriber(config.model)
@@ -225,7 +239,8 @@ class VoiceflowDaemon:
         threading.Thread(
             target=self._announce_update, name="voiceflow-update-check", daemon=True
         ).start()
-        self._preview: PreviewLoop | None = None
+        self._loop: DictationLoop | None = None
+        self._committer: Committer | None = None
 
     def handle_command(self, command: str) -> dict[str, Any]:
         """Apply a protocol command to the daemon state machine."""
@@ -279,34 +294,40 @@ class VoiceflowDaemon:
         # listening answers "is it recording?" in a way a banner never could.
         self.overlay.start("listening")
         self.presence.dictating()
-        self._start_preview(audio_path)
+        self._start_dictation_loop(audio_path)
         return {"ok": True, "message": "Rozpoczęto nagrywanie", "state": self.state.value}
 
-    def _start_preview(self, audio_path: Path) -> None:
-        if not self.config.preview.enabled:
-            return
-        preview = PreviewLoop(
+    def _start_dictation_loop(self, audio_path: Path) -> None:
+        """Start the work that runs while the user speaks: commits, then preview."""
+        committer = (
+            Committer(audio_path, self.config.incremental, self.transcriber.transcribe_chunk)
+            if self.config.incremental.enabled
+            else None
+        )
+        loop = DictationLoop(
             audio_path,
             self.config.preview,
             self.transcriber.transcribe_preview,
             lambda text: self.overlay.update("listening", text),
+            committer=committer,
         )
         try:
-            preview.start()
+            loop.start()
         except Exception:
-            LOGGER.exception("Nie można uruchomić podglądu; nagrywam bez niego")
+            LOGGER.exception("Nie można uruchomić pętli dyktowania; nagrywam bez niej")
             return
-        self._preview = preview
+        self._committer = committer
+        self._loop = loop
 
-    def _stop_preview(self) -> None:
-        preview = self._preview
-        self._preview = None
-        if preview is None:
+    def _stop_dictation_loop(self) -> None:
+        loop = self._loop
+        self._loop = None
+        if loop is None:
             return
         try:
-            preview.stop()
+            loop.stop()
         except Exception:
-            LOGGER.exception("Błąd zatrzymywania podglądu")
+            LOGGER.exception("Błąd zatrzymywania pętli dyktowania")
 
     def _stop(self) -> dict[str, Any]:
         with self._lock:
@@ -314,8 +335,8 @@ class VoiceflowDaemon:
                 return {"ok": False, "message": f"Nagrywanie nie trwa (stan {self.state.value})", "state": self.state.value}
             self.state = State.TRANSCRIBING
         # Signal without joining: the hotkey must feel instant. The worker joins.
-        if self._preview is not None:
-            self._preview.request_stop()
+        if self._loop is not None:
+            self._loop.request_stop()
         try:
             self._executor.submit(self._finish_recording_and_process)
         except RuntimeError as exc:
@@ -337,8 +358,12 @@ class VoiceflowDaemon:
         self.notifier.send(f"❌ Błąd: {message}", urgency="critical")
 
     def _finish_recording_and_process(self) -> None:
-        # Free the model before the final pass so it never queues behind a preview.
-        self._stop_preview()
+        # Free the model before the final pass so it never queues behind a
+        # preview — and read what was committed only after the loop has stopped,
+        # so no piece is counted twice or missed between the two.
+        self._stop_dictation_loop()
+        committer = self._committer
+        self._committer = None
         try:
             audio_path = self.recorder.stop()
         except Exception as exc:
@@ -349,17 +374,36 @@ class VoiceflowDaemon:
             return
         finally:
             # Restore the call as soon as capture ends; transcription can take a
-            # moment and the conversation should not stay silenced for it.
+            # moment and the conversation should not stay silenced for it. The
+            # room goes back for the same reason: this machine has stopped
+            # talking, so it must stop holding the room's only microphone —
+            # the numbers still arrive when the transcription does.
             self.micmuter.unmute()
             self.presence.clear()
-        self._transcribe_and_inject(audio_path)
+            self._release_room()
+        self._transcribe_and_inject(audio_path, committer)
+
+    def _release_room(self) -> None:
+        """Hand the room's microphone back before transcribing.
+
+        Guarded because it sits between the recording and the transcription: a
+        room that cannot be told anything is a cosmetic problem, and losing the
+        dictation the user just spoke over it would not be.
+        """
+        try:
+            self.room.report_released()
+        except Exception:
+            LOGGER.warning("Nie udało się zwolnić miejsca w pokoju", exc_info=True)
 
     def _cancel(self) -> dict[str, Any]:
         with self._lock:
             if self.state is not State.RECORDING:
                 return {"ok": False, "message": "Nie ma nagrania do anulowania", "state": self.state.value}
             self.state = State.IDLE
-        self._stop_preview()
+        self._stop_dictation_loop()
+        # A cancelled dictation takes its committed pieces with it; they belong
+        # to a recording the user has just said they do not want.
+        self._committer = None
         self.room.report_cancelled()
         self.micmuter.unmute()
         self.presence.clear()
@@ -372,12 +416,20 @@ class VoiceflowDaemon:
         self.overlay.stop()
         return {"ok": True, "message": "Nagranie anulowane", "state": self.state.value}
 
-    def _transcribe_and_inject(self, audio_path: Path) -> None:
+    def _transcribe_and_inject(
+        self, audio_path: Path, committer: Committer | None = None
+    ) -> None:
         # Set when the overlay has been handed a self-closing message, so the
         # cleanup below does not tear it down before it has been read.
         showed_notice = False
         try:
-            result = self.transcriber.transcribe(audio_path)
+            # Whatever was transcribed during the pauses is already text; the
+            # final pass only has to catch up on the tail after the last one.
+            result = self.transcriber.transcribe(
+                audio_path,
+                start_sample=committer.committed_samples if committer else 0,
+                spoken=committer.text if committer else "",
+            )
             if not result.text:
                 # Reported on the card rather than as a desktop notification:
                 # a silent recording is a non-event, and it should vanish on
@@ -583,7 +635,7 @@ class VoiceflowDaemon:
             was_recording = self.state is State.RECORDING
             if was_recording:
                 self.state = State.IDLE
-        self._stop_preview()
+        self._stop_dictation_loop()
         self.overlay.stop()
         self.tray.stop()
         if self._room_link is not None:
@@ -604,7 +656,27 @@ class VoiceflowDaemon:
                 socket_path.unlink(missing_ok=True)
             except OSError as exc:
                 LOGGER.warning("Nie można usunąć socketu %s: %s", socket_path, exc)
+        # Last, so the next daemon cannot start until this one has let go of the
+        # microphone, the hotkey and the port.
+        if self._instance_lock is not None:
+            self._instance_lock.release()
         LOGGER.info("Demon zatrzymany")
+
+
+def _claim_instance() -> InstanceLock:
+    """Become the daemon, or explain who already is and stop.
+
+    Milliseconds, and no model is touched before it: this is the difference
+    between a stray second launch costing nothing and it costing 1.5 GB.
+    """
+    lock = InstanceLock(runtime_dir() / "daemon.lock")
+    if lock.acquire():
+        return lock
+    pid = holder_pid(lock.path)
+    raise DaemonAlreadyRunning(
+        "Demon voiceflow już się uruchamia lub działa"
+        + (f" (proces {pid})" if pid else "")
+    )
 
 
 def _ensure_single_instance() -> None:

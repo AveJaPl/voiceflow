@@ -6,8 +6,10 @@ import threading
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from voiceflow.config import ModelConfig
-from voiceflow.transcriber import Transcriber
+from voiceflow.transcriber import Transcriber, resolve_cpu_threads
 
 
 class _CapturingModel:
@@ -51,3 +53,19 @@ def test_real_transcription_still_uses_the_vad() -> None:
     transcriber.transcribe(Path("missing.wav"))
 
     assert model.calls[0]["vad_filter"] is True
+
+
+@pytest.mark.parametrize(
+    ("configured", "physical", "logical", "expected"),
+    [
+        (8, 12, 16, 8),  # written down by hand: obeyed, whatever the machine is
+        (0, 12, 16, 12),  # a hybrid laptop: every physical core, no hyperthreads
+        (0, None, 16, 8),  # psutil absent (Linux): half the logical count
+        (0, None, 4, 4),  # ...but never fewer than CTranslate2 would have taken
+        (0, None, 1, 0),  # one core: no arithmetic of ours beats the library's
+        (0, None, None, 0),  # nothing knowable: leave the decision to the library
+    ],
+    ids=["configured", "hybrid-laptop", "no-psutil", "small-machine", "single-core", "unknown"],
+)
+def test_cpu_threads_follow_the_machine(configured, physical, logical, expected) -> None:
+    assert resolve_cpu_threads(configured, physical, logical) == expected

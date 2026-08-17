@@ -272,3 +272,64 @@ def test_state_writer_that_throws_does_not_break_dictation() -> None:
     client.report_started()
 
     assert transport.sent == [{"type": "speaking_started"}]
+
+
+# -- giving the room back while this machine transcribes ----------------------
+# Transcription can take longer than the dictation itself. Holding the room's
+# only microphone through it blocks everybody else on behalf of somebody who
+# has already stopped talking.
+
+
+def test_releasing_frees_the_room_before_the_words_are_known() -> None:
+    client, transport, _ducked = _client()
+    client.report_started()
+    transport.sent.clear()
+
+    client.report_released()
+
+    assert transport.sent == [{"type": "speaking_ended", "words": 0, "seconds": 0}]
+
+
+def test_releasing_stops_claiming_this_machine_is_speaking() -> None:
+    states: list = []
+    transport = _Transport()
+    client = RoomClient(
+        RoomConfig(enabled=True, server="wss://example", code="ROOM01", token="tok"),
+        on_remote_speaking=lambda name: None,
+        on_remote_silence=lambda: None,
+        transport=transport,
+        on_state_changed=states.append,
+    )
+    client.report_started()
+    assert states[-1].speaking_here is True
+
+    client.report_released()
+
+    assert states[-1].speaking_here is False
+
+
+def test_the_counts_still_arrive_after_the_room_was_released() -> None:
+    client, transport, _ducked = _client()
+    client.report_started()
+    client.report_released()
+    transport.sent.clear()
+
+    client.report_finished(words=42, seconds=12.5)
+
+    assert transport.sent == [
+        {"type": "speaking_ended", "words": 42, "seconds": 12.5}
+    ], "zwolnienie głosu nie może zgubić statystyki dyktowania"
+
+
+def test_releasing_outside_a_room_sends_nothing() -> None:
+    transport = _Transport()
+    client = RoomClient(
+        RoomConfig(enabled=False, server="wss://example", code="", token=""),
+        on_remote_speaking=lambda name: None,
+        on_remote_silence=lambda: None,
+        transport=transport,
+    )
+
+    client.report_released()
+
+    assert transport.sent == []

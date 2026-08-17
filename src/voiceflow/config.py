@@ -160,6 +160,10 @@ model:
   compute_type: float16
   language: pl            # ISO 639-1 code; null = automatic detection
   beam_size: 5
+  # Threads used when transcribing on the CPU. 0 = one per physical core, which
+  # on a laptop is worth roughly a fifth of the waiting time over the four
+  # threads CTranslate2 would otherwise take. Ignored on the GPU.
+  cpu_threads: 0
   # Proper nouns and jargon Whisper otherwise mangles. This biases decoding only;
   # it never rewrites anything. Keep the list short — an overlong bias prompt
   # costs accuracy and can leak into the transcript.
@@ -179,6 +183,18 @@ preview:
   interval_seconds: 1.0   # how often the live preview refreshes
   window_seconds: 30      # only the last N seconds are re-transcribed per tick
   max_chars: 330          # tail kept; roughly fills the overlay's five lines
+incremental:
+  # What you have already said is transcribed during the pauses, so after the
+  # hotkey only the last stretch is left to wait for. The cut is made in the
+  # silence between sentences, never inside one, so the text is the same as a
+  # single pass would have produced.
+  # The size is not a preference: Whisper's encoder always processes a 30-second
+  # window, so a small piece costs a whole window's work and committing often
+  # makes the total *slower*. Below min_chunk_seconds nothing is committed and
+  # the recording is transcribed in one pass, exactly as before.
+  enabled: true
+  min_chunk_seconds: 25.0   # a piece worth its own 30 s encoder window
+  min_silence_seconds: 0.7  # quiet that counts as a pause, not a breath
 {_MUTE_APPS_SECTION}\
 presence:
   # Discord Rich Presence: friends see "dyktuje glosem" with a timer while you
@@ -226,6 +242,10 @@ class ModelConfig:
     compute_type: str = "float16"
     language: str | None = "pl"
     beam_size: int = 5
+    #: Computation threads when transcribing on the CPU. Zero means "decide from
+    #: the machine": CTranslate2 defaults to four regardless of what is there,
+    #: which leaves most of a laptop idle while the user waits for their text.
+    cpu_threads: int = 0
     #: Domain terms Whisper should lean towards. Empty by default: the vocabulary
     #: is personal to whoever runs this, so it belongs in their config file rather
     #: than in the source tree.
@@ -258,6 +278,25 @@ class PreviewConfig:
     interval_seconds: float = 1.0
     window_seconds: float = 30.0
     max_chars: int = 330
+
+
+@dataclass(frozen=True, slots=True)
+class IncrementalConfig:
+    """Transcribing finished sentences while the user is still dictating."""
+
+    enabled: bool = True
+    #: Nothing is committed before this much audio has piled up, and the number
+    #: is dictated by Whisper rather than by taste: its encoder always processes
+    #: a 30-second window, however little audio is in it. Measured on an
+    #: i7-1260P, decoding 6 s of speech costs 7.6 s and decoding 29 s costs
+    #: 11.8 s — so committing in small pieces does not divide the work, it
+    #: multiplies it, and the wait at the end gets *longer*. A piece worth
+    #: committing is therefore nearly a whole window; below that, the recording
+    #: is transcribed in one pass exactly as it always was.
+    min_chunk_seconds: float = 25.0
+    #: How much quiet counts as a pause rather than a breath. This is where the
+    #: recording gets cut, so it must be silence the speaker meant.
+    min_silence_seconds: float = 0.7
 
 
 @dataclass(frozen=True, slots=True)
@@ -403,6 +442,7 @@ class Config:
     audio: AudioConfig = field(default_factory=AudioConfig)
     inject: InjectConfig = field(default_factory=InjectConfig)
     preview: PreviewConfig = field(default_factory=PreviewConfig)
+    incremental: IncrementalConfig = field(default_factory=IncrementalConfig)
     mute_apps: MuteAppsConfig = field(default_factory=MuteAppsConfig)
     history: HistoryConfig = field(default_factory=HistoryConfig)
     presence: PresenceConfig = field(default_factory=PresenceConfig)
@@ -416,10 +456,19 @@ class Config:
 
 
 _SCHEMA: dict[str, set[str] | None] = {
-    "model": {"name", "device", "compute_type", "language", "beam_size", "vocabulary"},
+    "model": {
+        "name",
+        "device",
+        "compute_type",
+        "language",
+        "beam_size",
+        "cpu_threads",
+        "vocabulary",
+    },
     "audio": {"source", "max_seconds"},
     "inject": {"method", "key_delay_ms", "paste_key", "restore_clipboard"},
     "preview": {"enabled", "interval_seconds", "window_seconds", "max_chars"},
+    "incremental": {"enabled", "min_chunk_seconds", "min_silence_seconds"},
     "mute_apps": {"enabled", "apps", "duck_enabled", "duck_to", "duck_rules"},
     "history": {"enabled", "store_text", "max_entries"},
     "presence": {"enabled", "client_id"},
@@ -464,6 +513,14 @@ def _choice(value: Any, allowed: set[str], default: str, path: str) -> str:
 
 def _positive_int(value: Any, default: int, path: str) -> int:
     if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    LOGGER.warning("Nieprawidłowa wartość %s=%r; używam %d", path, value, default)
+    return default
+
+
+def _non_negative_int(value: Any, default: int, path: str) -> int:
+    """Like ``_positive_int``, but zero is a legitimate answer — it means auto."""
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
         return value
     LOGGER.warning("Nieprawidłowa wartość %s=%r; używam %d", path, value, default)
     return default
@@ -610,6 +667,7 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
     audio = _section(root, "audio")
     inject = _section(root, "inject")
     preview = _section(root, "preview")
+    incremental = _section(root, "incremental")
     mute_apps = _section(root, "mute_apps")
     history = _section(root, "history")
     presence = _section(root, "presence")
@@ -641,6 +699,7 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
             compute_type=compute_type if isinstance(compute_type, str) and compute_type else "float16",
             language=language,
             beam_size=_positive_int(model.get("beam_size", 5), 5, "model.beam_size"),
+            cpu_threads=_non_negative_int(model.get("cpu_threads", 0), 0, "model.cpu_threads"),
             vocabulary=_string_tuple(model.get("vocabulary"), "model.vocabulary"),
         ),
         audio=AudioConfig(
@@ -658,6 +717,15 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
             interval_seconds=_positive_float(preview.get("interval_seconds", 1.0), 1.0, "preview.interval_seconds"),
             window_seconds=_positive_float(preview.get("window_seconds", 30.0), 30.0, "preview.window_seconds"),
             max_chars=_positive_int(preview.get("max_chars", 330), 330, "preview.max_chars"),
+        ),
+        incremental=IncrementalConfig(
+            enabled=_boolean(incremental.get("enabled", True), True, "incremental.enabled"),
+            min_chunk_seconds=_positive_float(
+                incremental.get("min_chunk_seconds", 25.0), 25.0, "incremental.min_chunk_seconds"
+            ),
+            min_silence_seconds=_positive_float(
+                incremental.get("min_silence_seconds", 0.7), 0.7, "incremental.min_silence_seconds"
+            ),
         ),
         mute_apps=MuteAppsConfig(
             enabled=_boolean(mute_apps.get("enabled", True), True, "mute_apps.enabled"),

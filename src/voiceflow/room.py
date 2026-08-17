@@ -52,6 +52,10 @@ class RoomClient:
         #: Set by any message arriving from the service — a link that talks to
         #: us is a link that works, and there is no separate "connected" event.
         self._connected = False
+        #: Ostatnio rozgłoszony utwór, żeby nie powtarzać tego samego.
+        self._now_playing: dict[str, str] | None = None
+        #: To samo dla zużycia Claude Code.
+        self._claude_usage: dict[str, int] | None = None
         #: Name of whoever is speaking elsewhere, or None when the room is quiet.
         self._remote_speaker: str | None = None
         #: True once we quietened this machine for somebody else, so the restore
@@ -114,6 +118,47 @@ class RoomClient:
         self._publish_state()
         self._send({"type": "speaking_ended", "words": 0, "seconds": 0})
 
+    def report_now_playing(self, track: dict[str, str] | None) -> None:
+        """Publish what is playing here, but only when it actually changed.
+
+        Silent unless `share_music` is on: what somebody listens to is about
+        them, not about the work, and joining a room does not grant it. The
+        room shows it live and the server forgets it immediately — there is no
+        table for this. Sending on every poll would be a message a second for a
+        value that changes once per song.
+        """
+        if not self.config.share_music:
+            return
+        if track == self._now_playing:
+            return
+        self._now_playing = track
+        self._send({"type": "now_playing", "track": track})
+
+    def report_claude_usage(self, usage: dict[str, int] | None) -> None:
+        """Publish this machine's Claude Code limit usage, when allowed.
+
+        On unless `share_claude_usage` was switched off — a room is a shared
+        table and the numbers say nothing about content. Still gated: this says
+        something about how a person works, which is a step past the word counts
+        the room exists to compare. Same transient treatment as the music.
+        """
+        if not self.config.share_claude_usage:
+            return
+        if usage == self._claude_usage:
+            return
+        self._claude_usage = usage
+        self._send({"type": "claude_usage", "usage": usage})
+
+    @property
+    def speaking_here(self) -> bool:
+        """Czy TA maszyna właśnie dyktuje — bramka pulsu łącza.
+
+        Serwer rozumie puls jako „wciąż mówię" (odświeża nim wyłącznie wpis
+        mówiącego), więc puls wysyłany w ciszy podtrzymywał w nieskończoność
+        wpis po zgubionym speaking_ended.
+        """
+        return self._speaking_here
+
     def heartbeat(self) -> None:
         self._send({"type": "heartbeat"})
 
@@ -126,6 +171,10 @@ class RoomClient:
         out, because nobody else is going to tell us to.
         """
         self._connected = False
+        # Serwer trzyma kafelek tylko w pamięci procesu i zapomniał go razem
+        # z połączeniem; bez tego po powrocie nie wysłalibyśmy go ponownie.
+        self._now_playing = None
+        self._claude_usage = None
         self._set_remote_speaker(None)
         self._publish_state()
         LOGGER.info("Pokój niedostępny; dyktowanie działa lokalnie")
@@ -167,6 +216,21 @@ class RoomClient:
         if not self._connected:
             self._connected = True
             self._publish_state()
+            # Zerwanie łącza kasuje mówiącego po stronie serwera (rozłączenie =
+            # wyjście z pokoju), a my w tym czasie mówimy dalej. Bez tego
+            # przypomnienia tablica gasła w połowie dyktowania i pokazywała
+            # ciszę, choć mikrofon pracował — a przy łączu rwącym się co kilka
+            # minut trafiało to w każde dłuższe dyktowanie.
+            if self._speaking_here:
+                self._send({"type": "speaking_started"})
+            else:
+                # Odwrotny przypadek: łącze padło dokładnie między końcem
+                # mówienia a dostarczeniem speaking_ended. Serwer trzymał nas
+                # jako mówiącego w nieskończoność, a my widzieliśmy „siebie"
+                # jako cudze dyktowanie i blokowaliśmy własny skrót aż do
+                # restartu demona. Zwolnienie w ciemno jest dla serwera
+                # no-opem, chyba że wisi na nim właśnie nasz stary wpis.
+                self._send({"type": "speaking_ended", "words": 0, "seconds": 0})
         kind = payload.get("type")
         if kind == "speaking_denied":
             self._set_remote_speaker(payload.get("blockedBy"))

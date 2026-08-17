@@ -24,6 +24,11 @@ struct RoomConfiguration: Equatable {
     /// Czy czyjeś dyktowanie może ściszyć dźwięk NA TYM urządzeniu.
     /// Uprawnienie, nie skutek uboczny obecności w pokoju.
     var duckForOthers: Bool = true
+    /// Czy pokój widzi zużycie Claude Code tej maszyny (tokeny i procenty
+    /// limitów — nigdy nazwy sesji ani treść). Domyślnie TAK, jak po stronie
+    /// linuksowej: kto siedzi z kimś w pokoju, ten gra w otwarte karty, a kto
+    /// nie chce, wyłącza to u siebie jednym przełącznikiem.
+    var shareClaudeUsage: Bool = true
 
     var isUsable: Bool { enabled && !server.isEmpty && !code.isEmpty && !token.isEmpty }
 
@@ -35,7 +40,10 @@ struct RoomConfiguration: Equatable {
             token: defaults.string(forKey: SettingsKeys.roomToken) ?? "",
             duckForOthers: defaults.object(forKey: SettingsKeys.roomDuckForOthers) == nil
                 ? true
-                : defaults.bool(forKey: SettingsKeys.roomDuckForOthers)
+                : defaults.bool(forKey: SettingsKeys.roomDuckForOthers),
+            shareClaudeUsage: defaults.object(forKey: SettingsKeys.roomShareClaudeUsage) == nil
+                ? true
+                : defaults.bool(forKey: SettingsKeys.roomShareClaudeUsage)
         )
     }
 }
@@ -59,6 +67,13 @@ final class RoomClient {
     /// nastąpić dokładnie raz: drugie ściszenie zapamiętałoby już ściszony
     /// poziom jako „oryginalny" i zostawiło ten komputer cicho na stałe.
     private var ducked = false
+    /// Ostatnio wysłane zużycie Claude Code — niezmienione nie jest powtarzane.
+    private var lastUsage: NSDictionary?
+    /// Czy TA maszyna właśnie dyktuje — bramka pulsu łącza. Serwer rozumie
+    /// heartbeat jako „wciąż mówię" (odświeża nim wyłącznie wpis mówiącego),
+    /// więc puls wysyłany w ciszy podtrzymywał w nieskończoność wpis po
+    /// zgubionym speaking_ended.
+    private(set) var speakingHere = false
 
     init(
         config: RoomConfiguration,
@@ -83,10 +98,12 @@ final class RoomClient {
     }
 
     func reportStarted() {
+        speakingHere = true
         send(["type": "speaking_started"])
     }
 
     func reportFinished(words: Int, seconds: Double) {
+        speakingHere = false
         send(["type": "speaking_ended", "words": words, "seconds": seconds])
     }
 
@@ -97,11 +114,29 @@ final class RoomClient {
     /// wygaśnięcia pulsu dziesięć sekund później. Zero słów to sygnał dla
     /// serwera, żeby zwolnić głos i nie zapisywać wpisu.
     func reportCancelled() {
+        speakingHere = false
         send(["type": "speaking_ended", "words": 0, "seconds": 0])
     }
 
     func heartbeat() {
         send(["type": "heartbeat"])
+    }
+
+    /// Zgłasza zużycie Claude Code, o ile użytkownik się na to godzi.
+    ///
+    /// Brama jest tutaj, nie u nadawcy — tak samo jak po stronie pythonowej:
+    /// żadna pętla nie może jej ominąć, a reguła jest testowalna bez sieci.
+    /// Niezmieniony payload nie jest powtarzany; serwer i tak trzyma ostatni.
+    func reportClaudeUsage(_ usage: [String: Any]?) {
+        guard config.shareClaudeUsage else { return }
+        let normalized = usage.map { NSDictionary(dictionary: $0) }
+        guard normalized != lastUsage else { return }
+        lastUsage = normalized
+        if let usage {
+            send(["type": "claude_usage", "usage": usage])
+        } else {
+            send(["type": "claude_usage", "usage": NSNull()])
+        }
     }
 
     /// Serwer nieosiągalny: zapominamy o pokoju, zamiast trzymać jego blokadę.
@@ -112,6 +147,10 @@ final class RoomClient {
     /// tego nie każe.
     func onDisconnected() {
         setRemoteSpeaker(nil)
+        // Serwer po restarcie (deploy) niczego nie pamięta; zapominamy i my,
+        // żeby pierwszy raport po ponownym połączeniu przeszedł bramę
+        // „niezmienionego nie powtarzamy" i odbudował kafelek.
+        lastUsage = nil
     }
 
     // MARK: - Plumbing

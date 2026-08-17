@@ -35,6 +35,7 @@ final class SessionController {
     private let remoteDucker: AudioDucking
     private(set) var room: RoomClient!
     private var roomLink: RoomLink?
+    private var usageReporter: ClaudeUsageReporter?
 
     private(set) var state: State = .idle {
         didSet { onStateChange?(state) }
@@ -112,7 +113,19 @@ final class SessionController {
                 transport: link
             )
             self.roomLink = link
+            link.isSpeaking = { [weak self] in self?.room?.speakingHere ?? false }
             link.start()
+            if configuration.isUsable, configuration.shareClaudeUsage {
+                // Kafelek zużycia Claude Code na tablicy pokoju. Czytanie
+                // transkryptów chodzi na kolejce reportera; tu tylko odbiór
+                // gotowych liczb. Bramą zgody i tak jest RoomClient — reporter
+                // wyłączamy dodatkowo, żeby bez zgody nie czytać nawet plików.
+                let reporter = ClaudeUsageReporter { [weak self] payload in
+                    Task { @MainActor in self?.room?.reportClaudeUsage(payload) }
+                }
+                self.usageReporter = reporter
+                reporter.start()
+            }
         }
     }
 

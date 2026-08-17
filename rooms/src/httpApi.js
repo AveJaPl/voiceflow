@@ -6,11 +6,11 @@
  * tylko tym, co która trasa robi.
  */
 
-import { historyTotals } from './store.js';
+import { historyTotals, withSilentMembers } from './store.js';
 
 // `/session/end` stoi przed `/session`, bo alternatywa jest uporządkowana —
 // odwrotna kolejność zjadałaby dłuższą trasę krótszym wariantem.
-const ROOM_PATH = /^\/api\/rooms\/([^/]+)(\/join|\/ranking|\/history|\/session\/end|\/session)?$/;
+const ROOM_PATH = /^\/api\/rooms\/([^/]+)(\/join|\/ranking|\/history|\/timeline|\/session\/end|\/session)?$/;
 
 export function routeFor(method, url) {
   if (method === 'GET' && url === '/health') return { name: 'health', code: null };
@@ -24,6 +24,7 @@ export function routeFor(method, url) {
   if (method === 'POST' && tail === '/join') return { name: 'join', code };
   if (method === 'GET' && tail === '/ranking') return { name: 'ranking', code };
   if (method === 'GET' && tail === '/history') return { name: 'history', code };
+  if (method === 'GET' && tail === '/timeline') return { name: 'timeline', code };
   if (method === 'POST' && tail === '/session/end') return { name: 'endSession', code };
   if (method === 'POST' && tail === '/session') return { name: 'startSession', code };
   return null;
@@ -119,10 +120,11 @@ export function createHttpApi({ store }) {
       // a dwa odpytania dawałyby widok, w którym sumy nie zgadzają się z listą.
       const limit = clampLimit(query.get('limit'));
       const offset = Math.max(0, Number(query.get('offset')) || 0);
-      const [page, people, sessionCount] = await Promise.all([
+      const [page, people, sessionCount, hours] = await Promise.all([
         store.sessionHistory(room.id, limit, offset),
         store.roomSummary(room.id),
         store.sessionCount(room.id),
+        store.hourlyActivity(room.id),
       ]);
       // Zapytanie pobrało jeden wiersz ponad limit — on nie jedzie do klienta,
       // służy wyłącznie za odpowiedź na „czy jest coś dalej".
@@ -134,10 +136,23 @@ export function createHttpApi({ store }) {
         people,
         hasMore,
         offset,
+        hours,
         // Sumy dotyczą CAŁEGO pokoju, nie tej strony wyników — inaczej
         // przewijanie historii zmieniałoby dorobek ludzi w locie.
         totals: historyTotals(sessionCount, people),
       });
+    }
+
+    if (route.name === 'timeline') {
+      const active = await store.activeSession(room.id);
+      if (!active) return sendJson(res, 200, { room, session: null, points: [] });
+      // Kubełek dobierany do długości sesji: przy pięciu minutach pracy wykres
+      // co pół godziny byłby jednym słupkiem, a przy ośmiu godzinach — ścianą.
+      const started = new Date(active.started_at).getTime();
+      const minutes = Math.max(1, (Date.now() - started) / 60000);
+      const bucket = minutes <= 30 ? 60 : minutes <= 180 ? 300 : 900;
+      const points = await store.sessionTimeline(active.id, bucket);
+      return sendJson(res, 200, { room, session: active, bucketSeconds: bucket, points });
     }
 
     if (route.name === 'ranking') {
@@ -146,7 +161,13 @@ export function createHttpApi({ store }) {
         active ? store.ranking(active.id) : Promise.resolve([]),
         store.members(room.id),
       ]);
-      return sendJson(res, 200, { room, session: active, members, ranking });
+      // Kto jest w pokoju, ten jest na tablicy — także zanim cokolwiek powie.
+      return sendJson(res, 200, {
+        room,
+        session: active,
+        members,
+        ranking: withSilentMembers(ranking, members),
+      });
     }
 
     return sendJson(res, 404, { error: 'not_found' });

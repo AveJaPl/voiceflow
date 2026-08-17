@@ -333,3 +333,165 @@ def test_releasing_outside_a_room_sends_nothing() -> None:
     client.report_released()
 
     assert transport.sent == []
+
+
+# --- co teraz gra ----------------------------------------------------------
+
+
+def test_track_is_sent_once_not_on_every_poll() -> None:
+    """Odczyt leci co kilka sekund, a utwór zmienia się raz na piosenkę."""
+    client, transport, _states = _client_with_states()
+    track = {"title": "Numb", "artist": "Linkin Park", "player": "Spotify", "artUrl": ""}
+
+    client.report_now_playing(track)
+    client.report_now_playing(track)
+    client.report_now_playing(track)
+
+    assert transport.sent == [{"type": "now_playing", "track": track}]
+
+
+def test_new_track_is_sent() -> None:
+    client, transport, _states = _client_with_states()
+    client.report_now_playing({"title": "Numb"})
+
+    client.report_now_playing({"title": "In The End"})
+
+    assert transport.sent[-1]["track"]["title"] == "In The End"
+
+
+def test_silence_clears_the_tile() -> None:
+    client, transport, _states = _client_with_states()
+    client.report_now_playing({"title": "Numb"})
+
+    client.report_now_playing(None)
+
+    assert transport.sent[-1] == {"type": "now_playing", "track": None}
+
+
+def test_reconnect_resends_the_track() -> None:
+    """Serwer trzyma kafelek w pamięci procesu i gubi go razem z połączeniem."""
+    client, transport, _states = _client_with_states()
+    client.report_now_playing({"title": "Numb"})
+    transport.sent.clear()
+
+    client.on_disconnected()
+    client.report_now_playing({"title": "Numb"})
+
+    assert transport.sent == [{"type": "now_playing", "track": {"title": "Numb"}}]
+
+
+def test_reconnect_reminds_the_room_that_we_are_still_speaking() -> None:
+    """Rozłączenie kasuje mówiącego po stronie serwera, a nagranie trwa dalej.
+
+    Bez tego przypomnienia tablica gasła w połowie dyktowania — przy łączu
+    rwącym się co kilka minut trafiało to w każde dłuższe.
+    """
+    client, transport, _states = _client_with_states()
+    client.report_started()
+    client.on_disconnected()
+    transport.sent.clear()
+
+    transport.deliver({"type": "room_state", "speaking": None})
+
+    assert {"type": "speaking_started"} in transport.sent
+
+
+def test_reconnect_without_speech_does_not_reclaim_the_voice() -> None:
+    """Dawniej: reconnect w ciszy nie wysyłał NIC. Reguła zmieniona 2026-08-14:
+    wysyła zwolnienie głosu (patrz test niżej), bo zgubione speaking_ended
+    zawieszało mówiącego na zawsze. Nadal jednak nie wolno mu wysłać
+    speaking_started — to zablokowałoby cudze dyktowanie."""
+    client, transport, _states = _client_with_states()
+    client.on_disconnected()
+    transport.sent.clear()
+
+    transport.deliver({"type": "room_state", "speaking": None})
+
+    assert not any(m.get("type") == "speaking_started" for m in transport.sent)
+
+
+# --- zgoda na kafelki ------------------------------------------------------
+
+
+def test_music_is_not_shared_without_consent() -> None:
+    """Czego ktoś słucha, to rzecz o nim, a nie o pracy — wejście do pokoju
+    samo w sobie zgody nie daje."""
+    client, transport, _states = _client_with_states(share_music=False)
+
+    client.report_now_playing({"title": "Numb"})
+
+    assert transport.sent == []
+
+
+def test_claude_usage_is_shared_by_default_but_the_off_switch_holds() -> None:
+    """Kto siedzi w pokoju, ten gra w otwarte karty (decyzja Filipa 2026-08-14)
+    — ale wyłączenie przełącznika ma być bezwzględnie skuteczne."""
+    client, transport, _states = _client_with_states()   # domyślnie włączone
+    client.report_claude_usage({"fiveHour": 58, "sevenDay": 5})
+    assert len(transport.sent) == 1
+
+    quiet, silent_transport, _s = _client_with_states(share_claude_usage=False)
+    quiet.report_claude_usage({"fiveHour": 58, "sevenDay": 5})
+    assert silent_transport.sent == []
+
+
+def test_claude_usage_is_sent_once_when_allowed() -> None:
+    client, transport, _states = _client_with_states(share_claude_usage=True)
+    usage = {"fiveHour": 58, "sevenDay": 5, "resetsAt": 0}
+
+    client.report_claude_usage(usage)
+    client.report_claude_usage(usage)
+
+    assert transport.sent == [{"type": "claude_usage", "usage": usage}]
+
+
+def test_reconnect_resends_claude_usage() -> None:
+    client, transport, _states = _client_with_states(share_claude_usage=True)
+    client.report_claude_usage({"fiveHour": 58})
+    transport.sent.clear()
+
+    client.on_disconnected()
+    client.report_claude_usage({"fiveHour": 58})
+
+    assert transport.sent == [{"type": "claude_usage", "usage": {"fiveHour": 58}}]
+
+
+# --- zawieszony mówiący: zgubione speaking_ended -----------------------------
+
+
+def test_reconnect_without_local_speech_releases_the_voice() -> None:
+    """Łącze padło dokładnie między końcem mówienia a dostarczeniem
+    speaking_ended: serwer trzymał mówiącego w nieskończoność, a klient
+    widział „siebie" jako cudze dyktowanie i blokował własny skrót aż do
+    restartu demona. Po powrocie łącza klient, który NIE mówi, zwalnia głos
+    w ciemno — dla serwera to no-op, chyba że wisi na nim nasz stary wpis."""
+    client, transport, _states = _client_with_states()
+    client.on_disconnected()
+    transport.sent.clear()
+
+    transport.deliver({"type": "room_state", "speaking": {"name": "Filip"}})
+
+    assert {"type": "speaking_ended", "words": 0, "seconds": 0} in transport.sent
+
+
+def test_reconnect_while_speaking_does_not_release_the_voice() -> None:
+    client, transport, _states = _client_with_states()
+    client.report_started()
+    client.on_disconnected()
+    transport.sent.clear()
+
+    transport.deliver({"type": "room_state", "speaking": None})
+
+    assert {"type": "speaking_started"} in transport.sent
+    assert not any(m.get("type") == "speaking_ended" for m in transport.sent)
+
+
+def test_speaking_here_is_readable_for_the_heartbeat_gate() -> None:
+    client, _transport, _states = _client_with_states()
+    assert client.speaking_here is False
+
+    client.report_started()
+    assert client.speaking_here is True
+
+    client.report_finished(words=3, seconds=1)
+    assert client.speaking_here is False

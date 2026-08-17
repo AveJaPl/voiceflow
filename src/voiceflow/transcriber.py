@@ -97,6 +97,63 @@ def _cpu_thread_count(configured: int) -> int:
     return resolve_cpu_threads(configured, physical, os.cpu_count())
 
 
+#: Frazy, które Whisper dopisuje do ciszy albo oddechu na końcu nagrania.
+#: Model uczony na napisach z YouTube'a „kończy odcinek", którego nie było —
+#: po polsku najczęściej „Dziękuję za oglądanie". Porównanie po normalizacji
+#: (małe litery, bez interpunkcji).
+HALLUCINATED_FAREWELLS = frozenset({
+    "dziękuję", "dziękuje", "dzięki", "dziękuję bardzo",
+    "dziękuję za oglądanie", "dziękuje za oglądanie", "dzięki za oglądanie",
+    "dziękuję za uwagę", "dziękuję za oglądanie i do zobaczenia",
+    "do zobaczenia", "do zobaczenia w następnym odcinku",
+    "do zobaczenia w kolejnym odcinku", "zapraszam na kolejny film",
+    "zapraszam do subskrypcji", "zasubskrybuj", "miłego dnia", "na razie",
+    "napisy stworzone przez społeczność amaraorg",
+    "thank you", "thanks for watching", "thank you for watching",
+    "thank you for watching and see you next time", "see you next time", "bye",
+})
+
+#: Progi „zmyślenia". Halucynowane pożegnanie siedzi na ciszy, więc model sam
+#: to zdradza: wysokie prawdopodobieństwo braku mowy albo bardzo niepewne
+#: logity. Prawdziwe, wypowiedziane „dziękuję" ma metadane pewnego segmentu
+#: i przechodzi nietknięte.
+_FAREWELL_NO_SPEECH = 0.3
+_FAREWELL_LOGPROB = -0.6
+
+
+def _normalized_phrase(text: str) -> str:
+    kept = (char for char in text.casefold() if char.isalnum() or char.isspace())
+    return " ".join("".join(kept).split())
+
+
+def drop_trailing_hallucinations(segments: list[Any]) -> list[Any]:
+    """Strip hallucinated farewells off the END of a segment list.
+
+    Only known phrases, only from the end, and only when the segment's own
+    metadata betrays invention — never anything a person plausibly said.
+    """
+    kept = list(segments)
+    while kept:
+        last = kept[-1]
+        if _normalized_phrase(str(getattr(last, "text", ""))) not in HALLUCINATED_FAREWELLS:
+            break
+        no_speech = getattr(last, "no_speech_prob", None)
+        logprob = getattr(last, "avg_logprob", None)
+        suspicious = (isinstance(no_speech, (int, float)) and no_speech >= _FAREWELL_NO_SPEECH) or (
+            isinstance(logprob, (int, float)) and logprob <= _FAREWELL_LOGPROB
+        )
+        if not suspicious:
+            break
+        LOGGER.info(
+            "Ucinam halucynowane pożegnanie: %r (no_speech=%.2f, logprob=%.2f)",
+            getattr(last, "text", ""),
+            no_speech if isinstance(no_speech, (int, float)) else -1.0,
+            logprob if isinstance(logprob, (int, float)) else 0.0,
+        )
+        kept.pop()
+    return kept
+
+
 @dataclass(frozen=True, slots=True)
 class TranscriptionResult:
     """Text and performance metadata returned by the recognizer."""
@@ -292,6 +349,11 @@ class Transcriber:
         The options are the contract between the final pass and the pieces
         committed while the user was still speaking: they must not drift apart,
         or a dictation would be transcribed by two slightly different models.
+
+        Hallucinated farewells are cut here rather than at the end of the whole
+        dictation, because with incremental transcription the end of a piece is
+        also a stretch of silence — exactly what the model invents "dziękuję za
+        oglądanie" onto — and by the final pass that piece is already text.
         """
         segments, info = self.model.transcribe(
             source,
@@ -301,8 +363,9 @@ class Transcriber:
             initial_prompt=self.initial_prompt,
             beam_size=self.config.beam_size,
         )
+        kept = drop_trailing_hallucinations(list(segments))
         text = " ".join(
-            segment.text.strip() for segment in segments if segment.text.strip()
+            segment.text.strip() for segment in kept if segment.text.strip()
         ).strip()
         return text, info
 

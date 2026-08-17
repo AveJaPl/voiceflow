@@ -425,6 +425,13 @@ class RoomConfig:
     #: Whether somebody else speaking may quieten audio here. A permission,
     #: not a side effect of being in the room.
     duck_for_others: bool = True
+    #: Czy pokój widzi, czego słuchasz. Osobna zgoda, bo to jest coś o Tobie,
+    #: a nie o pracy — wejście do pokoju samo w sobie jej nie daje.
+    share_music: bool = True
+    #: Czy pokój widzi Twoje zużycie Claude Code. Domyślnie TAK (decyzja
+    #: Filipa 2026-08-14): kto siedzi z kimś w pokoju, ten gra w otwarte
+    #: karty — a kto nie chce, wyłącza to u siebie jednym przełącznikiem.
+    share_claude_usage: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -477,7 +484,10 @@ _SCHEMA: dict[str, set[str] | None] = {
     "overlay": {"enabled"},
     "tray": {"enabled"},
     "notifications": {"enabled"},
-    "room": {"enabled", "server", "code", "token", "duck_for_others"},
+    "room": {
+        "enabled", "server", "code", "token", "duck_for_others",
+        "share_music", "share_claude_usage",
+    },
     "log_level": None,
 }
 
@@ -763,6 +773,10 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
             token=str(room.get("token", "") or "").strip(),
             duck_for_others=_boolean(
                 room.get("duck_for_others", True), True, "room.duck_for_others"
+            ),
+            share_music=_boolean(room.get("share_music", True), True, "room.share_music"),
+            share_claude_usage=_boolean(
+                room.get("share_claude_usage", True), True, "room.share_claude_usage"
             ),
         ),
         log_level=log_level.upper() if isinstance(log_level, str) else "INFO",

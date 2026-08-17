@@ -45,6 +45,31 @@ export function rankingRows(rows) {
 }
 
 /**
+ * Dokłada do rankingu osoby, które są w pokoju, ale jeszcze nic nie powiedziały.
+ *
+ * `ranking` liczy się z dyktowań, więc ktoś, kto właśnie dołączył — albo kogo
+ * zastała nowa sesja — nie miałby tam ani jednego wiersza i zniknąłby z ekranu.
+ * Dla osoby patrzącej na tablicę to wygląda, jakby jej tam nie było, choć
+ * blokada mikrofonu jak najbardziej jej dotyczy.
+ *
+ * Zera lądują na końcu, bo sortowanie po słowach i tak je tam stawia.
+ */
+export function withSilentMembers(ranking, members) {
+  const present = new Set(ranking.map((entry) => entry.deviceId));
+  const silent = (members ?? [])
+    .filter((member) => !present.has(member.id))
+    .map((member) => ({
+      deviceId: member.id,
+      name: member.name,
+      words: 0,
+      seconds: 0,
+      dictations: 0,
+      averageWords: 0,
+    }));
+  return [...ranking, ...silent];
+}
+
+/**
  * Zamknięte i trwające sesje pokoju, z sumami każdej z nich.
  *
  * Sesja bez ani jednego dyktowania też tu jest: „zaczęliśmy i nic z tego nie
@@ -67,6 +92,42 @@ export function historyRows(rows) {
       averageWords: dictations > 0 ? Math.round(words / dictations) : 0,
     };
   });
+}
+
+/**
+ * Dyktowania sesji pokrojone na kubełki czasu, per osoba.
+ *
+ * Do wykresu „kto kiedy mówił". Kubełek jest liczony w SQL, nie w JavaScripcie:
+ * inaczej trzeba by ściągnąć każde dyktowanie z osobna tylko po to, żeby je
+ * zaraz zsumować.
+ */
+export function timelineRows(rows) {
+  return rows.map((row) => ({
+    deviceId: row.device_id,
+    name: row.name,
+    at: row.bucket,
+    words: Number(row.words),
+    dictations: Number(row.dictations),
+  }));
+}
+
+/**
+ * Rozkład dobowy: ile słów pada w pokoju o której godzinie, przez wszystkie sesje.
+ *
+ * Godzina jest w UTC, bo baza nie ma prawa zgadywać, w jakiej strefie siedzi
+ * osoba patrząca na tablicę. Przesunięcie na czas lokalny robi przeglądarka,
+ * która swoją strefę zna.
+ */
+export function hourlyRows(rows) {
+  const byHour = new Array(24).fill(null).map((_unused, hour) => ({
+    hour, words: 0, dictations: 0,
+  }));
+  for (const row of rows) {
+    const hour = Number(row.hour);
+    if (!Number.isInteger(hour) || hour < 0 || hour > 23) continue;
+    byHour[hour] = { hour, words: Number(row.words), dictations: Number(row.dictations) };
+  }
+  return byHour;
 }
 
 /** Dorobek każdej osoby w pokoju przez WSZYSTKIE sesje, nie tylko bieżącą. */
@@ -205,6 +266,43 @@ export function createStore(pool) {
         [roomId, limit + 1, offset],
       );
       return historyRows(rows);
+    },
+
+    /**
+     * Szereg czasowy sesji: ile kto powiedział w kolejnych kubełkach.
+     *
+     * Szerokość kubełka dobiera wywołujący, bo sesja pięciominutowa i
+     * pięciogodzinna potrzebują innej rozdzielczości, żeby wykres coś mówił.
+     */
+    async sessionTimeline(sessionId, bucketSeconds = 300) {
+      const { rows } = await pool.query(
+        `SELECT d.device_id, dev.name,
+                to_timestamp(floor(extract(epoch FROM d.at) / $2) * $2) AS bucket,
+                COALESCE(SUM(d.words), 0) AS words,
+                COUNT(*)                  AS dictations
+         FROM dictations d
+         JOIN devices dev ON dev.id = d.device_id
+         WHERE d.session_id = $1
+         GROUP BY d.device_id, dev.name, bucket
+         ORDER BY bucket`,
+        [sessionId, bucketSeconds],
+      );
+      return timelineRows(rows);
+    },
+
+    /** O której godzinie ten pokój pracuje — zbiorczo, ze wszystkich sesji. */
+    async hourlyActivity(roomId) {
+      const { rows } = await pool.query(
+        `SELECT extract(hour FROM d.at AT TIME ZONE 'UTC')::int AS hour,
+                COALESCE(SUM(d.words), 0) AS words,
+                COUNT(*)                  AS dictations
+         FROM dictations d
+         JOIN sessions s ON s.id = d.session_id
+         WHERE s.room_id = $1
+         GROUP BY hour`,
+        [roomId],
+      );
+      return hourlyRows(rows);
     },
 
     /** Ile sesji miał ten pokój w całości — niezależnie od strony wyników. */

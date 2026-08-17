@@ -40,6 +40,10 @@ const CONTENT_TYPES = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.webp': 'image/webp',
+  // Bez tego przeglądarka dostaje manifest jako strumień bajtów i odmawia
+  // instalacji aplikacji — PWA nie ma prawa zależeć od domyślnego typu.
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
 };
 
 const server = createServer(async (req, res) => {

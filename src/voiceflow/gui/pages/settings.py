@@ -321,6 +321,14 @@ class SettingsPage(QWidget):
         self.notifications_row.toggled.connect(self._changed)
         rows.append(self.notifications_row)
 
+        # Dotyczy wyłącznie wspólnego pokoju: bez pokoju nic nigdzie nie leci.
+        self.share_claude_row = SwitchRow(
+            "Pokazuj w pokoju zużycie Claude Code",
+            "Tokeny i limity trafiają na tablicę pokoju, nigdzie indziej",
+        )
+        self.share_claude_row.toggled.connect(self._changed)
+        rows.append(self.share_claude_row)
+
         open_row = SettingsRow("Plik konfiguracyjny", str(service.config_path()))
         open_button = QPushButton("Otwórz")
         open_button.clicked.connect(self._open_config)
@@ -405,6 +413,9 @@ class SettingsPage(QWidget):
             self.notifications_row.set_checked(
                 service.bool_value(service.section(config, "notifications"), "enabled", True)
             )
+            self.share_claude_row.set_checked(
+                service.bool_value(service.section(config, "room"), "share_claude_usage", True)
+            )
         finally:
             self._loading = False
 
@@ -452,6 +463,9 @@ class SettingsPage(QWidget):
         service.mutable_section(config, "notifications")[
             "enabled"
         ] = self.notifications_row.is_checked()
+        service.mutable_section(config, "room")[
+            "share_claude_usage"
+        ] = self.share_claude_row.is_checked()
 
     # -- runtime diagnostics -------------------------------------------------
 

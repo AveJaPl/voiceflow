@@ -30,6 +30,7 @@ enum SettingsKeys {
     static let roomToken = "voiceflow.roomToken"
     static let roomDuckForOthers = "voiceflow.roomDuckForOthers"
     static let roomDisplayName = "voiceflow.roomDisplayName"
+    static let roomShareClaudeUsage = "voiceflow.roomShareClaudeUsage"
 }
 
 /// Modyfikator do przytrzymania jako główny skrót dyktowania. TYLKO klawisze

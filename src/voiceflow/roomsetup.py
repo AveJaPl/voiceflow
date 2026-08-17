@@ -88,6 +88,21 @@ def join_room(server: str, code: str, display_name: str, token: str = "") -> dic
     return {"code": code.upper(), "token": device_token, "name": result.get("room", {}).get("name")}
 
 
+def leave_room(server: str, code: str, token: str, path: Path | None = None) -> Path:
+    """Switch the room off while keeping the code and token for a quick return.
+
+    Written once and called from both the command line and the desktop window:
+    the flag lives inside the spliced-in text block, so flipping it by rewriting
+    the parsed document would throw the block's comments away.
+    """
+    target = save_to_config(server, code, token, path)
+    text = target.read_text(encoding="utf-8").replace(
+        "  enabled: true\n  server:", "  enabled: false\n  server:"
+    )
+    target.write_text(text, encoding="utf-8")
+    return target
+
+
 def save_to_config(server: str, code: str, token: str, path: Path | None = None) -> Path:
     """Write the four room keys, preserving everything else in the file.
 

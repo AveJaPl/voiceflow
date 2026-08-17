@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from voiceflow.roomsetup import RoomSetupError, _http_base, save_to_config
+from voiceflow.roomsetup import RoomSetupError, _http_base, leave_room, save_to_config
 
 
 def test_http_base_maps_websocket_scheme_to_http() -> None:
@@ -59,3 +59,53 @@ def test_written_file_still_parses_and_is_private(tmp_path: Path) -> None:
     assert parsed["room"]["enabled"] is True
     assert parsed["room"]["token"] == "token-z-myslnikiem-123"
     assert path.stat().st_mode & 0o777 == 0o600, "token urządzenia nie jest dla wszystkich"
+
+
+# -- leaving ------------------------------------------------------------------
+# One implementation, two callers: the command line and the desktop window. It
+# flips a flag inside a block that is spliced in as text, so rewriting the
+# parsed document instead would throw that block's comments away.
+
+
+def test_leaving_switches_the_room_off(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    save_to_config("wss://rooms.example", "K7QP2M", "token-123", path)
+
+    leave_room("wss://rooms.example", "K7QP2M", "token-123", path)
+
+    parsed = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert parsed["room"]["enabled"] is False
+
+
+def test_leaving_keeps_the_code_and_token_for_a_quick_return(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+
+    leave_room("wss://rooms.example", "K7QP2M", "token-123", path)
+
+    parsed = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert parsed["room"]["code"] == "K7QP2M"
+    assert parsed["room"]["token"] == "token-123"
+    assert parsed["room"]["server"] == "wss://rooms.example"
+
+
+def test_leaving_preserves_everything_else_in_the_file(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "model:\n  # Ten komentarz musi przetrwać\n  name: large-v3-turbo\n",
+        encoding="utf-8",
+    )
+
+    leave_room("wss://rooms.example", "K7QP2M", "token-123", path)
+
+    text = path.read_text(encoding="utf-8")
+    assert "Ten komentarz musi przetrwać" in text
+    assert yaml.safe_load(text)["model"]["name"] == "large-v3-turbo"
+
+
+def test_leaving_twice_leaves_the_room_off_rather_than_toggling_it(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+
+    leave_room("wss://rooms.example", "K7QP2M", "token-123", path)
+    leave_room("wss://rooms.example", "K7QP2M", "token-123", path)
+
+    assert yaml.safe_load(path.read_text(encoding="utf-8"))["room"]["enabled"] is False

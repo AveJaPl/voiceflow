@@ -39,6 +39,10 @@ dependencies = [
   # The desktop window. Linux has the GTK4/libadwaita app in app/; PyGObject
   # publishes no Windows wheel at all, so the Windows UI is Qt.
   "PySide6; sys_platform == 'win32'",
+  # Room discovery on the local network. Linux does this through Avahi, which
+  # the GTK application already has on the bus; Windows has no Avahi and no
+  # Python binding to its own DNS-SD, so it speaks the same protocol itself.
+  "zeroconf; sys_platform == 'win32'",
 ]
 
 [project.urls]

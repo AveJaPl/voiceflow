@@ -1,193 +1,237 @@
-"""Searchable local dictation history: expand, copy, delete."""
+"""Searchable, expandable, local-only dictation history page."""
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
+from datetime import date, timedelta
 from typing import Any
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QLineEdit,
-    QMessageBox,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QLineEdit, QPushButton, QVBoxLayout, QWidget
 
 from voiceflow import statlib
-from voiceflow.gui import service
+from voiceflow.gui import theme
 from voiceflow.gui.widgets import (
-    BackgroundCall,
     Card,
+    Chevron,
+    ClampedLabel,
+    Separator,
+    clear_layout,
+    empty_state,
+    hbox,
     label,
+    page_body,
     page_header,
     page_scroll,
+    plain,
+    repolish,
     section_label,
+    vbox,
 )
 
-#: Rendering every record would build thousands of widgets for no benefit.
-VISIBLE_LIMIT = 200
+#: How much of the file the page shows. Older entries are still on disk; this
+#: is a window into it, not a database browser.
+VISIBLE_RECORDS = 200
+
+
+def _day_title(day: date) -> str:
+    today = date.today()
+    if day == today:
+        return "DZISIAJ"
+    if day == today - timedelta(days=1):
+        return "WCZORAJ"
+    return day.strftime("%d.%m.%Y")
+
+
+def _time_title(timestamp: str) -> str:
+    return statlib.local_datetime(timestamp).strftime("%H:%M")
+
+
+def _record_key(record: Mapping[str, Any]) -> str:
+    return "\x1f".join(
+        (
+            str(record.get("timestamp", "")),
+            str(record.get("words", 0)),
+            str(record.get("chars", 0)),
+            str(record.get("text") or ""),
+        )
+    )
 
 
 class HistoryPage(QWidget):
-    """Newest first, grouped by day."""
+    """Render the newest two hundred records grouped by day."""
 
-    def __init__(self, window) -> None:
+    def __init__(
+        self,
+        on_copy: Callable[[str], None],
+        on_delete: Callable[[Mapping[str, Any]], None],
+    ) -> None:
         super().__init__()
-        self._window = window
+        self._on_copy = on_copy
+        self._on_delete = on_delete
         self._records: list[dict[str, Any]] = []
-        self._query = ""
+        self._expanded: set[str] = set()
 
-        body = QWidget()
-        self._layout = QVBoxLayout(body)
-        self._layout.setContentsMargins(36, 32, 36, 36)
-        self._layout.setSpacing(18)
-        self._layout.addWidget(
+        clamp, layout = page_body()
+        layout.addWidget(
             page_header("Historia", "Wyszukuj, rozwijaj i ponownie kopiuj lokalne dyktowania.")
         )
 
-        self._search = QLineEdit()
-        self._search.setPlaceholderText("Szukaj w historii…")
-        self._search.setClearButtonEnabled(True)
-        self._search.textChanged.connect(self._on_search)
-        self._layout.addWidget(self._search)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Szukaj w historii…")
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(lambda _text: self._render())
+        layout.addWidget(self.search)
 
-        self._list_host = QWidget()
-        self._list = QVBoxLayout(self._list_host)
-        self._list.setContentsMargins(0, 0, 0, 0)
-        self._list.setSpacing(10)
-        self._layout.addWidget(self._list_host)
-        self._layout.addStretch(1)
+        self._list = vbox(theme.SPACE_32)
+        layout.addLayout(self._list)
+        layout.addStretch(1)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(page_scroll(body))
-
-    def refresh(self) -> None:
-        BackgroundCall(service.history_records, self._apply)
-
-    def _apply(self, records: object) -> None:
-        if isinstance(records, list):
-            self._records = list(reversed(records))
+        outer.addWidget(page_scroll(clamp))
         self._render()
 
-    def _on_search(self, text: str) -> None:
-        self._query = text.strip().casefold()
+    def update_history(self, records: list[dict[str, Any]]) -> None:
+        """Replace current records with the newest-first view source."""
+        self._records = list(reversed(records[-VISIBLE_RECORDS:]))
+        available = {_record_key(record) for record in self._records}
+        self._expanded.intersection_update(available)
         self._render()
-
-    def _matching(self) -> list[dict[str, Any]]:
-        if not self._query:
-            return self._records[:VISIBLE_LIMIT]
-        matched = [
-            record
-            for record in self._records
-            if self._query in str(record.get("text") or "").casefold()
-        ]
-        return matched[:VISIBLE_LIMIT]
 
     def _render(self) -> None:
-        while self._list.count():
-            item = self._list.takeAt(0)
-            if item.widget() is not None:
-                item.widget().deleteLater()
-
-        records = self._matching()
-        if not records:
+        clear_layout(self._list)
+        query = self.search.text().strip().casefold()
+        visible = [
+            record
+            for record in self._records
+            if not query or query in str(record.get("text") or "").casefold()
+        ]
+        if not visible:
             message = (
                 "Brak wyników. Spróbuj innego wyszukiwania."
-                if self._query
+                if query
                 else "Historia jest pusta. Zakończone dyktowania pojawią się tutaj."
             )
-            self._list.addWidget(label(message, name="muted", wrap=True))
+            self._list.addWidget(empty_state("document-open-recent-symbolic", message))
             return
 
-        current_day = None
-        for record in records:
-            day = statlib.record_date(record)
-            if day != current_day:
-                current_day = day
-                self._list.addWidget(section_label(day.strftime("%d.%m.%Y")))
-            self._list.addWidget(_HistoryCard(record, self))
+        grouped: dict[date, list[dict[str, Any]]] = {}
+        for record in visible:
+            grouped.setdefault(statlib.record_date(record), []).append(record)
+        for day, records in grouped.items():
+            group = plain(vbox(theme.SPACE_16))
+            group.layout().addWidget(section_label(_day_title(day)))
+            for record in records:
+                group.layout().addWidget(_RecordCard(record, self))
+            self._list.addWidget(group)
+
+    # -- called by the cards --------------------------------------------------
+
+    def is_expanded(self, key: str) -> bool:
+        return key in self._expanded
+
+    def set_expanded(self, key: str, expanded: bool) -> None:
+        if expanded:
+            self._expanded.add(key)
+        else:
+            self._expanded.discard(key)
+
+    def copy(self, text: str) -> None:
+        self._on_copy(text)
+
+    def delete(self, record: Mapping[str, Any], key: str) -> None:
+        self._expanded.discard(key)
+        self._on_delete(record)
 
 
-class _HistoryCard(Card):
-    """One dictation; the text collapses to two lines until asked otherwise."""
+class _RecordCard(Card):
+    """One dictation: a summary that toggles, and details behind it."""
 
-    def __init__(self, record: dict[str, Any], page: HistoryPage) -> None:
-        super().__init__(padding=16)
+    def __init__(self, record: Mapping[str, Any], page: HistoryPage) -> None:
+        super().__init__(padding=0, spacing=0)
         self._record = record
         self._page = page
-        self._expanded = False
-        self.body.setSpacing(8)
+        self._key = _record_key(record)
+        self._confirming = False
 
-        moment = statlib.local_datetime(str(record["timestamp"]))
-        delivered = "wklejone" if record.get("injected") else "niewklejone"
-        audio = float(record.get("audio_seconds", 0.0))
-        meta = (
-            f"{moment.strftime('%H:%M')} · {record['words']} słów · "
-            f"{audio:.1f} s nagrania · {delivered}"
+        text = record.get("text")
+        self._text = text if isinstance(text, str) and text else ""
+        content = self._text or "(treść nie była zapisywana)"
+
+        self._toggle = QPushButton()
+        self._toggle.setObjectName("history-toggle")
+        self._toggle.clicked.connect(self._on_toggle)
+        summary = hbox(theme.SPACE_16)
+        summary.setContentsMargins(theme.SPACE_20, theme.SPACE_20, theme.SPACE_20, theme.SPACE_20)
+        body = vbox(theme.SPACE_8)
+        body.addWidget(
+            label(
+                f"{_time_title(str(record['timestamp']))} · {record.get('words', 0)} słów",
+                "history-meta",
+            )
         )
-        self.body.addWidget(label(meta, name="faint"))
+        body.addWidget(ClampedLabel(content, "history-preview", lines=2))
+        summary.addLayout(body, 1)
+        self._chevron = Chevron()
+        summary.addWidget(self._chevron, 0, Qt.AlignmentFlag.AlignVCenter)
+        self._toggle.setLayout(summary)
+        self.body.addWidget(self._toggle)
 
-        self._text = str(record.get("text") or "")
-        self._text_label = label(
-            self._text or "Tekst nie został zapisany.", name="muted", wrap=True
+        self._detail = plain(vbox(theme.SPACE_16))
+        self._detail.setObjectName("history-detail")
+        detail_layout = self._detail.layout()
+        detail_layout.setContentsMargins(
+            theme.SPACE_20, theme.SPACE_20, theme.SPACE_20, theme.SPACE_20
         )
-        self._text_label.setMaximumHeight(44)
-        self.body.addWidget(self._text_label)
+        detail_layout.addWidget(label(content, "history-full-text", wrap=True, selectable=True))
 
-        actions = QHBoxLayout()
-        actions.setSpacing(8)
-        if self._text:
-            self._toggle = QPushButton("Rozwiń")
-            self._toggle.setObjectName("ghost")
-            self._toggle.clicked.connect(self._toggle_expanded)
-            actions.addWidget(self._toggle)
-        actions.addStretch(1)
+        actions = plain(hbox(theme.SPACE_8))
         if self._text:
             copy_button = QPushButton("Kopiuj")
-            copy_button.clicked.connect(self._copy)
-            actions.addWidget(copy_button)
-        delete_button = QPushButton("Usuń")
-        delete_button.setObjectName("danger")
-        delete_button.clicked.connect(self._delete)
-        actions.addWidget(delete_button)
-        self.body.addLayout(actions)
+            copy_button.setObjectName("secondary-button")
+            copy_button.clicked.connect(lambda: self._page.copy(self._text))
+            actions.layout().addWidget(copy_button)
+        self._delete_button = QPushButton("Usuń wpis")
+        self._delete_button.setObjectName("destructive-button")
+        self._delete_button.clicked.connect(self._on_delete)
+        actions.layout().addWidget(self._delete_button)
+        actions.layout().addStretch(1)
+        detail_layout.addWidget(actions)
 
-    def _toggle_expanded(self) -> None:
-        self._expanded = not self._expanded
-        self._text_label.setMaximumHeight(16777215 if self._expanded else 44)
-        self._toggle.setText("Zwiń" if self._expanded else "Rozwiń")
+        self.body.addWidget(Separator())
+        self.body.addWidget(self._detail)
+        self._apply_expanded(page.is_expanded(self._key))
 
-    def _copy(self) -> None:
-        try:
-            service.copy_to_clipboard(self._text)
-        except RuntimeError as exc:
-            self._page._window.notify(str(exc), tone="error")
-            return
-        self._page._window.notify("Skopiowano do schowka")
-
-    def _delete(self) -> None:
-        confirm = QMessageBox(self)
-        confirm.setWindowTitle("Potwierdź usunięcie")
-        confirm.setText("Usunąć ten wpis z lokalnej historii?")
-        confirm.setInformativeText("Tej operacji nie można cofnąć.")
-        confirm.setStandardButtons(
-            QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Yes
+    def _apply_expanded(self, expanded: bool) -> None:
+        self._detail.setVisible(expanded)
+        # The hairline belongs to the detail panel, so it goes with it.
+        self.body.itemAt(1).widget().setVisible(expanded)
+        self._chevron.set_expanded(expanded)
+        self._toggle.setToolTip(
+            "Zwiń szczegóły wpisu" if expanded else "Rozwiń szczegóły wpisu"
         )
-        confirm.setDefaultButton(QMessageBox.StandardButton.Cancel)
-        if confirm.exec() != QMessageBox.StandardButton.Yes:
+
+    def _on_toggle(self) -> None:
+        expanded = not self._detail.isVisible()
+        self._page.set_expanded(self._key, expanded)
+        self._apply_expanded(expanded)
+        if not expanded:
+            self._reset_confirmation()
+
+    def _on_delete(self) -> None:
+        # Two presses, in place. A modal dialog for one history line is heavier
+        # than the action it guards.
+        if not self._confirming:
+            self._confirming = True
+            self._delete_button.setText("Potwierdź usunięcie")
+            self._delete_button.setProperty("confirming", "true")
+            repolish(self._delete_button)
             return
+        self._page.delete(self._record, self._key)
 
-        record = self._record
-
-        def done(removed: object) -> None:
-            if removed:
-                self._page._window.notify("Wpis usunięty")
-            self._page.refresh()
-
-        BackgroundCall(
-            lambda: service.delete_history_record(record),
-            done,
-            lambda message: self._page._window.notify(message, tone="error"),
-        )
+    def _reset_confirmation(self) -> None:
+        self._confirming = False
+        self._delete_button.setText("Usuń wpis")
+        self._delete_button.setProperty("confirming", "false")
+        repolish(self._delete_button)

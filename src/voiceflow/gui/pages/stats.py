@@ -1,104 +1,148 @@
-"""Statistics computed entirely from the local history file."""
+"""Statistics page with compact local-history visualizations."""
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Any
 
-from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from voiceflow import statlib
-from voiceflow.gui import service
+from voiceflow.gui import theme
 from voiceflow.gui.charts import ActivityGrid, BarChart
 from voiceflow.gui.widgets import (
-    BackgroundCall,
     Card,
-    StatTile,
+    empty_state,
+    hbox,
     label,
+    page_body,
     page_header,
     page_scroll,
+    plain,
+    vbox,
 )
 
-DAILY_DAYS = 30
+#: Half a year, the way the GTK grid is drawn: 26 columns of seven days.
 ACTIVITY_WEEKS = 26
 
 
 class StatsPage(QWidget):
-    """Four totals, a daily bar series, and a 26-week activity grid."""
+    """Aggregate and visualize the local JSONL history."""
 
-    def __init__(self, window) -> None:
+    def __init__(self) -> None:
         super().__init__()
-        self._window = window
-
-        body = QWidget()
-        layout = QVBoxLayout(body)
-        layout.setContentsMargins(36, 32, 36, 36)
-        layout.setSpacing(22)
+        clamp, layout = page_body()
         layout.addWidget(
-            page_header("Statystyki", "Twój rytm dyktowania, liczony wyłącznie z lokalnej historii.")
+            page_header(
+                "Statystyki", "Twój rytm dyktowania, liczony wyłącznie z lokalnej historii."
+            )
         )
 
-        tiles = QWidget()
-        tile_layout = QHBoxLayout(tiles)
-        tile_layout.setContentsMargins(0, 0, 0, 0)
-        tile_layout.setSpacing(16)
-        self._tiles = {
-            "words": StatTile("Łącznie słów"),
-            "dictations": StatTile("Dyktowań"),
-            "audio": StatTile("Czas mówienia"),
-            "average": StatTile("Średnio słów"),
-        }
-        for tile in self._tiles.values():
-            tile_layout.addWidget(tile, 1)
-        layout.addWidget(tiles)
-
-        daily_card = Card()
-        daily_card.body.addWidget(label(f"Słowa dziennie · {DAILY_DAYS} dni", name="card-title"))
-        self._bars = BarChart()
-        daily_card.body.addWidget(self._bars)
-        layout.addWidget(daily_card)
-
-        activity_card = Card()
-        activity_card.body.addWidget(
-            label(f"Aktywność · {ACTIVITY_WEEKS} tygodni", name="card-title")
-        )
-        self._grid = ActivityGrid()
-        activity_card.body.addWidget(self._grid)
-        self._empty = label("", name="faint", wrap=True)
-        activity_card.body.addWidget(self._empty)
-        layout.addWidget(activity_card)
+        self._holder = vbox(0)
+        layout.addLayout(self._holder)
         layout.addStretch(1)
+
+        self._content = plain(vbox(theme.SPACE_32))
+        self._content.layout().addWidget(self._build_summary())
+        self._content.layout().addWidget(self._build_bar_chart())
+        self._content.layout().addWidget(self._build_activity_chart())
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(page_scroll(body))
+        outer.addWidget(page_scroll(clamp))
+        self.update_history([])
 
-    def refresh(self) -> None:
-        BackgroundCall(_aggregate, self._apply)
+    # -- construction --------------------------------------------------------
 
-    def _apply(self, data: object) -> None:
-        if not isinstance(data, dict):
-            return
-        self._tiles["words"].set_value(statlib.compact_number(data["words"]))
-        self._tiles["dictations"].set_value(statlib.compact_number(data["dictations"]))
-        self._tiles["audio"].set_value(statlib.format_duration(data["audio_seconds"]))
-        self._tiles["average"].set_value(f"{data['average_words']:.0f}".replace(".", ","))
-        self._bars.set_series(data["daily"])
-        self._grid.set_data(data["activity"], data["levels"])
-        self._empty.setText(
-            "" if data["dictations"] else "Brak danych — podyktuj coś, a wykresy się wypełnią."
+    def _build_summary(self) -> QWidget:
+        holder = plain(hbox(theme.SPACE_16))
+        self._summary: dict[str, Any] = {}
+        for key, title in (
+            ("words", "Łącznie słów"),
+            ("dictations", "Dyktowań"),
+            ("duration", "Czas mówienia"),
+            ("average", "Średnio słów"),
+        ):
+            card = Card(padding=theme.SPACE_16, spacing=theme.SPACE_8)
+            card.setMinimumHeight(88)
+            card.body.setContentsMargins(
+                theme.SPACE_20, theme.SPACE_16, theme.SPACE_20, theme.SPACE_16
+            )
+            card.body.addWidget(label(title.upper(), "stat-label"))
+            value = label("0", "stat-value")
+            card.body.addWidget(value)
+            self._summary[key] = value
+            holder.layout().addWidget(card, 1)
+        return holder
+
+    def _build_bar_chart(self) -> QWidget:
+        card = Card(spacing=theme.SPACE_16)
+        card.setMinimumHeight(240)
+        card.body.addWidget(label("Słowa dziennie", "card-title"))
+        self.bar_chart = BarChart()
+        card.body.addWidget(self.bar_chart)
+        return card
+
+    def _build_activity_chart(self) -> QWidget:
+        card = Card(spacing=theme.SPACE_16)
+        card.setMinimumHeight(240)
+        card.body.addWidget(label(f"Aktywność · {ACTIVITY_WEEKS} tygodni", "card-title"))
+        self.activity_chart = ActivityGrid()
+        card.body.addWidget(self.activity_chart)
+        return card
+
+    # -- data ----------------------------------------------------------------
+
+    def update_history(self, records: list[dict[str, Any]]) -> None:
+        """Recalculate statistics, update the empty state, and redraw charts."""
+        summary = statlib.totals(records)
+        self._summary["words"].setText(statlib.compact_number(int(summary["words"])))
+        self._summary["dictations"].setText(
+            statlib.compact_number(int(summary["dictations"]))
         )
+        self._summary["duration"].setText(
+            statlib.format_duration(float(summary["audio_seconds"]))
+        )
+        self._summary["average"].setText(f"{float(summary['average_words']):.0f}")
+
+        today = date.today()
+        self.bar_chart.set_series(statlib.daily_series(records, BarChart.DAYS, today=today))
+
+        week_start = today - timedelta(days=today.weekday())
+        activity_start = week_start - timedelta(weeks=ACTIVITY_WEEKS - 1)
+        totals = statlib.daily_word_totals(records)
+        series = [
+            (
+                activity_start + timedelta(days=index),
+                totals.get(activity_start + timedelta(days=index), 0),
+            )
+            for index in range(ACTIVITY_WEEKS * 7)
+        ]
+        self.activity_chart.set_data(series, statlib.activity_levels(series))
+
+        # The charts stay built and simply leave the tree while there is nothing
+        # to draw — rebuilding them on every history refresh would be waste.
+        clear_layout_keeping(self._holder, self._content)
+        if records:
+            self._holder.addWidget(self._content)
+            self._content.setVisible(True)
+        else:
+            self._content.setVisible(False)
+            self._holder.addWidget(
+                empty_state(
+                    "view-grid-symbolic",
+                    "Brak statystyk. Pierwsze dyktowanie uruchomi podsumowania i wykresy.",
+                )
+            )
 
 
-def _aggregate() -> dict[str, Any]:
-    records = service.history_records()
-    aggregate = statlib.totals(records)
-    activity = statlib.daily_series(records, ACTIVITY_WEEKS * 7)
-    return {
-        "words": int(aggregate["words"]),
-        "dictations": int(aggregate["dictations"]),
-        "audio_seconds": float(aggregate["audio_seconds"]),
-        "average_words": float(aggregate["average_words"]),
-        "daily": statlib.daily_series(records, DAILY_DAYS),
-        "activity": activity,
-        "levels": statlib.activity_levels(activity),
-    }
+def clear_layout_keeping(layout, keep: QWidget) -> None:
+    """Empty a layout, detaching — never destroying — one widget it may hold."""
+    while layout.count():
+        item = layout.takeAt(0)
+        widget = item.widget()
+        if widget is None:
+            continue
+        widget.setParent(None)
+        if widget is not keep:
+            widget.deleteLater()

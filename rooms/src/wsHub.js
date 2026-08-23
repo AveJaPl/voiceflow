@@ -8,10 +8,11 @@
 
 import {
   createRoomState, join, leave, startSpeaking, stopSpeaking, heartbeat, expire,
+  speakerList, DEFAULT_MODE,
 } from './roomState.js';
 
 export function createHub({ store }) {
-  /** kod pokoju -> { state, connections:Set, roomId, nowPlaying:Map } */
+  /** kod pokoju -> { state, connections:Set, roomId, mode, nowPlaying:Map } */
   const rooms = new Map();
 
   function room(code) {
@@ -20,6 +21,10 @@ export function createHub({ store }) {
         state: createRoomState(),
         connections: new Set(),
         roomId: null,
+        // Tryb przychodzi z bazy razem z pierwszym połączeniem; do tego czasu
+        // obowiązuje ostrożniejszy z dwóch — blokada, której nie ma, byłaby
+        // gorszą niespodzianką niż blokada, której ktoś się nie spodziewał.
+        mode: DEFAULT_MODE,
         // Wyłącznie w pamięci procesu: restart usługi kasuje kafelki i to
         // jest w porządku — to stan chwili, nie dane.
         nowPlaying: new Map(),
@@ -29,14 +34,29 @@ export function createHub({ store }) {
     return rooms.get(code);
   }
 
-  function speakerPayload(entry) {
-    const speaking = entry.state.speaking;
-    if (!speaking) return null;
-    return {
-      deviceId: speaking.deviceId,
-      name: entry.state.members[speaking.deviceId]?.name ?? null,
-      since: speaking.since,
-    };
+  /**
+   * Co dana osoba ma prawo wiedzieć o mówiących.
+   *
+   * Tablica w przeglądarce widzi wszystkich — po to jest. Demon widzi tylko to,
+   * co ma go dotyczyć, bo dla niego „ktoś inny mówi" znaczy jednocześnie
+   * „nie wolno ci nacisnąć skrótu" i „ścisz głośniki". W pokoju zdalnym ani
+   * jedno, ani drugie nie ma sensu: nikt nikomu nie wchodzi do mikrofonu, a
+   * ściszanie muzyki komuś w innym mieście to czysta uciążliwość. Stąd pusta
+   * lista — i dlatego stare wersje aplikacji obsługują tryb zdalny bez
+   * aktualizacji: przestają cokolwiek słyszeć o cudzym mówieniu.
+   */
+  function speakersFor(entry, connection) {
+    const all = speakerList(entry.state);
+    if (connection.viewer) return all;
+    if (entry.mode === 'remote') return [];
+    return all.filter((item) => item.deviceId !== connection.deviceId);
+  }
+
+  function speakerMessage(entry, connection, type) {
+    const speakers = speakersFor(entry, connection);
+    // `speaking` zostaje dla klientów, które znają tylko jednego mówiącego —
+    // czyli dla każdej wersji aplikacji wydanej przed trybem zdalnym.
+    return { type, speaking: speakers[0] ?? null, speakers };
   }
 
   /**
@@ -48,10 +68,9 @@ export function createHub({ store }) {
    */
   function broadcastSpeaker(code, exceptDeviceId) {
     const entry = room(code);
-    const payload = { type: 'speaker_changed', speaking: speakerPayload(entry) };
     for (const connection of entry.connections) {
       if (connection.deviceId === exceptDeviceId) continue;
-      connection.send(payload);
+      connection.send(speakerMessage(entry, connection, 'speaker_changed'));
     }
   }
 
@@ -90,6 +109,11 @@ export function createHub({ store }) {
       if (connection.roomId) entry.roomId = connection.roomId;
 
       if (message.type === 'hello') {
+        // Tryb czyta z bazy `server.js` przy nawiązywaniu połączenia — i tylko
+        // tutaj, przy powitaniu. Ustawianie go przy każdej wiadomości cofałoby
+        // przełączenie zrobione w trakcie: pierwszy puls starego połączenia
+        // przywracałby wartość sprzed zmiany.
+        if (connection.roomMode) entry.mode = connection.roomMode;
         entry.connections.add(connection);
         // Widz (strona rankingu) dostaje rozgłoszenia, ale NIE wchodzi do składu
         // pokoju: nie może mówić, nie może niczego zablokować i nie liczy się do
@@ -97,7 +121,10 @@ export function createHub({ store }) {
         if (!connection.viewer) {
           entry.state = join(entry.state, connection.deviceId, connection.name);
         }
-        connection.send({ type: 'room_state', speaking: speakerPayload(entry) });
+        connection.send({
+          ...speakerMessage(entry, connection, 'room_state'),
+          mode: entry.mode,
+        });
         connection.send(nowPlayingPayload(entry));
         connection.send(usagePayload(entry));
         return;
@@ -146,7 +173,9 @@ export function createHub({ store }) {
       }
 
       if (message.type === 'speaking_started') {
-        const result = startSpeaking(entry.state, connection.deviceId, now);
+        const result = startSpeaking(entry.state, connection.deviceId, now, {
+          exclusive: entry.mode !== 'remote',
+        });
         entry.state = result.state;
         if (!result.accepted) {
           connection.send({ type: 'speaking_denied', blockedBy: result.blockedBy });
@@ -195,17 +224,33 @@ export function createHub({ store }) {
       if (entry.usage.delete(connection.deviceId)) {
         broadcastUsage(connection.roomCode);
       }
-      const wasSpeaking = entry.state.speaking?.deviceId === connection.deviceId;
+      const wasSpeaking = Boolean(entry.state.speakers[connection.deviceId]);
       entry.state = leave(entry.state, connection.deviceId);
       if (wasSpeaking) broadcastSpeaker(connection.roomCode, null);
+    },
+
+    /**
+     * Przełącza tryb pokoju w locie, dla wszystkich naraz.
+     *
+     * Rozgłoszenie mówiących zaraz po zmianie nie jest kosmetyką: przejście na
+     * tryb zdalny musi NATYCHMIAST zdjąć blokadę z osoby, która właśnie czeka,
+     * aż druga skończy — inaczej trzeba by czekać do końca cudzego dyktowania,
+     * żeby przekonać się, że przełącznik zadziałał.
+     */
+    setMode(code, mode) {
+      const entry = room(code);
+      if (entry.mode === mode) return;
+      entry.mode = mode;
+      for (const connection of entry.connections) connection.send({ type: 'room_mode', mode });
+      broadcastSpeaker(code, null);
     },
 
     /** Sprząta po klientach, którzy zniknęli w trakcie mówienia. */
     tick(now = Date.now()) {
       for (const [code, entry] of rooms) {
-        const before = entry.state.speaking?.deviceId ?? null;
+        const before = Object.keys(entry.state.speakers).join();
         entry.state = expire(entry.state, now);
-        const after = entry.state.speaking?.deviceId ?? null;
+        const after = Object.keys(entry.state.speakers).join();
         if (before !== after) broadcastSpeaker(code, null);
       }
     },

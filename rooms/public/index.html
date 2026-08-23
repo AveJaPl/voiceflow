@@ -73,6 +73,15 @@ body{margin:0; background:var(--bg); color:var(--text);
 button{font:inherit; color:var(--text); background:var(--raised); border:1px solid var(--border);
   border-radius:10px; cursor:pointer; padding:8px 14px; font-size:.86rem}
 button:hover{border-color:rgba(255,255,255,.35)}
+/* Przełącznik trybu: dwa stany widoczne naraz, żeby było wiadomo, co jest
+   drugą możliwością — a nie jeden przycisk, po którym trzeba zgadywać. */
+.mode{display:flex; border:1px solid var(--border); border-radius:999px; padding:2px;
+  background:var(--raised)}
+.mode button{border:0; background:none; border-radius:999px; padding:5px 13px;
+  font-size:.78rem; letter-spacing:.06em; color:var(--muted)}
+.mode button:hover{color:var(--text)}
+.mode button[aria-pressed="true"]{background:rgba(255,255,255,.12); color:var(--text)}
+.mode[data-busy="1"]{opacity:.5; pointer-events:none}
 
 /* --- „kto teraz mówi" ---------------------------------------------------- */
 .now{position:relative; display:flex; align-items:center; gap:clamp(12px,1.4vw,20px);
@@ -291,6 +300,10 @@ pre{background:rgba(0,0,0,.4); border:1px solid var(--border); border-radius:10p
     <span class="session-name" id="session-name">—</span>
     <span class="clock" id="session-clock">—</span>
     <span class="total" id="room-total"></span>
+    <div class="mode" id="mode" role="group" aria-label="Tryb pokoju">
+      <button type="button" data-mode="together" title="Jeden mikrofon na wszystkich — dla osób w jednym pomieszczeniu">Razem</button>
+      <button type="button" data-mode="remote" title="Każdy dyktuje u siebie, nikt nikomu nie blokuje mikrofonu">Osobno</button>
+    </div>
     <button id="switch-open" type="button">Zmień pokój</button>
   </div>
 
@@ -370,7 +383,9 @@ const RECENT_KEY = 'voiceflow.rooms';
 
 let code = '';
 let socket = null;
-let speakingName = null;
+// Lista, nie jedno imię: w trybie zdalnym mówiących naraz może być kilkoro.
+let speakingNames = [];
+let roomMode = 'together';
 let sessionStartedAt = null;
 let board = {};
 let roomHistory = {};
@@ -502,19 +517,74 @@ function renderTiles() {
 
 /* --- tablica -------------------------------------------------------------- */
 
+/** „Filip", „Filip i Wojtek", „Filip, Wojtek i Jakub". */
+function joinNames(names) {
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} i ${names.at(-1)}`;
+}
+
+function speakerSubtitle() {
+  if (!speakingNames.length) {
+    return roomMode === 'remote'
+      ? 'Nikt teraz nie dyktuje'
+      : 'Nikt nie dyktuje. Mikrofon jest wolny';
+  }
+  if (roomMode !== 'remote') {
+    return 'Reszta pokoju czeka — dwa mikrofony naraz psują obie transkrypcje';
+  }
+  return speakingNames.length > 1
+    ? `${speakingNames.length} osoby dyktują naraz — każda u siebie`
+    : 'Każdy dyktuje u siebie; nikt nikomu nie zabiera mikrofonu';
+}
+
 function renderSpeaker() {
-  const live = Boolean(speakingName);
+  const live = speakingNames.length > 0;
   el('now').dataset.live = live ? '1' : '0';
   el('now-eyebrow').textContent = live ? 'Na antenie' : 'Teraz';
-  el('now-title').textContent = live ? speakingName : 'Cisza';
-  el('now-sub').textContent = live
-    ? 'Reszta pokoju czeka — dwa mikrofony naraz psują obie transkrypcje'
-    : 'Nikt nie dyktuje. Mikrofon jest wolny';
-  document.title = live ? `${speakingName} dyktuje — voiceflow` : 'voiceflow — pokój';
+  el('now-title').textContent = live ? joinNames(speakingNames) : 'Cisza';
+  el('now-sub').textContent = speakerSubtitle();
+  document.title = live
+    ? `${joinNames(speakingNames)} ${speakingNames.length > 1 ? 'dyktują' : 'dyktuje'} — voiceflow`
+    : 'voiceflow — pokój';
   for (const row of document.querySelectorAll('.row')) {
-    row.dataset.speaking = row.dataset.name === speakingName ? '1' : '0';
+    row.dataset.speaking = speakingNames.includes(row.dataset.name) ? '1' : '0';
   }
 }
+
+function renderMode() {
+  for (const button of el('mode').querySelectorAll('button')) {
+    button.setAttribute('aria-pressed', button.dataset.mode === roomMode ? 'true' : 'false');
+  }
+}
+
+/**
+ * Zmiana trybu idzie przez serwer, nie przez stan strony: to on rozstrzyga,
+ * czy ktoś kogoś blokuje, i on ma powiedzieć o zmianie pozostałym. Tablica
+ * czeka na jego odpowiedź, żeby przełącznik nigdy nie pokazywał trybu, którego
+ * pokój nie ma.
+ */
+async function setMode(wanted) {
+  if (wanted === roomMode) return;
+  el('mode').dataset.busy = '1';
+  try {
+    const response = await fetch(`/api/rooms/${code}/mode`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ mode: wanted }),
+    });
+    if (response.ok) {
+      roomMode = (await response.json()).room?.mode ?? roomMode;
+      renderMode();
+      renderSpeaker();
+    }
+  } catch { /* pokój działa dalej w trybie, który miał */ }
+  el('mode').dataset.busy = '0';
+}
+
+el('mode').addEventListener('click', (event) => {
+  const button = event.target.closest('button[data-mode]');
+  if (button) setMode(button.dataset.mode);
+});
 
 function tickClock() {
   if (!sessionStartedAt) return;
@@ -573,7 +643,7 @@ function renderBoard() {
     return `
       <li class="row" data-lead="${index === 0 ? '1' : '0'}"
           data-name="${escapeHtml(entry.name ?? '')}"
-          data-speaking="${entry.name === speakingName ? '1' : '0'}">
+          data-speaking="${speakingNames.includes(entry.name) ? '1' : '0'}">
         <div class="pos">${String(index + 1).padStart(2, '0')}</div>
         <div class="who">
           <div class="name">${escapeHtml(entry.name ?? '—')}</div>
@@ -614,7 +684,7 @@ function renderCharts() {
   const y = (value) => 100 - (value / ceiling) * 100;
 
   const lines = series.map((item) => {
-    const kind = item.name === leader ? 'lead' : item.name === speakingName ? 'speaking' : '';
+    const kind = item.name === leader ? 'lead' : speakingNames.includes(item.name) ? 'speaking' : '';
     const shape = item.values.map((value, index) => `${x(index)},${y(value)}`).join(' ');
     return `<polyline class="${kind}" points="${shape}"><title>${escapeHtml(
       `${item.name} — ${item.total} ${wordWord(item.total)}`)}</title></polyline>`;
@@ -627,7 +697,7 @@ function renderCharts() {
     const wanted = Math.min(96, Math.max(4, y(item.total)));
     const top = wanted - previous < 13 ? previous + 13 : wanted;
     previous = top;
-    const kind = item.name === leader ? 'lead' : item.name === speakingName ? 'speaking' : '';
+    const kind = item.name === leader ? 'lead' : speakingNames.includes(item.name) ? 'speaking' : '';
     return `<div class="tag ${kind}" style="top:${top}%">
       <b>${escapeHtml(item.name ?? '—')}</b> ${numbers.format(item.total)}</div>`;
   }).join('');
@@ -741,8 +811,14 @@ function connect() {
     const message = JSON.parse(event.data);
     if (message.type === 'now_playing') { tunes = message.playing ?? []; renderTiles(); return; }
     if (message.type === 'claude_usage') { claudeUsage = message.people ?? []; renderTiles(); return; }
+    if (message.type === 'room_mode') { roomMode = message.mode; renderMode(); renderSpeaker(); return; }
     if (message.type === 'speaker_changed' || message.type === 'room_state') {
-      speakingName = message.speaking?.name ?? null;
+      // `speakers` zna dopiero usługa z trybami; `speaking` zostaje jako
+      // zapasowe źródło, gdyby tablica gadała ze starszym serwerem.
+      speakingNames = (message.speakers ?? (message.speaking ? [message.speaking] : []))
+        .map((item) => item.name)
+        .filter(Boolean);
+      if (message.mode) { roomMode = message.mode; renderMode(); }
       renderSpeaker();
       refresh();
     }

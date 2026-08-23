@@ -312,3 +312,113 @@ test('nieznane procenty (null) docierają jako null, nie jako 0%', async () => {
   assert.equal(seen.people[0].fiveHour, null, '0% to zmyślona liczba, null to prawda');
   assert.equal(seen.people[0].tokensIn, 500);
 });
+
+/* --- tryb zdalny ---------------------------------------------------------- */
+
+/** Połączenie z pokoju, który w bazie ma ustawiony tryb zdalny. */
+function remoteConnection(deviceId, name) {
+  return { ...fakeConnection(deviceId, name), roomMode: 'remote', sent: [], send(obj) { this.sent.push(obj); } };
+}
+
+test('w trybie zdalnym nikt nikomu nie zabiera mikrofonu', async () => {
+  const recorded = [];
+  const hub = createHub({
+    store: {
+      async activeSession() { return { id: 3 }; },
+      async recordDictation(sessionId, deviceId, at, seconds, words) {
+        recorded.push({ deviceId, words });
+      },
+    },
+  });
+  const filip = remoteConnection('f', 'Filip');
+  const wojtek = remoteConnection('w', 'Wojtek');
+  await hub.handleMessage(filip, { type: 'hello' });
+  await hub.handleMessage(wojtek, { type: 'hello' });
+
+  await hub.handleMessage(filip, { type: 'speaking_started' }, 1000);
+  await hub.handleMessage(wojtek, { type: 'speaking_started' }, 1100);
+  await hub.handleMessage(wojtek, { type: 'speaking_ended', words: 30, seconds: 4 }, 5000);
+  await hub.handleMessage(filip, { type: 'speaking_ended', words: 12, seconds: 6 }, 7000);
+
+  assert.equal(
+    wojtek.sent.filter((m) => m.type === 'speaking_denied').length, 0,
+    'siedzą w różnych domach — czekanie na siebie nie ma po co istnieć',
+  );
+  assert.deepEqual(recorded, [{ deviceId: 'w', words: 30 }, { deviceId: 'f', words: 12 }],
+    'oba dyktowania liczą się do rankingu');
+});
+
+test('w trybie zdalnym demon nie dowiaduje się o cudzym mówieniu', async () => {
+  const hub = createHub({ store: noopStore });
+  const filip = remoteConnection('f', 'Filip');
+  const wojtek = remoteConnection('w', 'Wojtek');
+  await hub.handleMessage(filip, { type: 'hello' });
+  await hub.handleMessage(wojtek, { type: 'hello' });
+  wojtek.sent.length = 0;
+
+  await hub.handleMessage(filip, { type: 'speaking_started' }, 1000);
+
+  const last = wojtek.sent.filter((m) => m.type === 'speaker_changed').at(-1);
+  assert.equal(last.speaking, null, 'cudze dyktowanie nie ma prawa ściszyć mu muzyki');
+  assert.deepEqual(last.speakers, []);
+});
+
+test('tablica w trybie zdalnym widzi wszystkich mówiących naraz', async () => {
+  const hub = createHub({ store: noopStore });
+  const filip = remoteConnection('f', 'Filip');
+  const wojtek = remoteConnection('w', 'Wojtek');
+  const tablet = { ...remoteConnection('v', null), viewer: true };
+  await hub.handleMessage(filip, { type: 'hello' });
+  await hub.handleMessage(wojtek, { type: 'hello' });
+  await hub.handleMessage(tablet, { type: 'hello' });
+
+  await hub.handleMessage(filip, { type: 'speaking_started' }, 1000);
+  await hub.handleMessage(wojtek, { type: 'speaking_started' }, 1100);
+
+  const last = tablet.sent.filter((m) => m.type === 'speaker_changed').at(-1);
+  assert.deepEqual(last.speakers.map((s) => s.name), ['Filip', 'Wojtek']);
+  assert.equal(last.speaking.name, 'Filip', 'stara tablica pokaże przynajmniej pierwszego');
+});
+
+test('przełączenie na tryb zdalny natychmiast zdejmuje blokadę', async () => {
+  const hub = createHub({ store: noopStore });
+  const filip = fakeConnection('f', 'Filip');
+  const wojtek = fakeConnection('w', 'Wojtek');
+  await hub.handleMessage(filip, { type: 'hello' });
+  await hub.handleMessage(wojtek, { type: 'hello' });
+  await hub.handleMessage(filip, { type: 'speaking_started' }, 1000);
+  wojtek.sent.length = 0;
+
+  hub.setMode('ROOM01', 'remote');
+  await hub.handleMessage(wojtek, { type: 'speaking_started' }, 1200);
+
+  assert.equal(wojtek.sent.filter((m) => m.type === 'room_mode').at(-1).mode, 'remote');
+  assert.equal(
+    wojtek.sent.filter((m) => m.type === 'speaker_changed').at(-1).speaking, null,
+    'nie trzeba czekać do końca cudzego dyktowania, żeby zobaczyć skutek',
+  );
+  assert.equal(wojtek.sent.filter((m) => m.type === 'speaking_denied').length, 0);
+});
+
+test('powrót do trybu razem przywraca jeden mikrofon', async () => {
+  const hub = createHub({ store: noopStore });
+  const filip = remoteConnection('f', 'Filip');
+  const wojtek = remoteConnection('w', 'Wojtek');
+  await hub.handleMessage(filip, { type: 'hello' });
+  await hub.handleMessage(wojtek, { type: 'hello' });
+
+  hub.setMode('ROOM01', 'together');
+  await hub.handleMessage(filip, { type: 'speaking_started' }, 1000);
+  await hub.handleMessage(wojtek, { type: 'speaking_started' }, 1100);
+
+  assert.equal(wojtek.sent.filter((m) => m.type === 'speaking_denied').at(-1).blockedBy, 'Filip');
+});
+
+test('hello mówi, w jakim trybie jest pokój', async () => {
+  const hub = createHub({ store: noopStore });
+  const tablet = { ...remoteConnection('v', null), viewer: true };
+
+  await hub.handleMessage(tablet, { type: 'hello' });
+
+  assert.equal(tablet.sent.find((m) => m.type === 'room_state').mode, 'remote');
+});

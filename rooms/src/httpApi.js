@@ -7,10 +7,11 @@
  */
 
 import { historyTotals, withSilentMembers } from './store.js';
+import { isMode } from './roomState.js';
 
 // `/session/end` stoi przed `/session`, bo alternatywa jest uporządkowana —
 // odwrotna kolejność zjadałaby dłuższą trasę krótszym wariantem.
-const ROOM_PATH = /^\/api\/rooms\/([^/]+)(\/join|\/ranking|\/history|\/timeline|\/session\/end|\/session)?$/;
+const ROOM_PATH = /^\/api\/rooms\/([^/]+)(\/join|\/ranking|\/history|\/timeline|\/mode|\/session\/end|\/session)?$/;
 
 export function routeFor(method, url) {
   if (method === 'GET' && url === '/health') return { name: 'health', code: null };
@@ -25,6 +26,7 @@ export function routeFor(method, url) {
   if (method === 'GET' && tail === '/ranking') return { name: 'ranking', code };
   if (method === 'GET' && tail === '/history') return { name: 'history', code };
   if (method === 'GET' && tail === '/timeline') return { name: 'timeline', code };
+  if (method === 'POST' && tail === '/mode') return { name: 'setMode', code };
   if (method === 'POST' && tail === '/session/end') return { name: 'endSession', code };
   if (method === 'POST' && tail === '/session') return { name: 'startSession', code };
   return null;
@@ -54,7 +56,7 @@ async function readJson(req) {
   }
 }
 
-export function createHttpApi({ store }) {
+export function createHttpApi({ store, hub = null }) {
   return async function handle(req, res) {
     const [rawPath, rawQuery] = req.url.split('?');
     const query = new URLSearchParams(rawQuery ?? '');
@@ -93,6 +95,18 @@ export function createHttpApi({ store }) {
       await store.joinRoom(room.id, device.id);
       const session = (await store.activeSession(room.id)) ?? (await store.startSession(room.id, null));
       return sendJson(res, 200, { room, session, device: { id: device.id, name: device.name } });
+    }
+
+    if (route.name === 'setMode') {
+      const body = await readJson(req);
+      if (body === null) return sendJson(res, 400, { error: 'invalid_json' });
+      const mode = String(body.mode ?? '');
+      if (!isMode(mode)) return sendJson(res, 400, { error: 'invalid_mode' });
+      await store.setRoomMode(room.id, mode);
+      // Baza pamięta, hub działa. Bez tego drugiego przełącznik zaczynałby
+      // obowiązywać dopiero po ponownym połączeniu każdej z aplikacji.
+      hub?.setMode(room.code, mode);
+      return sendJson(res, 200, { room: { ...room, mode } });
     }
 
     if (route.name === 'endSession') {

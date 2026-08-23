@@ -8,7 +8,7 @@
  */
 
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { join as joinPath, dirname, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
@@ -26,12 +26,20 @@ if (!databaseUrl) {
 }
 
 const pool = new pg.Pool({ connectionString: databaseUrl });
-await pool.query(await readFile(joinPath(here, 'migrations/001_init.sql'), 'utf8'));
-console.log('[rooms] schemat gotowy');
+// Migracje po kolei, po nazwie pliku. Każda musi być odporna na powtórne
+// wykonanie (`IF NOT EXISTS`), bo lecą przy każdym starcie kontenera — usługa
+// nie ma osobnego kroku „wdróż schemat" i mieć nie będzie.
+const migrations = (await readdir(joinPath(here, 'migrations')))
+  .filter((file) => file.endsWith('.sql'))
+  .sort();
+for (const file of migrations) {
+  await pool.query(await readFile(joinPath(here, 'migrations', file), 'utf8'));
+}
+console.log(`[rooms] schemat gotowy (${migrations.length} migracji)`);
 
 const store = createStore(pool);
-const api = createHttpApi({ store });
 const hub = createHub({ store });
+const api = createHttpApi({ store, hub });
 
 const CONTENT_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -91,6 +99,7 @@ wss.on('connection', async (socket, req) => {
     viewer: !device,
     roomCode,
     roomId: room.id,
+    roomMode: room.mode,
     send(obj) {
       if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(obj));
     },

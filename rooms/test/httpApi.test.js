@@ -269,3 +269,39 @@ test('bzdurny limit w adresie nie każe bazie liczyć wszystkiego', async () => 
 
   assert.deepEqual(seen, [[100, 0], [20, 0], [20, 0], [20, 0]]);
 });
+
+// --- tryb pokoju -----------------------------------------------------------
+
+test('przełącznik trybu ma własną trasę', () => {
+  assert.deepEqual(routeFor('POST', '/api/rooms/AB23CD/mode'), { name: 'setMode', code: 'AB23CD' });
+  assert.equal(routeFor('GET', '/api/rooms/AB23CD/mode'), null, 'tryb zmienia się POST-em');
+});
+
+test('zmiana trybu zapisuje się w bazie i dociera do żywych połączeń', async () => {
+  const saved = [];
+  const told = [];
+  const store = fakeStore({ async setRoomMode(roomId, mode) { saved.push({ roomId, mode }); } });
+  const handle = createHttpApi({ store, hub: { setMode(code, mode) { told.push({ code, mode }); } } });
+  const { req, res } = fakeExchange('POST', '/api/rooms/AB23CD/mode', { mode: 'remote' });
+
+  await handle(req, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.room.mode, 'remote');
+  assert.deepEqual(saved, [{ roomId: 1, mode: 'remote' }]);
+  assert.deepEqual(told, [{ code: 'AB23CD', mode: 'remote' }],
+    'inaczej przełącznik działałby dopiero po ponownym połączeniu aplikacji');
+});
+
+test('wymyślony tryb jest odrzucany, a nie zapisywany', async () => {
+  const saved = [];
+  const store = fakeStore({ async setRoomMode(...args) { saved.push(args); } });
+  const handle = createHttpApi({ store });
+  const { req, res } = fakeExchange('POST', '/api/rooms/AB23CD/mode', { mode: 'wszyscy-naraz' });
+
+  await handle(req, res);
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.error, 'invalid_mode');
+  assert.deepEqual(saved, [], 'cudzy tekst z żądania nie ląduje w kolumnie trybu');
+});

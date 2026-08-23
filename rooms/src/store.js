@@ -194,7 +194,7 @@ export function createStore(pool) {
     async createRoom(name) {
       const code = generateCode();
       const { rows } = await pool.query(
-        'INSERT INTO rooms (code, name) VALUES ($1, $2) RETURNING id, code, name',
+        'INSERT INTO rooms (code, name) VALUES ($1, $2) RETURNING id, code, name, mode',
         [code, name ?? null],
       );
       return rows[0];
@@ -202,10 +202,15 @@ export function createStore(pool) {
 
     async roomByCode(code) {
       const { rows } = await pool.query(
-        'SELECT id, code, name FROM rooms WHERE code = $1',
+        'SELECT id, code, name, mode FROM rooms WHERE code = $1',
         [String(code).toUpperCase()],
       );
       return rows[0] ?? null;
+    },
+
+    /** Wartość jest sprawdzona wyżej — do bazy nie trafia cudzy tekst z żądania. */
+    async setRoomMode(roomId, mode) {
+      await pool.query('UPDATE rooms SET mode = $2 WHERE id = $1', [roomId, mode]);
     },
 
     async joinRoom(roomId, deviceId) {

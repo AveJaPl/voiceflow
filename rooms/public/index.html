@@ -837,6 +837,8 @@ function showRoom(wanted, { push = true } = {}) {
   el('switcher').dataset.on = '0';
   board = {}; roomHistory = {}; timeline = { points: [] }; tunes = []; claudeUsage = [];
   lastLeader = null; leaderSince = null;
+  speakingNames = [];
+  renderMode();
   renderSpeaker();
   renderTiles();
   renderCharts();

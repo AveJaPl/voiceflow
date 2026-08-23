@@ -9,7 +9,10 @@ voiceflow is holding it down.
 
 from __future__ import annotations
 
+import json
+import tempfile
 import time
+from pathlib import Path
 
 import pytest
 
@@ -57,8 +60,10 @@ def world(monkeypatch: pytest.MonkeyPatch) -> dict[str, list]:
     return sessions
 
 
-def _muter(config: MuteAppsConfig) -> WinMicMuter:
-    muter = WinMicMuter(config)
+def _muter(config: MuteAppsConfig, store: Path | None = None) -> WinMicMuter:
+    # A private store by default, or every test would read and overwrite the
+    # user's real parked restores.
+    muter = WinMicMuter(config, store=store or Path(tempfile.mkdtemp()) / "pending.json")
     # Pretend pycaw/comtypes imported cleanly, so the suite runs off Windows.
     muter._ready = True  # noqa: SLF001
     return muter
@@ -328,3 +333,70 @@ def test_a_disabled_feature_touches_nothing(world: dict[str, list]) -> None:
 
     assert muter.available is False
     assert volume.muted is False
+
+
+def test_parked_restore_survives_a_daemon_restart(world, tmp_path: Path) -> None:
+    """Windows pamięta stan miksera per aplikacja, więc zgubione przywrócenie
+    zostawia aplikację cichą w każdej kolejnej sesji — restart demona nie może
+    go kasować."""
+    store = tmp_path / "pending.json"
+    spotify = _Volume(level=1.0)
+    world["playback"].append(_session(10, "Spotify.exe", spotify))
+    muter = _muter(MuteAppsConfig(apps=(), duck_to=0.5), store=store)
+    muter.mute()
+    world["playback"].clear()  # sesja znika w trakcie dyktowania
+    muter.unmute()
+    assert store.exists()
+
+    reborn = _muter(MuteAppsConfig(apps=(), duck_to=0.5), store=store)
+    fresh = _Volume(level=0.5)  # urodzona cicha
+    world["playback"].append(_session(11, "Spotify.exe", fresh))
+    reborn.mute()
+
+    # Naprawiona do 100% PRZED ściszeniem, więc ścisza z prawdziwego oryginału:
+    # 1.0 * 0.5, a nie 0.5 * 0.5.
+    assert fresh.level == pytest.approx(0.5), "ściszono z już ściszonej wartości"
+    reborn.unmute()
+    assert fresh.level == pytest.approx(1.0)
+    assert not store.exists(), "plik został po zastosowaniu przywrócenia"
+
+
+def test_parked_unmute_survives_a_daemon_restart(world, tmp_path: Path) -> None:
+    store = tmp_path / "pending.json"
+    mic = _Volume()
+    world["capture"].append(_session(20, "Discord.exe", mic))
+    muter = _muter(MuteAppsConfig(apps=("Discord",), duck_enabled=False), store=store)
+    muter.mute()
+    world["capture"].clear()
+    muter.unmute()
+    assert json.loads(store.read_text())["unmutes"]
+
+    reborn = _muter(MuteAppsConfig(apps=("Discord",), duck_enabled=False), store=store)
+    back = _Volume(muted=True)
+    world["capture"].append(_session(21, "Discord.exe", back))
+    reborn.mute()
+
+    assert back.mute_writes[0] is False, "mikrofon został wyciszony na stałe"
+
+
+def test_already_quiet_session_is_not_ducked_further(world) -> None:
+    quiet = _Volume(level=0.15)
+    world["playback"].append(_session(30, "Spotify.exe", quiet))
+    muter = _muter(MuteAppsConfig(apps=(), duck_to=0.6))
+
+    muter.mute()
+
+    assert quiet.level == pytest.approx(0.15)
+
+
+def test_corrupt_pending_file_does_not_block_dictation(world, tmp_path: Path) -> None:
+    store = tmp_path / "pending.json"
+    store.write_text("{nie json", encoding="utf-8")
+    loud = _Volume(level=1.0)
+    world["playback"].append(_session(40, "Spotify.exe", loud))
+
+    muter = _muter(MuteAppsConfig(apps=(), duck_to=0.5), store=store)
+    muter.mute()
+
+    assert loud.level == pytest.approx(0.5)
+

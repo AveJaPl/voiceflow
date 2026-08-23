@@ -46,17 +46,26 @@ remembers — and every future session of that app is born quiet, or worse, born
 muted. Restoring therefore never gives up on a dead process id: it falls back to
 any live session of the same executable, and whatever still cannot be reached is
 parked and retried the next time we mute.
+
+Parked entries are written to disk, same file and same reasoning as the Linux
+module: the daemon restarting is exactly as fatal to them as forgetting them
+would be, and the mixer state they are meant to undo outlives both. Ducking
+also stops at a floor — an application already this quiet gains nothing from
+going lower and has everything to lose if that value is the one Windows keeps.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import queue
 import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from pathlib import Path
 
 from voiceflow.config import MuteAppsConfig
+from voiceflow.paths import pending_restores_file
 
 LOGGER = logging.getLogger(__name__)
 
@@ -73,6 +82,9 @@ _SWEEP_INTERVAL = 0.5
 #: Master volume is a float32 round-trip, so an exact comparison would fight
 #: the last bit of every value we ourselves wrote.
 _DUCK_TOLERANCE = 0.01
+#: Below this level nothing is ducked further. Inaudible either way, and if the
+#: restore ever goes missing, this is the value Windows keeps for the app.
+DUCK_FLOOR = 0.2
 
 
 class _AudioThread:
@@ -256,8 +268,11 @@ def _forms(name: str) -> set[str]:
 class WinMicMuter:
     """Mute the configured apps' microphones and duck playback, then undo it."""
 
-    def __init__(self, config: MuteAppsConfig) -> None:
+    def __init__(self, config: MuteAppsConfig, *, store: Path | None = None) -> None:
         self.config = config
+        #: Where parked entries live; injectable so tests stay out of the
+        #: user's data directory.
+        self._store = store
         #: process id -> executable, for capture sessions muted by us. Only what
         #: we muted is unmuted later: a user who muted themselves in Discord by
         #: hand owns that state and it must survive a dictation.
@@ -267,6 +282,7 @@ class WinMicMuter:
         #: Apps whose restore found no live session, retried on the next mute.
         self._pending_unmutes: dict[str, str] = {}
         self._pending_restores: dict[str, tuple[str, float]] = {}
+        self._load_pending()
         #: The thread re-ducking sessions born loud mid-recording, if running.
         self._watcher: threading.Thread | None = None
         self._stop_watching_now = threading.Event()
@@ -376,6 +392,7 @@ class WinMicMuter:
                     app,
                 )
                 self._pending_unmutes[app.casefold()] = app
+                self._save_pending()
 
     @staticmethod
     def _unmute_by_app(app: str) -> bool:
@@ -422,6 +439,14 @@ class WinMicMuter:
                 continue
             if current <= 0.0:
                 # Already silent; nothing to take away and nothing to restore.
+                continue
+            if current < DUCK_FLOOR:
+                LOGGER.debug(
+                    "%s gra już na %.0f%%; nie ściszam poniżej podłogi %.0f%%",
+                    session.app,
+                    current * 100,
+                    DUCK_FLOOR * 100,
+                )
                 continue
             target = round(current * factor, 2)
             if target >= current:
@@ -477,6 +502,7 @@ class WinMicMuter:
                     entry.app,
                 )
                 self._pending_restores[entry.app.casefold()] = (entry.app, entry.original)
+                self._save_pending()
 
     @staticmethod
     def _restore_by_app(app: str, original: float) -> bool:
@@ -534,9 +560,81 @@ class WinMicMuter:
 
     def _retry_pending(self) -> None:
         """Fix apps whose restore failed because their session had gone."""
+        changed = False
         for key, app in list(self._pending_unmutes.items()):
             if self._unmute_by_app(app):
                 del self._pending_unmutes[key]
+                changed = True
         for key, (app, original) in list(self._pending_restores.items()):
             if self._restore_by_app(app, original):
                 del self._pending_restores[key]
+                changed = True
+        if changed:
+            self._save_pending()
+
+    # -- parked entries on disk -----------------------------------------------
+
+    def _store_path(self) -> Path | None:
+        if self._store is not None:
+            return self._store
+        try:
+            return pending_restores_file()
+        except OSError as exc:
+            LOGGER.warning("Brak katalogu na odłożone przywrócenia: %s", exc)
+            return None
+
+    def _load_pending(self) -> None:
+        """Read what a previous daemon run could not put right.
+
+        Anything unreadable counts as nothing parked: a corrupt file must not
+        stop dictation, and the worst it costs is one quiet application.
+        """
+        path = self._store_path()
+        if path is None:
+            return
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return
+        except (OSError, ValueError) as exc:
+            LOGGER.warning("Nie można odczytać odłożonych przywróceń: %s", exc)
+            return
+        if not isinstance(raw, dict):
+            return
+        for key, value in (raw.get("restores") or {}).items():
+            try:
+                app, volume = str(value["app"]), float(value["volume"])
+            except (TypeError, KeyError, ValueError):
+                continue
+            if app and 0.0 < volume <= 1.0:
+                self._pending_restores[str(key)] = (app, volume)
+        for key, app in (raw.get("unmutes") or {}).items():
+            if isinstance(app, str) and app:
+                self._pending_unmutes[str(key)] = app
+        if self._pending_restores or self._pending_unmutes:
+            LOGGER.info(
+                "Wczytano %d odłożonych przywróceń z poprzedniej sesji",
+                len(self._pending_restores) + len(self._pending_unmutes),
+            )
+
+    def _save_pending(self) -> None:
+        """Persist parked entries via a temp file, so a crash cannot leave half a list."""
+        path = self._store_path()
+        if path is None:
+            return
+        payload = {
+            "restores": {
+                key: {"app": app, "volume": volume}
+                for key, (app, volume) in self._pending_restores.items()
+            },
+            "unmutes": dict(self._pending_unmutes),
+        }
+        try:
+            if not payload["restores"] and not payload["unmutes"]:
+                path.unlink(missing_ok=True)
+                return
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp.replace(path)
+        except OSError as exc:
+            LOGGER.warning("Nie można zapisać odłożonych przywróceń: %s", exc)

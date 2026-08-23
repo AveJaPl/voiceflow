@@ -228,7 +228,11 @@ class MicMuter:
         if not isinstance(raw, dict):
             return {}
         parked: dict[str, tuple[str, float]] = {}
-        for key, value in raw.items():
+        # Same file as the Windows backend, which also parks mic unmutes under
+        # "unmutes"; PipeWire never loses a mute this way, so only "restores"
+        # matter here. A flat dict is the shape this module wrote before.
+        entries = raw.get("restores") if isinstance(raw.get("restores"), dict) else raw
+        for key, value in entries.items():
             try:
                 app = str(value["app"])
                 volume = float(value["volume"])
@@ -251,11 +255,13 @@ class MicMuter:
         if path is None:
             return
         payload = {
-            key: {"app": app, "volume": volume}
-            for key, (app, volume) in self._pending_restores.items()
+            "restores": {
+                key: {"app": app, "volume": volume}
+                for key, (app, volume) in self._pending_restores.items()
+            }
         }
         try:
-            if not payload:
+            if not payload["restores"]:
                 path.unlink(missing_ok=True)
                 return
             tmp = path.with_name(path.name + ".tmp")
@@ -324,7 +330,7 @@ class MicMuter:
             if original is None or original <= 0.0:
                 # Unreadable, or already silent and nothing to take away.
                 continue
-            if original <= DUCK_FLOOR:
+            if original < DUCK_FLOOR:
                 # Already barely audible. Taking more away is inaudible anyway,
                 # and if this restore is the one that goes missing, this is the
                 # value the app is stuck with from now on.

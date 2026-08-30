@@ -1,0 +1,16 @@
+.git
+.venv
+__pycache__
+*.pyc
+android
+ios
+macos
+windows
+app
+site
+relay
+rooms
+docs
+tests
+tmp
+.github

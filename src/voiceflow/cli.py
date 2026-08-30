@@ -66,6 +66,11 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "download-model", help="pobierz model mowy z paskiem postępu (używane przez instalator)"
     )
+    serve = subparsers.add_parser(
+        "serve", help="serwer HTTP transkrypcji (konfiguracja zmiennymi VOICEFLOW_*)"
+    )
+    serve.add_argument("--host", default=None)
+    serve.add_argument("--port", type=int, default=None)
     return parser
 
 
@@ -327,6 +332,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _print_update()
     if arguments.command == "room":
         return _room_command(arguments)
+    if arguments.command == "serve":
+        # Serwer nie czyta config.yaml — wszystko ze środowiska, jak w kontenerze.
+        from voiceflow.server.app import main as serve_main
+
+        argv_serve: list[str] = []
+        if arguments.host:
+            argv_serve += ["--host", arguments.host]
+        if arguments.port:
+            argv_serve += ["--port", str(arguments.port)]
+        return serve_main(argv_serve)
     try:
         config = load_config()
     except RuntimeError as exc:

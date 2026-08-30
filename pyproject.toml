@@ -57,8 +57,12 @@ voiceflow = "voiceflow.cli:main"
 [project.gui-scripts]
 voiceflow-app = "voiceflow.gui.app:main"
 
+[project.optional-dependencies]
+# `voiceflow serve` — serwer HTTP transkrypcji (Docker na VM), bez pulpitu.
+server = ["fastapi", "uvicorn", "python-multipart"]
+
 [dependency-groups]
-dev = ["pytest"]
+dev = ["pytest", "httpx"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/voiceflow"]

@@ -54,6 +54,21 @@ model:
 powershell -NoProfile -ExecutionPolicy Bypass -File windows\install-local.ps1
 ```
 
+**How the installer is put together.** `install.ps1` is only the bootstrap: it
+stops the running copy, downloads the latest release and hands over to
+`windows\finish-install.ps1` *inside the downloaded tree*, which does everything
+after that — environment, launcher repair, shortcuts, model, check, daemon. The
+bootstrap is always read from `main` while the tree is a release, and the two
+can be weeks apart; the second half travelling with the code is what keeps a
+release installing with the steps it shipped with. A release cut before that
+file existed is skipped for `main`. `install-local.ps1` ends in the same file.
+To install a branch or tag instead of the release, name it in `VOICEFLOW_REF`:
+
+```powershell
+$env:VOICEFLOW_REF = "main"
+irm https://raw.githubusercontent.com/AveJaPl/voiceflow/main/windows/install.ps1 | iex
+```
+
 **Why the launcher is repaired after `uv sync`.** uv builds
 `.venv\Scripts\pythonw.exe` as a trampoline that re-launches the *console*
 interpreter of the base installation, and a console program whose parent has no

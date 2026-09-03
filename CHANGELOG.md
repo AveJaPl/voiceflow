@@ -235,6 +235,22 @@ Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[
 - **[Windows]** `f13`–`f24` are accepted in `hotkey.binding`. They are on no
   physical keyboard, which makes them the one class of shortcut nothing else
   can claim: remap Caps Lock to F13 and dictation is a single keypress.
+- **[Windows]** The installer installs again. When the two installers were given
+  a shared half on 17 August, `install.ps1` started reaching into the tree it
+  had just downloaded for `windows\common.ps1` — but that script is read from
+  `main`, the tree is the latest release, and the release predates the file. So
+  every install since ended, right after `uv sync`, with *common.ps1 is not
+  recognized as the name of a cmdlet*. The bootstrap now needs exactly one thing
+  from the tree it downloads: `windows\finish-install.ps1`, the second half of
+  the install (environment, launcher repair, shortcuts, model, check, daemon),
+  which travels with the code, so a release keeps installing with the steps it
+  shipped with. A release cut before that file existed is skipped for `main`,
+  where the bootstrap itself comes from. `install-local.ps1` ends in the same
+  file, so it now downloads the model and verifies the install too. The second
+  half runs in a PowerShell of its own with the execution policy bypassed, so
+  `irm … | iex` pasted into a stock PowerShell works whatever the machine's
+  policy, as it did before the split. `VOICEFLOW_REF` names a branch or tag to
+  install instead of the release.
 
 ## 0.4.0 — 2026-08-10
 

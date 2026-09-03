@@ -34,23 +34,7 @@ robocopy $Source $Dest /MIR /XD $Excluded /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "robocopy zakonczyl sie kodem $LASTEXITCODE" }
 $global:LASTEXITCODE = 0
 
-Write-Host "==> Syncing the Python environment (uv)" -ForegroundColor Cyan
-if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-    $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
-}
-Push-Location $Dest
-uv sync
-Pop-Location
-
-Write-Host "==> Making the windowless launcher windowless" -ForegroundColor Cyan
-Repair-VenvLauncher -Dest $Dest
-
-Write-Host "==> Creating Start Menu entry and autostart" -ForegroundColor Cyan
-Set-VoiceflowShortcuts -Dest $Dest
-
-Write-Host "==> Starting the daemon" -ForegroundColor Cyan
-$Pythonw = Join-Path $Dest ".venv\Scripts\pythonw.exe"
-Start-Process -FilePath $Pythonw -ArgumentList "-m voiceflow daemon" -WorkingDirectory $Dest
-
-Write-Host ""
-Write-Host "Done. Start Menu -> voiceflow opens this checkout's window." -ForegroundColor Green
+# The same second half as after a download - the copy's own, so the checkout
+# installs with the steps it carries.
+& (Join-Path $Dest "windows\finish-install.ps1")
+Write-Host "Start Menu -> voiceflow opens this checkout's window." -ForegroundColor Green

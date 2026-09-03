@@ -1,6 +1,8 @@
-# Shared by install.ps1 (downloads a release) and install-local.ps1 (installs
-# this working copy). Both end the same way: a venv that starts without a
-# console window, and the two shortcuts that use it.
+# Helpers for the Windows installers: finish-install.ps1, the second half both
+# installs end in (a venv that starts without a console window, and the two
+# shortcuts that use it), and install-local.ps1, which stops the running copy
+# before it copies. install.ps1 - the bootstrap, always read from main - keeps
+# out of this file on purpose; see the note there.
 
 function Stop-Voiceflow {
     <#

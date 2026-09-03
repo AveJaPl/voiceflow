@@ -13,7 +13,8 @@
 # install broke between 17 August and this fix: main had the file, the release
 # did not.)
 #
-# Installs the latest release. VOICEFLOW_REF names a branch or tag to install
+# Installs the newest source release (tagged v0.5.0 and the like; the mac-v*
+# tags are the macOS build). VOICEFLOW_REF names a branch or tag to install
 # instead:
 #   $env:VOICEFLOW_REF = "main"; irm https://raw.githubusercontent.com/AveJaPl/voiceflow/main/windows/install.ps1 | iex
 $ErrorActionPreference = "Stop"
@@ -44,8 +45,23 @@ Write-Host "==> Downloading voiceflow" -ForegroundColor Cyan
 if ($env:VOICEFLOW_REF) {
     $Ref = $env:VOICEFLOW_REF
 } else {
-    try { $Ref = (Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest").tag_name }
-    catch { $Ref = "main" }   # no release yet, or the API is rate-limited
+    # Releases are per platform: macOS gets a packaged build tagged mac-v0.6.0,
+    # everyone else runs the source release tagged v0.5.0. /latest returns
+    # whichever was published last, so the list is asked and filtered - the way
+    # the daemon's own update check does it (src/voiceflow/updates.py).
+    try {
+        # Parenthesised: piped straight out of Invoke-RestMethod, Windows PowerShell
+        # hands the JSON array down as one object and nothing matches.
+        $Ref = (Invoke-RestMethod "https://api.github.com/repos/$Repo/releases?per_page=100") |
+            Where-Object { -not $_.prerelease -and $_.tag_name -match "^v?\d" } |
+            Sort-Object {
+                $Version = ($_.tag_name -replace "^v", "") -replace "[^\d.].*$", ""
+                if ($Version -notmatch "\.") { $Version += ".0" }
+                [version]$Version
+            } -Descending |
+            Select-Object -First 1 -ExpandProperty tag_name
+        if (-not $Ref) { $Ref = "main" }   # no source release yet
+    } catch { $Ref = "main" }   # the API is rate-limited or unreachable
     # A release cut before finish-install.ps1 existed cannot be installed by this
     # bootstrap. main can: it is where the bootstrap itself comes from, so the
     # two agree by construction.

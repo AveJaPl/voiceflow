@@ -251,6 +251,14 @@ Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[
   `irm … | iex` pasted into a stock PowerShell works whatever the machine's
   policy, as it did before the split. `VOICEFLOW_REF` names a branch or tag to
   install instead of the release.
+- **[Windows]** The installer asks for the newest release *for Windows*.
+  Releases are per platform — macOS ships a packaged build tagged `mac-v0.6.0`,
+  everyone else runs the source release tagged `v0.5.0` — and the installer
+  trusted `/releases/latest`, which returns whichever was published last. On a
+  Windows machine that named a macOS tag, and a mac build published after a
+  source release would have quietly installed the older tree. The release list
+  is now filtered by tag the way the daemon's own update check filters it, so
+  the two agree on what "latest" means.
 
 ## 0.4.0 — 2026-08-10
 

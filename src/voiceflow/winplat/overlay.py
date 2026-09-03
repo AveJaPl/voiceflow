@@ -156,6 +156,45 @@ class WinOverlay:
         except ImportError:
             LOGGER.warning("Brak tkintera — okno podglądu wyłączone")
             return
+        # Two kinds of thread-bound objects share this process with the cyclic
+        # garbage collector, which runs on whichever thread happens to cross
+        # its threshold - and the burst of imports below is the most reliable
+        # trigger in the daemon.
+        #
+        # Core Audio pointers (pycaw/comtypes) are made on the MTA audio thread
+        # and freed by that collector wherever it runs. Tk puts the thread it
+        # is created on into a single-threaded apartment, and releasing an MTA
+        # pointer from an STA is an access violation inside the collector. So
+        # this thread joins the MTA first: with no STA left in the process, a
+        # late Release is in-apartment wherever it lands. Tk tolerates the
+        # changed mode - it wants OLE for drag-and-drop and the clipboard,
+        # neither of which a borderless label uses.
+        try:
+            import comtypes
+
+            comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)
+        except (ImportError, OSError):
+            pass
+        try:
+            self._pump(tkinter, previous)
+        finally:
+            # The other kind: Tk objects may only be finalized by the thread
+            # that made them, or Tcl aborts the process with "async handler
+            # deleted by the wrong thread". They are unreferenced now that
+            # _pump has returned and its frame is gone, but widgets hold each
+            # other in cycles, so it takes a collection to free them - done
+            # here, on their own thread, before any other thread's collector
+            # can find them.
+            import gc
+
+            gc.collect()
+
+    def _pump(self, tkinter, previous: int) -> None:  # pragma: no cover - needs a display
+        """Build the card, run its loop, and return once it has been destroyed.
+
+        Every Tk object lives in this frame and nowhere else, which is what
+        lets :meth:`_run` collect them on this thread the moment it returns.
+        """
         root = tkinter.Tk()
         root.withdraw()
         root.overrideredirect(True)

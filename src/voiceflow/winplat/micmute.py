@@ -113,25 +113,37 @@ class _AudioThread:
 
     def _run(self) -> None:
         import comtypes
+        import gc
 
         try:
-            # Multi-threaded, not the CoInitialize() default. In a
-            # single-threaded apartment a pointer may only be released by the
-            # thread that made it — and pycaw's session objects land in
-            # reference cycles, so they are freed by the cyclic collector on
-            # whatever thread happens to run it. That cross-apartment Release
-            # is an access violation, raised inside the collector, unrelated to
-            # anything in the traceback. Objects in the MTA can be released
-            # from any thread, which makes late collection harmless.
+            # Multi-threaded, not the CoInitialize() default: a pointer made in
+            # a single-threaded apartment may only be used by that one thread,
+            # and this thread is the only one meant to touch Core Audio at all.
+            # The MTA does not, however, make a late Release from some other
+            # thread safe - a thread that never joined an apartment faults just
+            # the same - which is why the loop below collects the job's garbage
+            # here before answering.
             comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)
         except OSError as exc:
             LOGGER.warning("Nie można wejść w apartament MTA: %s", exc)
         while True:
             function, reply = self._jobs.get()
             try:
-                reply.put((True, function()))
+                result = (True, function())
             except BaseException as exc:  # noqa: BLE001 - handed to the caller
-                reply.put((False, exc))
+                result = (False, exc)
+            # pycaw returns Core Audio pointers that land in reference cycles
+            # only the cyclic collector frees - and freeing a COM pointer from
+            # any thread but the MTA one that made it is an access violation
+            # raised deep inside the collector, on whatever unrelated thread it
+            # ran on (an onnxruntime import, a transcription worker, the overlay
+            # starting up). The job's own frame is gone now, so those pointers
+            # are unreachable; collect them here, on this thread, before handing
+            # the reply back. This thread holds the GIL unbroken from the job's
+            # return to this call, so no other thread's collector can reach them
+            # first. The Release then always runs in the apartment that owns it.
+            gc.collect()
+            reply.put(result)
 
     def call(self, function: Callable[[], object], timeout: float) -> object:
         reply: queue.Queue = queue.Queue(1)

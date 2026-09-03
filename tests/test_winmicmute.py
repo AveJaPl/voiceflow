@@ -400,3 +400,42 @@ def test_corrupt_pending_file_does_not_block_dictation(world, tmp_path: Path) ->
 
     assert loud.level == pytest.approx(0.5)
 
+
+
+def test_the_core_audio_thread_collects_its_garbage_before_it_answers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """pycaw's pointers land in cycles; freed by another thread's collector, a
+    COM Release is an access violation. So the Core Audio thread must collect
+    them itself, and must do so before the caller gets its reply."""
+    import gc
+    import sys
+    import threading
+    import types
+
+    monkeypatch.setitem(
+        sys.modules,
+        "comtypes",
+        types.SimpleNamespace(COINIT_MULTITHREADED=0, CoInitializeEx=lambda flags: None),
+    )
+    collected_on: list[str] = []
+    real_collect = gc.collect
+
+    def recording_collect(*args, **kwargs):
+        collected_on.append(threading.current_thread().name)
+        return real_collect(*args, **kwargs)
+
+    monkeypatch.setattr(gc, "collect", recording_collect)
+
+    thread = micmute._AudioThread()
+
+    assert thread.call(lambda: 42, timeout=5) == 42
+    assert collected_on.count("voiceflow-coreaudio") == 1
+
+    def explode() -> None:
+        raise RuntimeError("Core Audio is having a day")
+
+    with pytest.raises(RuntimeError):
+        thread.call(explode, timeout=5)
+    # A failing job leaves the same garbage behind and is collected the same way.
+    assert collected_on.count("voiceflow-coreaudio") == 2

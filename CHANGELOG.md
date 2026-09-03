@@ -2,6 +2,27 @@
 
 Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[Web]**
 
+## Unreleased
+
+- **[Windows]** The daemon no longer dies on the second dictation. Two kinds of
+  thread-bound objects share the process with Python's cyclic garbage collector,
+  which runs on whichever thread happens to cross its allocation threshold.
+  Core Audio pointers (pycaw/comtypes) are made on the one MTA thread allowed to
+  talk to Core Audio, but pycaw leaves them in reference cycles, so they were
+  freed wherever the collector ran next — a transcription worker, an
+  `onnxruntime` import, the overlay starting up — and releasing a COM pointer
+  from a thread outside its apartment is an access violation raised inside the
+  collector, with nothing in the trace pointing at audio. The `tcl86t.dll` crash
+  Windows reported was the same trap the other way round: the overlay's Tk
+  objects finalized by a foreign thread's collection, which Tcl answers with
+  *async handler deleted by the wrong thread*. The Core Audio thread now
+  collects its own garbage right after each job, before it answers, holding the
+  GIL throughout so no other thread's collector can get there first; the overlay
+  thread does the same for its Tk objects when the card closes, and joins the
+  MTA before Tk so a stray COM release on it would be in-apartment anyway.
+  Reproduced with twenty dictation cycles that used to kill the daemon on the
+  first or second; none do now.
+
 ## 0.6.0 — 2026-09-03
 
 - **[All]** Only one daemon can start, including during the half-minute the

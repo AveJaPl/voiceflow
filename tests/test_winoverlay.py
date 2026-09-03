@@ -74,3 +74,87 @@ def test_foreground_window_survives_a_missing_desktop(monkeypatch):
     monkeypatch.setattr(overlay, "_user32", explode)
 
     assert overlay.foreground_window() == 0
+
+
+class _FakeWidget:
+    """A Tk widget that accepts anything and answers with numbers where asked."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    def __getattr__(self, name: str):
+        if name.startswith("winfo_"):
+            return lambda *a, **k: 64
+        return lambda *a, **k: None
+
+
+class _FakeRoot(_FakeWidget):
+    """Just enough Tk root: an ``after`` queue and a ``mainloop`` that drains it."""
+
+    def __init__(self) -> None:
+        self.pending: list = []
+        self.destroyed = False
+
+    def after(self, _ms: int, callback) -> None:
+        self.pending.append(callback)
+
+    def destroy(self) -> None:
+        self.destroyed = True
+
+    def mainloop(self) -> None:
+        import time
+
+        while not self.destroyed:
+            callbacks, self.pending = self.pending, []
+            for callback in callbacks:
+                callback()
+            time.sleep(0.005)
+
+
+def test_the_card_thread_joins_the_mta_before_tk_and_collects_its_own_widgets(
+    monkeypatch,
+) -> None:
+    """Both kinds of thread-bound objects in the daemon are handled on the card's
+    thread: COM's apartment is joined before Tk can pick a single-threaded one,
+    and the widgets are collected here, once the card is down, so no other
+    thread's collector ever finalizes them (Tcl aborts the process if one does)."""
+    import gc
+    import sys
+    import threading
+    import types
+
+    from voiceflow.config import OverlayConfig
+
+    events: list[tuple[str, str]] = []
+
+    def note(kind: str) -> None:
+        events.append((kind, threading.current_thread().name))
+
+    monkeypatch.setitem(
+        sys.modules,
+        "comtypes",
+        types.SimpleNamespace(COINIT_MULTITHREADED=0, CoInitializeEx=lambda flags: note("mta")),
+    )
+
+    def fake_tk() -> _FakeRoot:
+        note("tk")
+        return _FakeRoot()
+
+    monkeypatch.setitem(
+        sys.modules, "tkinter", types.SimpleNamespace(Tk=fake_tk, Frame=_FakeWidget, Label=_FakeWidget)
+    )
+    real_collect = gc.collect
+
+    def recording_collect(*args, **kwargs):
+        note("gc")
+        return real_collect(*args, **kwargs)
+
+    monkeypatch.setattr(gc, "collect", recording_collect)
+
+    card = overlay.WinOverlay(OverlayConfig(enabled=True))
+    card.start("listening")
+    card.stop()
+
+    on_card_thread = [kind for kind, thread in events if thread == "voiceflow-overlay"]
+    assert on_card_thread == ["mta", "tk", "gc"]
+    assert not card.is_running

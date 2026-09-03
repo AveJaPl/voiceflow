@@ -2,7 +2,7 @@
 
 Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[Web]**
 
-## Unreleased
+## 0.6.1 — 2026-09-03
 
 - **[Windows]** The daemon no longer dies on the second dictation. Two kinds of
   thread-bound objects share the process with Python's cyclic garbage collector,

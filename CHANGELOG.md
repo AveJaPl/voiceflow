@@ -2,17 +2,8 @@
 
 Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[Web]**
 
-## 0.5.0 — 2026-08-14
+## 0.6.0 — 2026-09-03
 
-- **[Windows]** Music stays quiet for the whole dictation. Ducking used to be a
-  single pass over the audio sessions that existed when the hotkey was pressed,
-  and a session is born at the application's own volume — so when Spotify moved
-  to the next track mid-sentence, the new song came back at full blast, and
-  anything that only started playing after the hotkey was never turned down at
-  all. The ducked applications are now re-checked every half second until the
-  recording ends: a stream found above its target is pushed back down, a new
-  application is ducked like any other, and the level restored afterwards is
-  still the one the user had set before dictating.
 - **[All]** Only one daemon can start, including during the half-minute the
   first one spends loading its model. The old guard asked whether anything was
   answering the control channel — but that channel is opened at the *end* of
@@ -98,7 +89,117 @@ Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[
 - **[Windows]** The icons the GTK application takes from the desktop icon theme
   are drawn as vector strokes instead, since Windows has no icon theme to borrow
   from: sharp at any scale, and the same colour as the text beside them.
+- **[Windows]** The installer installs again. When the two installers were given
+  a shared half on 17 August, `install.ps1` started reaching into the tree it
+  had just downloaded for `windows\common.ps1` — but that script is read from
+  `main`, the tree is the latest release, and the release predates the file. So
+  every install since ended, right after `uv sync`, with *common.ps1 is not
+  recognized as the name of a cmdlet*. The bootstrap now needs exactly one thing
+  from the tree it downloads: `windows\finish-install.ps1`, the second half of
+  the install (environment, launcher repair, shortcuts, model, check, daemon),
+  which travels with the code, so a release keeps installing with the steps it
+  shipped with. A release cut before that file existed is skipped for `main`,
+  where the bootstrap itself comes from. `install-local.ps1` ends in the same
+  file, so it now downloads the model and verifies the install too. The second
+  half runs in a PowerShell of its own with the execution policy bypassed, so
+  `irm … | iex` pasted into a stock PowerShell works whatever the machine's
+  policy, as it did before the split. `VOICEFLOW_REF` names a branch or tag to
+  install instead of the release.
+- **[Windows]** The installer asks for the newest release *for Windows*.
+  Releases are per platform — macOS ships a packaged build tagged `mac-v0.6.0`,
+  everyone else runs the source release tagged `v0.5.0` — and the installer
+  trusted `/releases/latest`, which returns whichever was published last. On a
+  Windows machine that named a macOS tag, and a mac build published after a
+  source release would have quietly installed the older tree. The release list
+  is now filtered by tag the way the daemon's own update check filters it, so
+  the two agree on what "latest" means.
+- **[All]** A volume turned down for dictation is turned back up even when the
+  daemon was restarted in between. A restore lost when the daemon shut down was
+  not postponed, it was permanent: WirePlumber remembers volume per application
+  name and Windows keeps mixer state per application, so every later stream was
+  born quiet and the next ducking multiplied the already lowered value again —
+  Chromium was found saved at 0.6³ = 22% of the slider after three dictations
+  without a restore. Pending restores of volume, and on Windows of the
+  microphone unmute, are now written to `pending-restores.json` (one format for
+  both platforms) and replayed at startup; a damaged entry is skipped. A stream
+  already playing below 20% is not ducked any further — nothing to be gained by
+  ear, and it limits the damage should a restore still go missing.
+- **[Linux]** A track change no longer brings the music back at full volume.
+  Spotify keeps the same PipeWire node between tracks but sets its volume anew
+  (measured live: 0.10 → 0.41 within a second), and the guard skipped nodes it
+  had already ducked. They are pushed back down like any other.
+- **[All]** Rooms have a mode: *together* or *remote*. Together — everyone in one
+  physical room, so there is one microphone for all, because two people speaking
+  at once record each other. Remote — everyone somewhere else, where a queue for
+  the microphone would be nothing but an obstacle, so the room stays a shared
+  board and stops being a lock. Existing rooms stay *together*: that is how every
+  room behaved before, and changing an existing room's behaviour has to be
+  someone's decision. Switching is live — entering remote mode releases the
+  microphone at once — and the mode travels in the `hello`, so the daemon knows
+  from the first message whether to respect the queue.
+- **[All]** A room no longer shows someone dictating forever after their link
+  dropped. The link could fail exactly between the end of speaking and the
+  delivery of `speaking_ended`; the unconditional heartbeat every 3 s then kept
+  the entry alive (the server reads a heartbeat as *still speaking*), and the
+  client saw *itself* as somebody else's dictation and blocked its own shortcut
+  until the daemon was restarted. The heartbeat is sent only while this machine
+  is dictating (a lost end expires on the server after 10 s), and a client that
+  is not speaking releases the floor blindly when the link returns — a no-op for
+  the server unless our stale entry is what it holds. Same on macOS.
+- **[All]** Whisper's hallucinated farewells are cut. Trained on YouTube
+  subtitles, the model appends *Dziękuję za oglądanie* and the like to trailing
+  silence. Only known phrases are removed, only from the end, and only when the
+  segment's metadata (`no_speech_prob`, `avg_logprob`) betrays an invention — a
+  *dziękuję* that was actually said stays. With incremental transcription the
+  end of *every* chunk is a stretch of silence, so the filter sits in the decode
+  step and covers both passes.
+- **[All]** The update check asks for the newest release *for this platform*.
+  Releases are per platform — `mac-v0.6.0` is the macOS build, `v0.5.0` the
+  source release everyone else runs — and `/releases/latest` returns whichever
+  was published last, so a mac build published after the last source release
+  announced itself to Linux as an update to 0.6.0 that did not exist and could
+  not be installed, at every login. The release list is filtered by tag instead;
+  no release for this platform means silence, not a message. A cache written by
+  the previous version of the check is discarded, so the false message does not
+  survive until the next daily check.
+- **[All]** `voiceflow serve` exposes the same transcriber over HTTP (FastAPI)
+  under `/api`: `POST /api/v1/transcribe` takes a browser recording,
+  `GET /api/health` answers liveness, and a `Dockerfile` packages it. The token
+  in the `Authorization` header is mandatory — the server refuses to start
+  without one, and requests without it are rejected before the body is read.
+  Configured entirely through `VOICEFLOW_*` environment variables; see the
+  README.
+- **[Web]** The room board shows each person's Claude Code usage as a table —
+  name, tokens today, 5 h, 7 d — beside the music tile, under a spark mark drawn
+  in-house (claude.ai's own icon refuses to load cross-origin). Tokens are summed
+  incrementally from the session transcripts with de-duplication by request id;
+  only the numbers ever leave the machine. A machine without a status-bar
+  snapshot (typically Windows and macOS) sends its percentages as null and the
+  board shows a dash rather than an invented 0%.
+- **[All]** Claude Code usage is reported from Windows and macOS as well, not
+  only Linux. Sharing it is on by default — whoever sits in a room plays with
+  open cards — and the switch (privacy settings on Windows, the room section on
+  macOS) is a conscious opt-out, not a condition for starting.
+- **[Web]** Switching rooms on the board clears the previous room's speakers and
+  refreshes the mode indicator; both used to linger until the new room's first
+  message arrived.
+- **[Web]** The landing page fits a phone: no sideways scroll at 375 px (grid
+  columns that would not shrink below the terminal lines, an uncropped hero
+  statue, an overflowing comparison table), the page scrolls all the way to the
+  footer again, and on a phone the footer is a vertical list of links in two
+  justified columns.
 
+## 0.5.0 — 2026-08-14
+
+- **[Windows]** Music stays quiet for the whole dictation. Ducking used to be a
+  single pass over the audio sessions that existed when the hotkey was pressed,
+  and a session is born at the application's own volume — so when Spotify moved
+  to the next track mid-sentence, the new song came back at full blast, and
+  anything that only started playing after the hotkey was never turned down at
+  all. The ducked applications are now re-checked every half second until the
+  recording ends: a stream found above its target is pushed back down, a new
+  application is ducked like any other, and the level restored afterwards is
+  still the one the user had set before dictating.
 - **[All]** Shared dictation rooms. Two people in one room stop talking over each
   other: whoever is speaking blocks the others, and their speaking quietens audio
   on every machine in the room, not just their own. Sessions are measured — who
@@ -235,30 +336,6 @@ Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[
 - **[Windows]** `f13`–`f24` are accepted in `hotkey.binding`. They are on no
   physical keyboard, which makes them the one class of shortcut nothing else
   can claim: remap Caps Lock to F13 and dictation is a single keypress.
-- **[Windows]** The installer installs again. When the two installers were given
-  a shared half on 17 August, `install.ps1` started reaching into the tree it
-  had just downloaded for `windows\common.ps1` — but that script is read from
-  `main`, the tree is the latest release, and the release predates the file. So
-  every install since ended, right after `uv sync`, with *common.ps1 is not
-  recognized as the name of a cmdlet*. The bootstrap now needs exactly one thing
-  from the tree it downloads: `windows\finish-install.ps1`, the second half of
-  the install (environment, launcher repair, shortcuts, model, check, daemon),
-  which travels with the code, so a release keeps installing with the steps it
-  shipped with. A release cut before that file existed is skipped for `main`,
-  where the bootstrap itself comes from. `install-local.ps1` ends in the same
-  file, so it now downloads the model and verifies the install too. The second
-  half runs in a PowerShell of its own with the execution policy bypassed, so
-  `irm … | iex` pasted into a stock PowerShell works whatever the machine's
-  policy, as it did before the split. `VOICEFLOW_REF` names a branch or tag to
-  install instead of the release.
-- **[Windows]** The installer asks for the newest release *for Windows*.
-  Releases are per platform — macOS ships a packaged build tagged `mac-v0.6.0`,
-  everyone else runs the source release tagged `v0.5.0` — and the installer
-  trusted `/releases/latest`, which returns whichever was published last. On a
-  Windows machine that named a macOS tag, and a mac build published after a
-  source release would have quietly installed the older tree. The release list
-  is now filtered by tag the way the daemon's own update check filters it, so
-  the two agree on what "latest" means.
 
 ## 0.4.0 — 2026-08-10
 

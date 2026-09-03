@@ -675,7 +675,7 @@ wheels = [
 
 [[package]]
 name = "voiceflow"
-version = "0.5.0"
+version = "0.6.0"
 source = { editable = "." }
 dependencies = [
     { name = "comtypes", marker = "sys_platform == 'win32'" },

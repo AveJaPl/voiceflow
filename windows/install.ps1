@@ -78,7 +78,10 @@ Write-Host "    $Ref" -ForegroundColor DarkGray
 $Tarball = Join-Path $env:TEMP "voiceflow.tar.gz"
 Invoke-WebRequest -UseBasicParsing "https://api.github.com/repos/$Repo/tarball/$Ref" -OutFile $Tarball
 New-Item -ItemType Directory -Force -Path $Dest | Out-Null
-tar -xzf $Tarball --strip-components=1 -C $Dest
+# System32's bsdtar by name: a GNU tar earlier on PATH (MSYS2, Git's usr\bin)
+# reads C:\... as a remote host and fails to "connect to C".
+& (Join-Path $env:SystemRoot "System32\tar.exe") -xzf $Tarball --strip-components=1 -C $Dest
+if ($LASTEXITCODE -ne 0) { throw "could not unpack $Tarball into $Dest" }
 Remove-Item $Tarball
 
 # From here on the tree decides. Environment, launcher repair, shortcuts, model,

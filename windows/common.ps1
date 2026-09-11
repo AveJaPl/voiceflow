@@ -1,8 +1,63 @@
-# Helpers for the Windows installers: finish-install.ps1, the second half both
-# installs end in (a venv that starts without a console window, and the two
-# shortcuts that use it), and install-local.ps1, which stops the running copy
-# before it copies. install.ps1 - the bootstrap, always read from main - keeps
-# out of this file on purpose; see the note there.
+# Shared by install.ps1 (downloads a release) and install-local.ps1 (installs
+# this working copy). Both end the same way: a venv that starts without a
+# console window, and the two shortcuts that use it.
+
+function Get-VoiceflowProcess {
+    <#
+      Every process of the installed copy, launcher trampolines included.
+
+      Filtering by image path alone misses the important one: uv's launchers
+      re-exec an interpreter that lives in uv's own Python directory, so the
+      process actually running the daemon has a path outside the install and
+      survived every "stop the running copy" this function used to do - holding
+      files open through the update that was meant to replace them. It is always
+      a child of a process that does live here, so the tree is walked from those
+      roots instead. watchdog.ps1 carries its own copy of this on purpose: it
+      must keep working while these very files are being replaced.
+    #>
+    param([Parameter(Mandatory)][string]$Dest)
+
+    $All = Get-CimInstance Win32_Process -Filter "Name='python.exe' or Name='pythonw.exe' or Name='voiceflow.exe' or Name='voiceflow-app.exe'"
+    $Found = @{}
+    $Queue = New-Object System.Collections.Queue
+    foreach ($Process in $All) {
+        if ($Process.ExecutablePath -and $Process.ExecutablePath.StartsWith($Dest, [StringComparison]::OrdinalIgnoreCase)) {
+            $Queue.Enqueue($Process)
+        }
+    }
+    while ($Queue.Count -gt 0) {
+        $Process = $Queue.Dequeue()
+        if ($Found.ContainsKey($Process.ProcessId)) { continue }
+        $Found[$Process.ProcessId] = $Process
+        foreach ($Child in ($All | Where-Object { $_.ParentProcessId -eq $Process.ProcessId })) {
+            $Queue.Enqueue($Child)
+        }
+    }
+    $Found.Values
+}
+
+function Stop-Watchdog {
+    <#
+      The watchdog goes first and stays gone for the whole update: its whole
+      purpose is to start a daemon whenever it does not see one, which during an
+      installation means starting the old copy on top of the new one, out of
+      files that are being replaced.
+    #>
+    param([Parameter(Mandatory)][string]$Root)
+
+    $PidFile = Join-Path $Root "watchdog.pid"
+    if (-not (Test-Path $PidFile)) { return }
+    $WatchdogPid = Get-Content $PidFile -ErrorAction SilentlyContinue | Select-Object -First 1
+    # The file may name a number Windows has since given to somebody else, so
+    # only a process actually running our own script is fair game.
+    if ($WatchdogPid) {
+        $Process = Get-CimInstance Win32_Process -Filter "ProcessId=$WatchdogPid" -ErrorAction SilentlyContinue
+        if ($Process -and $Process.CommandLine -match "watchdog\.ps1") {
+            try { Stop-Process -Id $Process.ProcessId -Force -ErrorAction Stop } catch {}
+        }
+    }
+    Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
+}
 
 function Stop-Voiceflow {
     <#
@@ -11,15 +66,43 @@ function Stop-Voiceflow {
     #>
     param([Parameter(Mandatory)][string]$Dest)
 
+    Stop-Watchdog -Root (Split-Path -Parent $Dest)
     $Existing = Join-Path $Dest ".venv\Scripts\voiceflow.exe"
     if (Test-Path $Existing) {
         try { & $Existing quit 2>$null | Out-Null } catch {}
+        Start-Sleep -Milliseconds 500
     }
-    Get-Process -Name "pythonw", "python" -ErrorAction SilentlyContinue |
-        Where-Object { $_.Path -and $_.Path.StartsWith($Dest, [StringComparison]::OrdinalIgnoreCase) } |
-        ForEach-Object {
-            try { $_.Kill(); [void]$_.WaitForExit(5000) } catch {}
-        }
+    foreach ($Process in (Get-VoiceflowProcess -Dest $Dest)) {
+        try {
+            $Handle = Get-Process -Id $Process.ProcessId -ErrorAction Stop
+            $Handle.Kill()
+            [void]$Handle.WaitForExit(5000)
+        } catch {}
+    }
+}
+
+function Install-Watchdog {
+    <#
+      The watchdog lives beside the data, not in the installed copy, so that an
+      update can replace every file of the application without pulling the
+      script out from under the loop that is running it.
+    #>
+    param([Parameter(Mandatory)][string]$Dest, [Parameter(Mandatory)][string]$Root)
+
+    foreach ($Name in @("watchdog.ps1", "watchdog-hidden.vbs")) {
+        Copy-Item (Join-Path $Dest "windows\$Name") (Join-Path $Root $Name) -Force
+    }
+}
+
+function Start-Watchdog {
+    <#
+      Through the .vbs, so this start is the same windowless one the Startup
+      shortcut performs at every logon.
+    #>
+    param([Parameter(Mandatory)][string]$Root)
+
+    $Vbs = Join-Path $Root "watchdog-hidden.vbs"
+    Start-Process -FilePath (Join-Path $env:SystemRoot "System32\wscript.exe") -ArgumentList "`"$Vbs`"" -WorkingDirectory $Root
 }
 
 function Repair-VenvLauncher {
@@ -82,8 +165,10 @@ function Set-VoiceflowShortcuts {
         Start Menu -> the desktop window, because that is what clicking an app
                       icon must do. Pointing it at the daemon meant clicking it
                       did nothing at all once the daemon was already running.
-        Startup    -> the daemon, headless, through pythonw.exe so no console
-                      exists to flash or to hide.
+        Startup    -> the watchdog, which starts the daemon and keeps starting
+                      it: the daemon can die or wedge, and a dictation shortcut
+                      that has silently stopped working is worse than none.
+                      Windows has no systemd Restart=on-failure to ask for.
     #>
     param([Parameter(Mandatory)][string]$Dest)
 
@@ -100,17 +185,20 @@ function Set-VoiceflowShortcuts {
     $Link.Description = "voiceflow - ustawienia, historia i statystyki dyktowania"
     $Link.Save()
 
+    $Root = Split-Path -Parent $Dest
     $Startup = Join-Path ([Environment]::GetFolderPath("Startup")) "voiceflow.lnk"
     $Link = $Shell.CreateShortcut($Startup)
-    $Link.TargetPath = $Pythonw
-    $Link.Arguments = "-m voiceflow daemon"
-    $Link.WorkingDirectory = $Dest
+    # wscript, not powershell: the .vbs is what makes the loop start with no
+    # console window at all, rather than one that flashes and is then hidden.
+    $Link.TargetPath = Join-Path $env:SystemRoot "System32\wscript.exe"
+    $Link.Arguments = "`"$(Join-Path $Root 'watchdog-hidden.vbs')`""
+    $Link.WorkingDirectory = $Root
     if (Test-Path $Ico) { $Link.IconLocation = $Ico }
     $Link.Description = "voiceflow - dyktowanie glosowe (Ctrl+Shift+Space)"
     $Link.Save()
 
-    # Superseded by the direct pythonw launch; leaving it behind would keep an
-    # older, uv-dependent path alive in anyone's Startup folder.
-    $LegacyVbs = Join-Path (Split-Path -Parent $Dest) "voiceflow-hidden.vbs"
+    # Superseded by the watchdog; leaving it behind would keep an older,
+    # uv-dependent path alive in anyone's Startup folder.
+    $LegacyVbs = Join-Path $Root "voiceflow-hidden.vbs"
     if (Test-Path $LegacyVbs) { Remove-Item $LegacyVbs -Force }
 }

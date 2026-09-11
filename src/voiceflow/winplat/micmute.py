@@ -18,12 +18,15 @@ MME/DirectSound paths are proxied by the audio service and cannot be singled
 out, so they are invisible here.
 
 Two COM rules shape the code. Every thread that touches Core Audio must
-initialise COM itself — and voiceflow calls this from three different threads
-(the hotkey thread mutes, the transcription worker restores, shutdown cleans
-up); see :func:`_com_apartment` for why those apartments are never closed
-again. And an interface pointer obtained on one apartment cannot be used from
-another, so nothing is cached between calls: state is kept as plain numbers and
-names keyed by process id, and sessions are re-resolved at restore time. That is
+initialise COM itself, and voiceflow calls in from whichever thread is handy —
+the hotkey thread mutes, the transcription worker restores, a room event does
+either, shutdown cleans up. Rather than initialise each of them, every call is
+funnelled onto one immortal thread; :class:`_AudioThread` explains why that
+thread must live in the multi-threaded apartment, and what goes wrong when it
+silently does not. And an interface pointer obtained on one apartment cannot be
+used from another, so nothing is cached between calls: state is kept as plain
+numbers and names keyed by process id, and sessions are re-resolved at restore
+time. That is
 also why the methods below iterate the session generators and act inline rather
 than building the obvious ``{s.pid: s for s in capture_sessions()}`` lookup
 table — enumerating twice is cheap, and a machine with more than a handful of
@@ -46,12 +49,6 @@ remembers — and every future session of that app is born quiet, or worse, born
 muted. Restoring therefore never gives up on a dead process id: it falls back to
 any live session of the same executable, and whatever still cannot be reached is
 parked and retried the next time we mute.
-
-Parked entries are written to disk, same file and same reasoning as the Linux
-module: the daemon restarting is exactly as fatal to them as forgetting them
-would be, and the mixer state they are meant to undo outlives both. Ducking
-also stops at a floor — an application already this quiet gains nothing from
-going lower and has everything to lose if that value is the one Windows keeps.
 """
 
 from __future__ import annotations
@@ -59,13 +56,13 @@ from __future__ import annotations
 import json
 import logging
 import queue
+import sys
 import threading
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from voiceflow.config import MuteAppsConfig
-from voiceflow.paths import pending_restores_file
 
 LOGGER = logging.getLogger(__name__)
 
@@ -87,6 +84,19 @@ _DUCK_TOLERANCE = 0.01
 DUCK_FLOOR = 0.2
 
 
+@dataclass(slots=True)
+class _Job:
+    """One piece of Core Audio work and the mailbox for its answer."""
+
+    function: Callable[[], object]
+    reply: queue.Queue
+    #: Set when the caller stopped waiting. The thread checks this before it
+    #: starts a job, because a job that outlived its caller is stale by
+    #: definition: a sweep that timed out would, if it ran later, push volumes
+    #: back down over a restore that has already put them right.
+    abandoned: threading.Event = field(default_factory=threading.Event)
+
+
 class _AudioThread:
     """The one thread in the process allowed to talk to Core Audio.
 
@@ -106,34 +116,65 @@ class _AudioThread:
     """
 
     def __init__(self) -> None:
-        self._jobs: queue.Queue = queue.Queue()
+        # Bounded. An unbounded queue in front of a wedged audio service grows
+        # for as long as the sweep keeps firing, and every entry pins the
+        # closure it carries; the cap turns that slow leak into an error the
+        # caller can log and skip.
+        self._jobs: queue.Queue = queue.Queue(maxsize=_MAX_PENDING_JOBS)
+        #: Set by the thread itself when it could not claim the MTA. Read from
+        #: other threads, but only ever written once and before any job runs.
+        self._broken = False
         threading.Thread(
             target=self._run, name="voiceflow-coreaudio", daemon=True
         ).start()
 
     def _run(self) -> None:
+        # BEFORE the import, and that order is the whole point. comtypes calls
+        # CoInitializeEx() on the importing thread as a side effect of being
+        # imported, using sys.coinit_flags — which defaults to
+        # COINIT_APARTMENTTHREADED. When this thread is the first in the process
+        # to import comtypes (the settings window is, because nothing else there
+        # touches Core Audio), that side effect puts the thread in an STA, and
+        # the CoInitializeEx below then fails with RPC_E_CHANGED_MODE: an
+        # apartment cannot be changed once set. The old code logged that failure
+        # and carried on inside an STA — the exact arrangement this class exists
+        # to avoid, and one that both deadlocks (an STA owes COM a message pump,
+        # and this thread never pumps) and faults when the cyclic collector
+        # releases a pointer from another thread.
+        sys.coinit_flags = 0  # COINIT_MULTITHREADED
         import comtypes
         import gc
 
         try:
-            # Multi-threaded, not the CoInitialize() default: a pointer made in
-            # a single-threaded apartment may only be used by that one thread,
-            # and this thread is the only one meant to touch Core Audio at all.
-            # The MTA does not, however, make a late Release from some other
-            # thread safe - a thread that never joined an apartment faults just
-            # the same - which is why the loop below collects the job's garbage
-            # here before answering.
+            # Belt and braces: if comtypes was already imported elsewhere, the
+            # flag above came too late to matter, but this thread is still
+            # uninitialised and this call is what puts it in the MTA. In a
+            # single-threaded apartment a pointer may only be released by the
+            # thread that made it — and pycaw's session objects land in
+            # reference cycles, so they are freed by the cyclic collector on
+            # whatever thread happens to run it.
             comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)
         except OSError as exc:
-            LOGGER.warning("Nie można wejść w apartament MTA: %s", exc)
+            # Not a warning to shrug at: every call from here on is running in
+            # the apartment this class was built to escape. Refuse the work
+            # rather than hand back sessions that crash the process later.
+            LOGGER.error(
+                "Nie można wejść w apartament MTA (%s); wyciszanie aplikacji wyłączone", exc
+            )
+            self._broken = True
         while True:
-            function, reply = self._jobs.get()
+            job = self._jobs.get()
+            if job.abandoned.is_set():
+                continue
+            if self._broken:
+                job.reply.put((False, RuntimeError("Core Audio bez apartamentu MTA")))
+                continue
             try:
-                result = (True, function())
+                result = (True, job.function())
             except BaseException as exc:  # noqa: BLE001 - handed to the caller
                 result = (False, exc)
             # pycaw returns Core Audio pointers that land in reference cycles
-            # only the cyclic collector frees - and freeing a COM pointer from
+            # only the cyclic collector frees — and freeing a COM pointer from
             # any thread but the MTA one that made it is an access violation
             # raised deep inside the collector, on whatever unrelated thread it
             # ran on (an onnxruntime import, a transcription worker, the overlay
@@ -143,14 +184,23 @@ class _AudioThread:
             # return to this call, so no other thread's collector can reach them
             # first. The Release then always runs in the apartment that owns it.
             gc.collect()
-            reply.put(result)
+            job.reply.put(result)
 
     def call(self, function: Callable[[], object], timeout: float) -> object:
-        reply: queue.Queue = queue.Queue(1)
-        self._jobs.put((function, reply))
+        job = _Job(function, queue.Queue(1))
         try:
-            succeeded, value = reply.get(timeout=timeout)
+            self._jobs.put_nowait(job)
+        except queue.Full:
+            raise TimeoutError(
+                "Kolejka Core Audio jest pełna; usługa audio nie odpowiada"
+            ) from None
+        try:
+            succeeded, value = job.reply.get(timeout=timeout)
         except queue.Empty:
+            # Nobody is listening any more, so make sure the job never runs.
+            # It may already be executing, which cannot be undone — but every
+            # job still waiting behind it is now known to be stale.
+            job.abandoned.set()
             raise TimeoutError("Core Audio nie odpowiedziało w czasie") from None
         if not succeeded:
             raise value  # type: ignore[misc]
@@ -160,7 +210,19 @@ class _AudioThread:
 _AUDIO_THREAD: _AudioThread | None = None
 _AUDIO_LOCK = threading.Lock()
 #: Core Audio calls are local and quick; anything slower is a wedged service.
+#: This is the budget for restoring, where being thorough beats being prompt —
+#: whatever is not put back stays wrong until the next dictation.
 _CALL_TIMEOUT = 10.0
+#: The budget for muting, which the daemon runs while holding the lock that
+#: also answers "are you alive?". Ten seconds there reads to the watchdog as a
+#: wedged process and gets voiceflow killed mid-sentence; silencing the voice
+#: chat is best effort, so it gives up quickly and the dictation goes ahead.
+_MUTE_TIMEOUT = 1.5
+#: The budget for one sweep. Sweeps repeat twice a second, so a slow one is
+#: worth abandoning rather than queueing behind.
+_SWEEP_TIMEOUT = 2.0
+#: How many jobs may wait before callers are told the audio service is stuck.
+_MAX_PENDING_JOBS = 16
 
 
 def run_with_audio(function: Callable[[], object], timeout: float = _CALL_TIMEOUT) -> object:
@@ -215,7 +277,7 @@ def capture_sessions() -> Iterator[_Session]:
     Sessions are spread across capture endpoints — a headset and a webcam are
     separate devices — so every active one is walked, not just the default.
     """
-    from comtypes import CLSCTX_ALL, POINTER, cast
+    from comtypes import CLSCTX_ALL
     from pycaw.api.audiopolicy import IAudioSessionControl2
     from pycaw.pycaw import AudioUtilities, IAudioSessionManager2, ISimpleAudioVolume
 
@@ -224,10 +286,23 @@ def capture_sessions() -> Iterator[_Session]:
     for index in range(devices.GetCount()):
         device = devices.Item(index)
         try:
-            manager = cast(
-                device.Activate(IAudioSessionManager2._iid_, CLSCTX_ALL, None),
-                POINTER(IAudioSessionManager2),
-            )
+            # QueryInterface, never cast. ``comtypes.cast`` is ``ctypes.cast``
+            # re-exported, and casting a COM pointer builds a second smart
+            # pointer over the same interface WITHOUT an AddRef. The temporary
+            # returned by Activate() then dies at the end of this statement and
+            # releases the manager to a refcount of zero — while ``manager``
+            # still points at it. Every call below is a use-after-free, and the
+            # eventual second Release lands on freed memory: an access
+            # violation with no stable location, which is why it showed up
+            # inside unrelated Core Audio calls, inside the garbage collector,
+            # and as a swallowed "COM method call without VTable". Freed memory
+            # usually still holds the old bytes, so it worked on most machines
+            # most of the time. QueryInterface AddRefs, which is the contract
+            # the pointer is destroyed under. pycaw does the same thing one
+            # layer down for exactly this reason.
+            manager = device.Activate(
+                IAudioSessionManager2._iid_, CLSCTX_ALL, None
+            ).QueryInterface(IAudioSessionManager2)
             sessions = manager.GetSessionEnumerator()
         except Exception as exc:  # noqa: BLE001 - a device may refuse activation
             LOGGER.debug("Nie można odczytać sesji urządzenia wejściowego: %s", exc)
@@ -280,11 +355,8 @@ def _forms(name: str) -> set[str]:
 class WinMicMuter:
     """Mute the configured apps' microphones and duck playback, then undo it."""
 
-    def __init__(self, config: MuteAppsConfig, *, store: Path | None = None) -> None:
+    def __init__(self, config: MuteAppsConfig) -> None:
         self.config = config
-        #: Where parked entries live; injectable so tests stay out of the
-        #: user's data directory.
-        self._store = store
         #: process id -> executable, for capture sessions muted by us. Only what
         #: we muted is unmuted later: a user who muted themselves in Discord by
         #: hand owns that state and it must survive a dictation.
@@ -292,12 +364,25 @@ class WinMicMuter:
         #: process id -> what we did to that application's playback.
         self._ducked: dict[int, _Ducked] = {}
         #: Apps whose restore found no live session, retried on the next mute.
+        #: Loaded from disk at startup, because the restore that never ran is
+        #: most often the one a dead process was holding — see _remember().
         self._pending_unmutes: dict[str, str] = {}
         self._pending_restores: dict[str, tuple[str, float]] = {}
-        self._load_pending()
+        self._recall()
         #: The thread re-ducking sessions born loud mid-recording, if running.
         self._watcher: threading.Thread | None = None
         self._stop_watching_now = threading.Event()
+        #: mute() and unmute() have two independent callers — the hotkey, and a
+        #: room telling us somebody else started talking — on different threads.
+        #: Unserialised, two mutes could each start a watcher while only one
+        #: handle is kept, leaving an orphan sweep that ducks the music back
+        #: down after the restore and never stops. Reentrant because mute()
+        #: calls unmute() to clear a recording whose restore never ran.
+        #:
+        #: The watcher thread must never take this lock: _stop_watcher() joins
+        #: it while holding it. The watcher needs no lock — the Core Audio
+        #: thread already serialises a sweep against a mute or a restore.
+        self._api_lock = threading.RLock()
         self._ready = False
         if config.enabled:
             try:  # lazy, optional
@@ -319,22 +404,23 @@ class WinMicMuter:
         """Mute configured microphones and duck playback for one recording."""
         if not self.available:
             return
-        # Whatever the previous recording left running, this one owns the audio
-        # state now — including a watcher that ducked nothing and so would not
-        # be stopped by the restore below.
-        self._stop_watcher()
-        if self._muted or self._ducked:
-            # A leftover entry means a previous unmute never ran; better to
-            # restore those sessions now than to lose track of them entirely.
-            LOGGER.warning("Lista wyciszonych nie była pusta; przywracam poprzednie")
-            self.unmute()
-        try:
-            run_with_audio(self._mute_now)
-        except Exception:
-            LOGGER.exception("Wyciszanie nie powiodło się; kontynuuję nagrywanie")
-            return
-        if self.config.duck_enabled:
-            self._start_watcher()
+        with self._api_lock:
+            # Whatever the previous recording left running, this one owns the
+            # audio state now — including a watcher that ducked nothing and so
+            # would not be stopped by the restore below.
+            self._stop_watcher()
+            if self._muted or self._ducked:
+                # A leftover entry means a previous unmute never ran; better to
+                # restore those sessions now than to lose track of them entirely.
+                LOGGER.warning("Lista wyciszonych nie była pusta; przywracam poprzednie")
+                self.unmute()
+            try:
+                run_with_audio(self._mute_now, timeout=_MUTE_TIMEOUT)
+            except Exception:
+                LOGGER.exception("Wyciszanie nie powiodło się; kontynuuję nagrywanie")
+                return
+            if self.config.duck_enabled:
+                self._start_watcher()
 
     def _mute_now(self) -> None:
         # An app that vanished before its restore may be back by now. Fix it
@@ -343,24 +429,27 @@ class WinMicMuter:
         self._mute_capture()
         if self.config.duck_enabled:
             self._duck()
+        self._remember()
 
     def unmute(self) -> None:
         """Restore everything :meth:`mute` touched. Never raises."""
-        # Before anything else, or a sweep still in flight lands after the
-        # restore and leaves the music quiet for good.
-        self._stop_watcher()
-        if not self._muted and not self._ducked:
-            return
-        muted, self._muted = self._muted, {}
-        ducked, self._ducked = self._ducked, {}
-        try:
-            run_with_audio(lambda: self._unmute_now(muted, ducked))
-        except Exception:
-            LOGGER.exception("Nie można przywrócić stanu audio")
+        with self._api_lock:
+            # Before anything else, or a sweep still in flight lands after the
+            # restore and leaves the music quiet for good.
+            self._stop_watcher()
+            if not self._muted and not self._ducked:
+                return
+            muted, self._muted = self._muted, {}
+            ducked, self._ducked = self._ducked, {}
+            try:
+                run_with_audio(lambda: self._unmute_now(muted, ducked))
+            except Exception:
+                LOGGER.exception("Nie można przywrócić stanu audio")
 
     def _unmute_now(self, muted: dict[int, str], ducked: dict[int, _Ducked]) -> None:
         self._unmute_capture(muted)
         self._restore(ducked)
+        self._remember()
 
     # -- microphones ---------------------------------------------------------
 
@@ -370,15 +459,36 @@ class WinMicMuter:
             wanted |= _forms(name)
         if not wanted:
             return
+        seen: set[str] = set()
         for session in capture_sessions():
-            if not _forms(session.app) & wanted:
+            forms = _forms(session.app) & wanted
+            if not forms:
                 continue
+            seen |= forms
             if session.volume.GetMute():
-                LOGGER.debug("Mikrofon %s już wyciszony ręcznie; zostawiam", session.app)
+                # Nothing to set — mute is a flag, not a counter — and the
+                # restore has to leave it exactly as found. But this used to be
+                # a DEBUG line, which made it the quietest possible way for the
+                # feature to do nothing at all: the flag outlives the session
+                # that carried it in Windows' per-application store, so a stale
+                # one silences this branch for good while the user, unmuted in
+                # the application itself, is heard through the whole dictation.
+                # Say it out loud instead.
+                LOGGER.info(
+                    "Mikrofon %s (pid %d) był już wyciszony; zostawiam bez zmian",
+                    session.app,
+                    session.pid,
+                )
                 continue
             session.volume.SetMute(1, None)
             self._muted[session.pid] = session.app
             LOGGER.info("Wyciszono mikrofon aplikacji %s (pid %d)", session.app, session.pid)
+        absent = [name for name in self.config.apps if not _forms(name) & seen]
+        if absent:
+            # Not an error: an application that is not holding a microphone has
+            # nothing to mute. Worth a line, because "nothing happened" and
+            # "nothing needed to happen" look identical from the outside.
+            LOGGER.info("Bez sesji mikrofonu, nie ma czego wyciszać: %s", ", ".join(absent))
 
     def _unmute_capture(self, muted: dict[int, str]) -> None:
         if not muted:
@@ -404,7 +514,6 @@ class WinMicMuter:
                     app,
                 )
                 self._pending_unmutes[app.casefold()] = app
-                self._save_pending()
 
     @staticmethod
     def _unmute_by_app(app: str) -> bool:
@@ -514,7 +623,6 @@ class WinMicMuter:
                     entry.app,
                 )
                 self._pending_restores[entry.app.casefold()] = (entry.app, entry.original)
-                self._save_pending()
 
     @staticmethod
     def _restore_by_app(app: str, original: float) -> bool:
@@ -554,15 +662,14 @@ class WinMicMuter:
         # Joined, not just signalled: a sweep queued behind us on the Core Audio
         # thread would otherwise re-duck the sessions the restore just gave
         # back, and nothing would ever put them right again. The wait covers one
-        # Core Audio call; past that the service is wedged and the restore, sent
-        # after this returns, still runs after the sweep because the queue is
-        # ordered.
-        watcher.join(timeout=_CALL_TIMEOUT + _SWEEP_INTERVAL)
+        # sweep; past that the service is wedged and the restore, sent after
+        # this returns, still runs after the sweep because the queue is ordered.
+        watcher.join(timeout=_SWEEP_TIMEOUT + _SWEEP_INTERVAL)
 
     def _watch(self) -> None:
         while not self._stop_watching_now.wait(_SWEEP_INTERVAL):
             try:
-                run_with_audio(self._duck)
+                run_with_audio(self._duck, timeout=_SWEEP_TIMEOUT)
             except Exception:  # noqa: BLE001 - one bad sweep is not fatal
                 # Whatever went wrong may be over by the next tick, and the
                 # recording's own restore path is unaffected either way.
@@ -570,83 +677,86 @@ class WinMicMuter:
 
     # -- deferred repairs ----------------------------------------------------
 
+    # -- surviving our own death ---------------------------------------------
+
+    def _state_file(self) -> Path:
+        from voiceflow.paths import data_dir
+
+        return data_dir() / "audio-restore.json"
+
+    def _remember(self) -> None:
+        """Write down what still owes the user their audio back.
+
+        Everything above assumes the restore runs in this process. It did not
+        on 18.08: the daemon ducked Discord from 100% to 30% and died 35 seconds
+        later inside Core Audio, taking the only record of that 100% with it.
+        Windows keeps a mixer level per application, so every Discord since was
+        born at 30% — and the next dictation ducked *that*, then dutifully
+        "restored" it. The number the user is owed cannot live only in memory.
+
+        Written by application name, never by process id: the process this is
+        meant to survive is the one whose ids stopped meaning anything.
+        """
+        owed_volumes = {
+            entry.app.casefold(): [entry.app, entry.original] for entry in self._ducked.values()
+        }
+        owed_volumes.update(
+            {key: [app, original] for key, (app, original) in self._pending_restores.items()}
+        )
+        owed_mutes = {app.casefold(): app for app in self._muted.values()}
+        owed_mutes.update(self._pending_unmutes)
+        path = self._state_file()
+        try:
+            if not owed_volumes and not owed_mutes:
+                path.unlink(missing_ok=True)
+                return
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps({"volumes": owed_volumes, "mutes": owed_mutes}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            # Best effort: a dictation must not fail over a bookkeeping file.
+            LOGGER.debug("Nie można zapisać stanu audio do przywrócenia: %s", exc)
+
+    def _recall(self) -> None:
+        """Take over the debts of a daemon that did not live to pay them."""
+        path = self._state_file()
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        volumes = document.get("volumes") if isinstance(document, dict) else None
+        mutes = document.get("mutes") if isinstance(document, dict) else None
+        for key, value in (volumes or {}).items():
+            try:
+                app, original = value[0], float(value[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+            self._pending_restores.setdefault(key, (app, original))
+        for key, app in (mutes or {}).items():
+            if isinstance(app, str):
+                self._pending_unmutes.setdefault(key, app)
+        if self._pending_restores or self._pending_unmutes:
+            # Repaired on the next dictation, by the retry that already exists:
+            # doing it here would mean Core Audio work in a constructor, on
+            # whatever thread happens to build the daemon.
+            LOGGER.info(
+                "Poprzedni demon nie zdążył przywrócić dźwięku: %s. "
+                "Naprawię przy najbliższym dyktowaniu",
+                ", ".join(
+                    sorted(
+                        [app for app, _ in self._pending_restores.values()]
+                        + list(self._pending_unmutes.values())
+                    )
+                ),
+            )
+
     def _retry_pending(self) -> None:
         """Fix apps whose restore failed because their session had gone."""
-        changed = False
         for key, app in list(self._pending_unmutes.items()):
             if self._unmute_by_app(app):
                 del self._pending_unmutes[key]
-                changed = True
         for key, (app, original) in list(self._pending_restores.items()):
             if self._restore_by_app(app, original):
                 del self._pending_restores[key]
-                changed = True
-        if changed:
-            self._save_pending()
-
-    # -- parked entries on disk -----------------------------------------------
-
-    def _store_path(self) -> Path | None:
-        if self._store is not None:
-            return self._store
-        try:
-            return pending_restores_file()
-        except OSError as exc:
-            LOGGER.warning("Brak katalogu na odłożone przywrócenia: %s", exc)
-            return None
-
-    def _load_pending(self) -> None:
-        """Read what a previous daemon run could not put right.
-
-        Anything unreadable counts as nothing parked: a corrupt file must not
-        stop dictation, and the worst it costs is one quiet application.
-        """
-        path = self._store_path()
-        if path is None:
-            return
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            return
-        except (OSError, ValueError) as exc:
-            LOGGER.warning("Nie można odczytać odłożonych przywróceń: %s", exc)
-            return
-        if not isinstance(raw, dict):
-            return
-        for key, value in (raw.get("restores") or {}).items():
-            try:
-                app, volume = str(value["app"]), float(value["volume"])
-            except (TypeError, KeyError, ValueError):
-                continue
-            if app and 0.0 < volume <= 1.0:
-                self._pending_restores[str(key)] = (app, volume)
-        for key, app in (raw.get("unmutes") or {}).items():
-            if isinstance(app, str) and app:
-                self._pending_unmutes[str(key)] = app
-        if self._pending_restores or self._pending_unmutes:
-            LOGGER.info(
-                "Wczytano %d odłożonych przywróceń z poprzedniej sesji",
-                len(self._pending_restores) + len(self._pending_unmutes),
-            )
-
-    def _save_pending(self) -> None:
-        """Persist parked entries via a temp file, so a crash cannot leave half a list."""
-        path = self._store_path()
-        if path is None:
-            return
-        payload = {
-            "restores": {
-                key: {"app": app, "volume": volume}
-                for key, (app, volume) in self._pending_restores.items()
-            },
-            "unmutes": dict(self._pending_unmutes),
-        }
-        try:
-            if not payload["restores"] and not payload["unmutes"]:
-                path.unlink(missing_ok=True)
-                return
-            tmp = path.with_name(path.name + ".tmp")
-            tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-            tmp.replace(path)
-        except OSError as exc:
-            LOGGER.warning("Nie można zapisać odłożonych przywróceń: %s", exc)

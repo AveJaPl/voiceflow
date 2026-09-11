@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from pathlib import Path
+
+import pytest
 
 from voiceflow.config import Config, HistoryConfig, TrayConfig
 from voiceflow.daemon import State, VoiceflowDaemon
@@ -244,6 +247,9 @@ def test_cancel_discards_recording(tmp_path: Path) -> None:
     assert not recorder.path.exists()
 
 
+# The daemon only starts the indicator off Windows (daemon.py), where the
+# GNOME top bar it belongs to exists.
+@pytest.mark.skipif(os.name == "nt", reason="wskaźnik GNOME nie istnieje na Windowsie")
 def test_daemon_starts_the_tray_and_shows_zero_stats(tmp_path: Path) -> None:
     tray = _Tray()
     VoiceflowDaemon(

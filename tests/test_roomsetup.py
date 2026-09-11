@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -58,7 +59,12 @@ def test_written_file_still_parses_and_is_private(tmp_path: Path) -> None:
     parsed = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert parsed["room"]["enabled"] is True
     assert parsed["room"]["token"] == "token-z-myslnikiem-123"
-    assert path.stat().st_mode & 0o777 == 0o600, "token urządzenia nie jest dla wszystkich"
+    # Windows has no POSIX mode bits to read back - os.chmod there only
+    # toggles the read-only flag. The file lands in the user's own %APPDATA%,
+    # and keeping the neighbours out of it would be an ACL, a different
+    # mechanism than the one this line guards.
+    if os.name != "nt":
+        assert path.stat().st_mode & 0o777 == 0o600, "token urządzenia nie jest dla wszystkich"
 
 
 # -- leaving ------------------------------------------------------------------

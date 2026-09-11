@@ -31,6 +31,22 @@ $Finish = "windows/finish-install.ps1"
 # copy may predate the file, and dot-sourcing a script answers to the execution
 # policy while this bootstrap, piped through iex, does not.
 Write-Host "==> Stopping a running voiceflow (if any)" -ForegroundColor Cyan
+# The watchdog goes first and stays gone for the whole update: its whole
+# purpose is to start a daemon whenever it does not see one, which during an
+# installation means starting the old copy out of files being replaced. Only a
+# process actually running our script is fair game - the pid file may name a
+# number Windows has since handed to somebody else.
+$PidFile = Join-Path $Root "watchdog.pid"
+if (Test-Path $PidFile) {
+    $WatchdogPid = Get-Content $PidFile -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($WatchdogPid) {
+        $Watchdog = Get-CimInstance Win32_Process -Filter "ProcessId=$WatchdogPid" -ErrorAction SilentlyContinue
+        if ($Watchdog -and $Watchdog.CommandLine -match "watchdog\.ps1") {
+            try { Stop-Process -Id $Watchdog.ProcessId -Force -ErrorAction Stop } catch {}
+        }
+    }
+    Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
+}
 $Existing = Join-Path $Dest ".venv\Scripts\voiceflow.exe"
 if (Test-Path $Existing) {
     try { & $Existing quit 2>$null | Out-Null } catch {}

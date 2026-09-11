@@ -24,14 +24,16 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import sys
+from pathlib import Path
 
 LOGGER = logging.getLogger(__name__)
 
 _WINDOWS = os.name == "nt"
 
 _SW_HIDE = 0
-#: Room for the process list; only its size is ever interesting, and a console
-#: with more processes on it than this is emphatically not ours alone.
+#: Room for the process list. A console with more processes on it than this is
+#: emphatically not ours; the launch chain below is two deep at most.
 _PROCESS_LIST_SIZE = 8
 
 
@@ -42,20 +44,61 @@ def _libraries():
     return ctypes.windll.kernel32, ctypes.windll.user32
 
 
-def _console_is_ours(kernel32) -> bool:
-    """True when this process is alone on its console.
+def _inside_installation(executable: str) -> bool:
+    """True when a path points inside the environment this process runs from.
 
-    Alone means Windows made the console for us at launch. Anything else — a
-    shell, a terminal multiplexer, an installer script — means we were started
-    inside someone else's window.
+    ``sys.prefix`` is the virtualenv even when the interpreter binary itself
+    lives in the base installation, which is exactly the trampoline's shape.
+    """
+    try:
+        Path(executable).resolve().relative_to(Path(sys.prefix).resolve())
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _is_our_launcher(pid: int) -> bool:
+    """True when this pid is a process of ours that led to this one.
+
+    Both halves matter. An ancestor alone would accept the shell that typed
+    the command; an executable in our environment alone would accept an
+    unrelated voiceflow someone parked on the same console.
+    """
+    try:
+        import psutil
+    except ImportError:  # pragma: no cover - psutil is a Windows dependency
+        return False
+    try:
+        if pid not in {ancestor.pid for ancestor in psutil.Process().parents()}:
+            return False
+        return _inside_installation(psutil.Process(pid).exe())
+    except (psutil.Error, OSError) as exc:
+        LOGGER.debug("Nie można sprawdzić procesu %s na konsoli: %s", pid, exc)
+        return False
+
+
+def _console_is_ours(kernel32) -> bool:
+    """True when nobody but us and our own launchers is on this console.
+
+    Alone is the simple case: Windows made the console for us at launch. But
+    an installed copy is usually started through uv's ``pythonw.exe``, which
+    is a trampoline that re-launches the console interpreter — so the console
+    Windows created for it holds two processes, and reading "two" as "someone
+    else's terminal" left the black window standing in precisely the case this
+    module exists for. Every extra process is therefore checked: our own
+    launcher chain is still our own console, a shell is not.
     """
     import ctypes
 
     buffer = (ctypes.c_uint32 * _PROCESS_LIST_SIZE)()
     count = kernel32.GetConsoleProcessList(buffer, _PROCESS_LIST_SIZE)
-    # Zero is the failure code. An unreadable console is treated as somebody
+    # Zero is the failure code, and a count above the buffer means the list did
+    # not fit and was not written. Either way the console is treated as somebody
     # else's: leaving a window open is a blemish, closing the user's is a bug.
-    return count == 1
+    if count < 1 or count > _PROCESS_LIST_SIZE:
+        return False
+    others = {buffer[index] for index in range(count)} - {os.getpid()}
+    return all(_is_our_launcher(pid) for pid in others)
 
 
 def _silence_standard_streams() -> None:

@@ -36,6 +36,8 @@ Write-Host "==> Making the windowless launcher windowless" -ForegroundColor Cyan
 Repair-VenvLauncher -Dest $Dest
 
 Write-Host "==> Creating Start Menu entry and autostart" -ForegroundColor Cyan
+$Root = Split-Path -Parent $Dest
+Install-Watchdog -Dest $Dest -Root $Root
 Set-VoiceflowShortcuts -Dest $Dest
 
 Write-Host "==> Downloading the speech model (~1.6 GB) - progress below" -ForegroundColor Cyan
@@ -49,9 +51,11 @@ $Voiceflow = Join-Path $Dest ".venv\Scripts\voiceflow.exe"
 if ($LASTEXITCODE -ne 0) { throw "voiceflow is installed but does not run - see the output above" }
 Write-Host "    command line OK" -ForegroundColor DarkGray
 
-# Start it now, so the hotkey works without waiting for the next sign-in.
-Start-Process -FilePath $Pythonw -ArgumentList "-m voiceflow daemon" -WorkingDirectory $Dest
-Write-Host "    daemon started" -ForegroundColor DarkGray
+# Start it now, so the hotkey works without waiting for the next sign-in. The
+# watchdog is what starts the daemon, here and at every logon, so there is one
+# way in - and the daemon comes back by itself if it ever dies.
+Start-Watchdog -Root $Root
+Write-Host "    watchdog started; the daemon follows within seconds" -ForegroundColor DarkGray
 
 Write-Host ""
 Write-Host "Done. voiceflow is running now and autostarts on login." -ForegroundColor Green

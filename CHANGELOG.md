@@ -9,6 +9,32 @@ Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[
   install command on their own; it now runs that command — the installer opens
   in its own console, stops the daemon and the window, replaces the files and
   starts the daemon again.
+- **[Windows]** The daemon no longer dies with an access violation in
+  `_ctypes.pyd` after a dictation. The session manager of each capture device
+  was obtained with `comtypes.cast`, which builds a second pointer over the same
+  interface without an AddRef; the temporary from `Activate()` then died at the
+  end of the statement and released the manager to zero while it was still in
+  use, so the eventual second Release landed on freed memory. It is now taken
+  with `QueryInterface`, the way pycaw does one layer down. Alongside it, the
+  Core Audio thread joins the multi-threaded apartment *before* comtypes is
+  imported (the import itself puts the importing thread in an STA otherwise),
+  refuses all work if it could not, abandons jobs whose caller stopped waiting,
+  and mutes on a short budget so a slow audio service is not read by the
+  watchdog as a wedged daemon. What a dictation owes the user — volumes ducked,
+  microphones muted — is written to disk the moment it is taken, so a daemon
+  that dies mid-dictation leaves the debt to its successor rather than to the
+  user's mixer.
+- **[Windows]** The watchdog is actually installed. The 0.6.0 notes promised
+  it, but the installer that shipped with 0.6.0 still pointed the autostart
+  entry straight at the daemon; `finish-install.ps1` now installs the watchdog
+  beside the data and starts the daemon through it, and the bootstrap stops a
+  running watchdog before it replaces the files, so it cannot restart the old
+  copy in the middle of an update.
+- **[Windows]** No console window under uv's launcher trampoline either: the
+  check that asked whether this process was alone on its console read the
+  trampoline as "somebody else's terminal" and left the window standing; every
+  extra process is now checked, and a console shared only with our own
+  launchers counts as ours.
 
 ## 0.6.1 — 2026-09-03
 

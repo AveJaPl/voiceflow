@@ -9,16 +9,29 @@ voiceflow is holding it down.
 
 from __future__ import annotations
 
-import json
-import tempfile
+import os
+import queue
+import threading
 import time
-from pathlib import Path
 
 import pytest
 
 from voiceflow.config import MuteAppsConfig
 from voiceflow.winplat import micmute
 from voiceflow.winplat.micmute import WinMicMuter
+
+
+@pytest.fixture(autouse=True)
+def state_file(tmp_path, monkeypatch):
+    """Keep the "what do we still owe the user" file out of the real profile.
+
+    The muter reads it in its constructor and writes it after every mute, so
+    without this every test would inherit the previous one's leftovers — and
+    the developer's own machine would be handed debts invented by a test.
+    """
+    path = tmp_path / "audio-restore.json"
+    monkeypatch.setattr(WinMicMuter, "_state_file", lambda self: path)
+    return path
 
 
 class _Volume:
@@ -60,10 +73,8 @@ def world(monkeypatch: pytest.MonkeyPatch) -> dict[str, list]:
     return sessions
 
 
-def _muter(config: MuteAppsConfig, store: Path | None = None) -> WinMicMuter:
-    # A private store by default, or every test would read and overwrite the
-    # user's real parked restores.
-    muter = WinMicMuter(config, store=store or Path(tempfile.mkdtemp()) / "pending.json")
+def _muter(config: MuteAppsConfig) -> WinMicMuter:
+    muter = WinMicMuter(config)
     # Pretend pycaw/comtypes imported cleanly, so the suite runs off Windows.
     muter._ready = True  # noqa: SLF001
     return muter
@@ -335,51 +346,141 @@ def test_a_disabled_feature_touches_nothing(world: dict[str, list]) -> None:
     assert volume.muted is False
 
 
-def test_parked_restore_survives_a_daemon_restart(world, tmp_path: Path) -> None:
-    """Windows pamięta stan miksera per aplikacja, więc zgubione przywrócenie
-    zostawia aplikację cichą w każdej kolejnej sesji — restart demona nie może
-    go kasować."""
-    store = tmp_path / "pending.json"
-    spotify = _Volume(level=1.0)
-    world["playback"].append(_session(10, "Spotify.exe", spotify))
-    muter = _muter(MuteAppsConfig(apps=(), duck_to=0.5), store=store)
+def test_two_callers_muting_at_once_leave_one_watcher(world: dict[str, list]) -> None:
+    """The hotkey and a room event both mute, on their own threads.
+
+    Unserialised, both could pass the "is a watcher already running?" check
+    before either stored its handle. Only one handle is kept, so the other
+    thread sweeps on unwatched — ducking the music back down after the restore
+    gave it back, for as long as the process lives.
+    """
+    world["playback"] = [_session(1, "spotify.exe", _Volume(level=1.0))]
+    muter = _muter(MuteAppsConfig(apps=("Discord.exe",), duck_to=0.5))
+    # Only this test's watchers are ours to judge: an earlier test may still be
+    # winding one down, and failing on that would be a flake about somebody
+    # else's cleanup.
+    before = {t for t in threading.enumerate() if t.name == "voiceflow-duck"}
+
+    failures: list[BaseException] = []
+
+    for _ in range(40):
+        barrier = threading.Barrier(2)
+
+        def race() -> None:
+            barrier.wait()
+            try:
+                muter.mute()
+            except BaseException as exc:  # noqa: BLE001 - reported below
+                failures.append(exc)
+
+        threads = [threading.Thread(target=race) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        muter.unmute()
+
+    # Unserialised, the loser of the race joins a handle the winner stored but
+    # has not started yet, and mute() raises on the hotkey's thread.
+    assert failures == []
+
+    assert muter._watcher is None  # noqa: SLF001
+    survivors = {
+        t for t in threading.enumerate() if t.name == "voiceflow-duck"
+    } - before
+    assert survivors == set()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="wątek Core Audio importuje comtypes")
+def test_a_job_whose_caller_gave_up_never_runs() -> None:
+    """A sweep that timed out must not execute later.
+
+    It would push volumes back down over a restore that has already put them
+    right, and nothing would come along afterwards to fix that.
+    """
+    thread = micmute._AudioThread()  # noqa: SLF001
+    release = threading.Event()
+    ran: list[str] = []
+
+    thread._jobs.put(  # noqa: SLF001
+        micmute._Job(lambda: release.wait(10), queue.Queue(1))  # noqa: SLF001
+    )
+    try:
+        with pytest.raises(TimeoutError):
+            thread.call(lambda: ran.append("late"), timeout=0.2)
+        release.set()
+        # Long enough that the worker would have reached the abandoned job.
+        time.sleep(0.5)
+        assert ran == []
+    finally:
+        release.set()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="wątek Core Audio importuje comtypes")
+def test_a_wedged_audio_service_does_not_grow_the_queue_forever() -> None:
+    """Callers are told the service is stuck instead of queueing behind it."""
+    thread = micmute._AudioThread()  # noqa: SLF001
+    release = threading.Event()
+
+    thread._jobs.put(  # noqa: SLF001
+        micmute._Job(lambda: release.wait(10), queue.Queue(1))  # noqa: SLF001
+    )
+    try:
+        for _ in range(micmute._MAX_PENDING_JOBS):  # noqa: SLF001
+            with pytest.raises(TimeoutError):
+                thread.call(lambda: None, timeout=0.01)
+        with pytest.raises(TimeoutError, match="pełna"):
+            thread.call(lambda: None, timeout=0.01)
+    finally:
+        release.set()
+
+
+def test_a_ducked_volume_outlives_the_daemon_that_ducked_it(
+    world: dict[str, list], state_file
+) -> None:
+    """The number the user is owed cannot live only in a process that crashes.
+
+    This is 18.08 on the developer's machine: Discord went from 100% to 30% and
+    the daemon died inside Core Audio 35 seconds later. Windows remembers a
+    mixer level per application, so every Discord afterwards was born at 30% —
+    and the next dictation ducked that, then restored what it had found.
+    """
+    volume = _Volume(level=1.0)
+    world["playback"] = [_session(10, "Discord.exe", volume)]
+    crashing = _muter(MuteAppsConfig(apps=(), duck_enabled=True, duck_to=0.3))
+
+    crashing.mute()
+    assert volume.level == pytest.approx(0.3)
+    # No unmute(): the process is gone, and with it every pid it knew.
+    assert state_file.exists()
+
+    volume.level = 0.3  # what Windows hands the next session of that app
+    world["playback"] = [_session(77, "Discord.exe", volume)]
+    successor = _muter(MuteAppsConfig(apps=(), duck_enabled=True, duck_to=0.3))
+    successor.mute()
+
+    # Repaired to the real original before the new duck measured anything, so
+    # the duck is a fraction of 100% and not of somebody else's leftovers.
+    assert volume.level == pytest.approx(0.3)
+    successor.unmute()
+    assert volume.level == pytest.approx(1.0)
+    assert not state_file.exists()
+
+
+def test_nothing_is_owed_once_everything_is_restored(world: dict[str, list], state_file) -> None:
+    volume = _Volume(level=1.0)
+    world["playback"] = [_session(10, "Discord.exe", volume)]
+    muter = _muter(MuteAppsConfig(apps=(), duck_enabled=True, duck_to=0.3))
+
     muter.mute()
-    world["playback"].clear()  # sesja znika w trakcie dyktowania
     muter.unmute()
-    assert store.exists()
 
-    reborn = _muter(MuteAppsConfig(apps=(), duck_to=0.5), store=store)
-    fresh = _Volume(level=0.5)  # urodzona cicha
-    world["playback"].append(_session(11, "Spotify.exe", fresh))
-    reborn.mute()
-
-    # Naprawiona do 100% PRZED ściszeniem, więc ścisza z prawdziwego oryginału:
-    # 1.0 * 0.5, a nie 0.5 * 0.5.
-    assert fresh.level == pytest.approx(0.5), "ściszono z już ściszonej wartości"
-    reborn.unmute()
-    assert fresh.level == pytest.approx(1.0)
-    assert not store.exists(), "plik został po zastosowaniu przywrócenia"
+    assert not state_file.exists()
 
 
-def test_parked_unmute_survives_a_daemon_restart(world, tmp_path: Path) -> None:
-    store = tmp_path / "pending.json"
-    mic = _Volume()
-    world["capture"].append(_session(20, "Discord.exe", mic))
-    muter = _muter(MuteAppsConfig(apps=("Discord",), duck_enabled=False), store=store)
-    muter.mute()
-    world["capture"].clear()
-    muter.unmute()
-    assert json.loads(store.read_text())["unmutes"]
-
-    reborn = _muter(MuteAppsConfig(apps=("Discord",), duck_enabled=False), store=store)
-    back = _Volume(muted=True)
-    world["capture"].append(_session(21, "Discord.exe", back))
-    reborn.mute()
-
-    assert back.mute_writes[0] is False, "mikrofon został wyciszony na stałe"
-
-
-def test_already_quiet_session_is_not_ducked_further(world) -> None:
+def test_already_quiet_session_is_not_ducked_further(world: dict[str, list]) -> None:
+    """Below the floor there is nothing audible to take away — and if the restore
+    ever went missing, that value is what Windows would keep for the app."""
     quiet = _Volume(level=0.15)
     world["playback"].append(_session(30, "Spotify.exe", quiet))
     muter = _muter(MuteAppsConfig(apps=(), duck_to=0.6))
@@ -387,19 +488,6 @@ def test_already_quiet_session_is_not_ducked_further(world) -> None:
     muter.mute()
 
     assert quiet.level == pytest.approx(0.15)
-
-
-def test_corrupt_pending_file_does_not_block_dictation(world, tmp_path: Path) -> None:
-    store = tmp_path / "pending.json"
-    store.write_text("{nie json", encoding="utf-8")
-    loud = _Volume(level=1.0)
-    world["playback"].append(_session(40, "Spotify.exe", loud))
-
-    muter = _muter(MuteAppsConfig(apps=(), duck_to=0.5), store=store)
-    muter.mute()
-
-    assert loud.level == pytest.approx(0.5)
-
 
 
 def test_the_core_audio_thread_collects_its_garbage_before_it_answers(
@@ -410,7 +498,6 @@ def test_the_core_audio_thread_collects_its_garbage_before_it_answers(
     them itself, and must do so before the caller gets its reply."""
     import gc
     import sys
-    import threading
     import types
 
     monkeypatch.setitem(
@@ -427,7 +514,7 @@ def test_the_core_audio_thread_collects_its_garbage_before_it_answers(
 
     monkeypatch.setattr(gc, "collect", recording_collect)
 
-    thread = micmute._AudioThread()
+    thread = micmute._AudioThread()  # noqa: SLF001
 
     assert thread.call(lambda: 42, timeout=5) == 42
     assert collected_on.count("voiceflow-coreaudio") == 1

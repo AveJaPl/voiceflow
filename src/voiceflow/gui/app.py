@@ -496,11 +496,33 @@ class MainWindow(QMainWindow):
         latest, url = result
         self.version_label.setText(f"v{installed_version()} · dostępna aktualizacja")
         self.update_button.setText(f"Aktualizacja: {latest}")
-        self.update_button.setToolTip(
-            "Zobacz, co się zmieniło, i zaktualizuj tą samą komendą, którą instalowano voiceflow"
-        )
-        self.update_button.clicked.connect(lambda: QDesktopServices.openUrl(url))
+        if service.update_launcher() is not None:
+            self.update_button.setToolTip(
+                "Pobierz i zainstaluj nową wersję — voiceflow zamknie się i wróci sam"
+            )
+            self.update_button.clicked.connect(self._install_update)
+        else:
+            self.update_button.setToolTip(
+                "Zobacz, co się zmieniło, i zaktualizuj tą samą komendą, którą instalowano voiceflow"
+            )
+            self.update_button.clicked.connect(lambda: QDesktopServices.openUrl(url))
         self.update_button.setVisible(True)
+
+    def _install_update(self) -> None:
+        """Hand over to the installer; it replaces this very window, so get out of its way."""
+        self.update_button.setEnabled(False)
+        try:
+            if not service.start_update():
+                self.update_button.setEnabled(True)
+                return
+        except RuntimeError as exc:
+            self.update_button.setEnabled(True)
+            self.toast(str(exc))
+            return
+        self.toast("Instalator pobiera nową wersję — postęp w otwartym oknie")
+        # The installer stops every process of the installed copy, this one
+        # included; closing first means a clean exit instead of a kill.
+        QTimer.singleShot(1500, self.close)
 
     # -- chrome --------------------------------------------------------------
 

@@ -613,3 +613,50 @@ def newer_release() -> tuple[str, str] | None:
     if not is_newer(tag, installed_version()):
         return None
     return tag, url or RELEASES_URL
+
+
+#: The documented install command, which on re-run is also the update command.
+#: Run fresh from the repository rather than from the installed copy: the
+#: installer itself gets fixed between releases, and the copy on disk is by
+#: definition the one from before the update.
+INSTALLER_URL = "https://raw.githubusercontent.com/AveJaPl/voiceflow/main/windows/install.ps1"
+
+
+def update_launcher() -> list[str] | None:
+    """Command that installs the newer version in place, or None where there is none.
+
+    Windows only: the installer stops the daemon and this very window, replaces
+    the files, and starts the daemon again — the user only has to click. The
+    console stays open (``-NoExit``) so an error is readable rather than a flash
+    of red that vanishes with the window. Other platforms keep the release page.
+    """
+    if os.name != "nt":
+        return None
+    return [
+        "powershell",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-NoExit",
+        "-Command",
+        f"irm {INSTALLER_URL} | iex",
+    ]
+
+
+def start_update() -> bool:
+    """Run the in-place update in its own console. False where this platform has none."""
+    command = update_launcher()
+    if command is None:
+        return False
+    try:
+        # A visible console on purpose: the installer prints its progress and
+        # takes minutes. Detached, because the installer kills this process.
+        subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+            close_fds=True,
+        )
+    except OSError as exc:
+        raise RuntimeError(f"Nie można uruchomić aktualizacji: {exc}") from exc
+    return True

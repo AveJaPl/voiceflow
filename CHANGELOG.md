@@ -2,6 +2,14 @@
 
 Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[Web]**
 
+## 0.6.2 — 2026-09-11
+
+- **[Windows]** The **Aktualizacja** button installs the update instead of
+  opening the release page. It used to send the user to GitHub to find the
+  install command on their own; it now runs that command — the installer opens
+  in its own console, stops the daemon and the window, replaces the files and
+  starts the daemon again.
+
 ## 0.6.1 — 2026-09-03
 
 - **[Windows]** The daemon no longer dies on the second dictation. Two kinds of

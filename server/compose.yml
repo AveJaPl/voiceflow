@@ -1,0 +1,25 @@
+# Własny serwer transkrypcji VoiceFlow w trzech komendach:
+#
+#   git clone https://github.com/AveJaPl/voiceflow && cd voiceflow/server
+#   docker compose up -d
+#   curl -F file=@probka.wav -F language=pl http://localhost:8090/v1/audio/transcriptions
+#
+# Potem w apce: Ustawienia → Zaawansowane → Serwer transkrypcji →
+# http://<adres-tej-maszyny>:8090. Bez GPU liczy na CPU: large-v3-turbo-q5
+# na 8 rdzeniach to kilka sekund na wypowiedź — dla słabego laptopa i tak
+# szybciej niż lokalnie, dla Maca z Apple Silicon wolniej niż Metal.
+services:
+  whisper:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    environment:
+      WHISPER_MODEL: large-v3-turbo-q5_0   # albo small-q5_1 / base
+      WHISPER_LANGUAGE: pl
+      WHISPER_THREADS: 4
+    volumes:
+      - whisper-models:/models
+
+volumes:
+  whisper-models:

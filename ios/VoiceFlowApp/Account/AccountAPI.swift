@@ -3,14 +3,12 @@ import Foundation
 /// HTTP-owa część relaya: logowanie kontem i historia dyktowań
 /// (`relay/src/createServer.js` — `POST /login`, `GET|DELETE /history`).
 ///
-/// WebSocket (`RemotePairing.relayURL`) i to API jeżdżą po TYM SAMYM tokenie
-/// konta: `pairToken` z logowania trafia do `RemoteCredentials.token`, a stąd
-/// do nagłówka `Authorization: Bearer`. Dlatego token ze starego parowania QR
-/// dostanie z `/history` odpowiedź 401 — nie ma za nim konta.
+/// `pairToken` z logowania trafia do `RemoteCredentials.token`, a stąd do
+/// nagłówka `Authorization: Bearer`.
 enum AccountAPI {
-    /// Publiczny relay na serwerze Wojtka (Coolify/Contabo) — jedyne miejsce
-    /// w apce, które zna ten adres.
-    static let defaultHost = "wss://o35lo8pceb0fmc10ziul6llo.161.97.135.88.sslip.io"
+    /// Serwer kont Programo (Coolify na netcup) — jedyne miejsce w apce, które
+    /// zna ten adres. Własny serwer: Ustawienia → Zaawansowane.
+    static let defaultHost = "https://voiceflow-relay.159.195.206.7.sslip.io"
 
     enum Failure: Error, Equatable {
         case unauthorized

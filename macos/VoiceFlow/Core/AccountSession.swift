@@ -26,8 +26,20 @@ protocol PairingTokenStoring {
 /// przepuścić przez jednorazowy import (`defaults voiceflow.pairingTokenImport`,
 /// patrz `VoiceFlowApp.importPairingTokenIfNeeded`).
 final class KeychainPairingTokenStore: PairingTokenStoring {
-    private let service = "pl.programo.voiceflow.remoteMicToken"
-    private let account = "pairingToken"
+    private let service: String
+    private let account: String
+
+    /// Token konta (domyślny wpis).
+    init(service: String = "pl.programo.voiceflow.remoteMicToken", account: String = "pairingToken") {
+        self.service = service
+        self.account = account
+    }
+
+    /// Klucz API własnego serwera transkrypcji (Zaawansowane) — też sekret,
+    /// więc też Keychain, nie UserDefaults.
+    static var transcriptionServerKey: KeychainPairingTokenStore {
+        KeychainPairingTokenStore(service: "pl.programo.voiceflow.transcriptionServer", account: "apiKey")
+    }
 
     func loadToken() -> String? {
         let query: [String: Any] = [

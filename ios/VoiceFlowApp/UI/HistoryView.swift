@@ -9,7 +9,7 @@ import SwiftUI
 /// odsiewamy duplikaty po `id` (wpisy z identycznym `createdAt` mogą przyjść
 /// w obu stronach).
 struct HistoryView: View {
-    @ObservedObject var remote: RemoteSession
+    @ObservedObject var remote: AccountSession
 
     @State private var entries: [AccountAPI.HistoryEntry] = []
     @State private var query = ""

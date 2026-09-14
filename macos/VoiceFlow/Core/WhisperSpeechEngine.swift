@@ -242,6 +242,28 @@ final class WhisperSpeechEngine: SpeechEngine {
         return loaded
     }
 
+    /// Transkrypcja CUDZEGO nagrania (udostępnianie silnika w LAN) — pełny
+    /// przebieg, te same parametry co przebieg końcowy. Ustawia się w kolejce
+    /// za lokalnym dyktowaniem (`queue` jest szeregowa), więc żądanie z sieci
+    /// nigdy nie przerywa wypowiedzi użytkownika w połowie.
+    func transcribeExternal(samples: [Float], prompt: String) async -> String {
+        guard let context = try? await ensureLoaded() else { return "" }
+        scheduleIdleUnload()
+        let language = self.language
+        let beam = queue.sync { finalBeamSize }
+        let vad = queue.sync { vadModelPath }
+        return await withCheckedContinuation { continuation in
+            queue.async {
+                let text = context.transcribeFull(
+                    samples: samples, language: language,
+                    initialPrompt: prompt.isEmpty ? "" : "Słownictwo: \(prompt).",
+                    beamSize: beam, vadModelPath: vad
+                )
+                continuation.resume(returning: text)
+            }
+        }
+    }
+
     /// Czy model jest w tej chwili w pamięci — do testów i diagnostyki.
     var isModelLoaded: Bool { queue.sync { context != nil } }
 

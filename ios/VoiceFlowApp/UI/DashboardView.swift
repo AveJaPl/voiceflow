@@ -8,7 +8,7 @@ import SwiftUI
 /// drugiego API. Konsekwencja jest wprost napisana w UI: sumy dotyczą
 /// ostatnich 200 dyktowań, nie całej wieczności.
 struct DashboardView: View {
-    @ObservedObject var remote: RemoteSession
+    @ObservedObject var remote: AccountSession
 
     @State private var entries: [AccountAPI.HistoryEntry] = []
     @State private var loading = false

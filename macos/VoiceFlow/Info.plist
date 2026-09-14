@@ -25,6 +25,7 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_voiceflow._tcp</string>
+		<string>_voiceflow-asr._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>VoiceFlow szuka w Twojej sieci pokoi dyktowania rozgłaszanych przez inne komputery, żebyś nie musiał przepisywać kodu.</string>

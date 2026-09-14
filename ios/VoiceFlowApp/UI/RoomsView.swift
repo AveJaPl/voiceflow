@@ -75,6 +75,17 @@ final class RoomsModel: ObservableObject {
         setCode("")
     }
 
+    /// Przełącznik trybu pokoju — ta sama operacja co na Macu
+    /// (`RoomBoardClient.setBlocking`). `/mode` nie wymaga tokenu urządzenia.
+    func setBlocking(_ blocking: Bool) async {
+        do {
+            try await RoomBoardClient.setBlocking(server: Self.server, code: code, blocking: blocking, token: "")
+            await refresh()
+        } catch {
+            status = "Nie udało się zmienić trybu pokoju."
+        }
+    }
+
     func refresh() async {
         guard hasRoom else {
             snapshot = .empty
@@ -182,6 +193,25 @@ struct RoomsView: View {
                     .background(VFColor.surface)
                     .overlay(RoundedRectangle(cornerRadius: 2).stroke(VFColor.border, lineWidth: 1))
                 }
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("MIKROFON").vfEyebrow()
+                Toggle(isOn: Binding(
+                    get: { model.snapshot.blocksOthersWhileSpeaking },
+                    set: { value in Task { await model.setBlocking(value) } }
+                )) {
+                    Text("Gdy ktoś mówi, blokuj dyktowanie pozostałym")
+                        .font(VFFont.body(13.5))
+                        .foregroundStyle(VFColor.text)
+                }
+                .tint(VFColor.text)
+                .disabled(model.snapshot.mode == nil)
+                Text(model.snapshot.blocksOthersWhileSpeaking
+                     ? "Jeden mikrofon na pokój — dla ludzi w jednym pomieszczeniu."
+                     : "Każdy dyktuje, kiedy chce — pokój jest tylko wspólną tablicą.")
+                    .font(VFFont.body(12))
+                    .foregroundStyle(VFColor.faint)
             }
 
             Button("Zmień kod pokoju") {

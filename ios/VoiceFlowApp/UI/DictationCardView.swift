@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Karta "mikrofon + tekst na żywo", w pełni samowystarczalna (własny
-/// `ContainerDictationEngine`). UŻYWANA W DWÓCH MIEJSCACH — to jest CELOWE,
+/// Karta "mikrofon + tekst", w pełni samowystarczalna (własny
+/// `DictationEngine`: whisper na urządzeniu albo Apple, patrz tamten plik). UŻYWANA W DWÓCH MIEJSCACH — to jest CELOWE,
 /// nie duplikacja: (1) krok testu dyktowania w onboardingu
 /// (`OnboardingView`, krok `.testDictation` — to najważniejszy krok
 /// tutorialu, "dowód że działa" zamiast deklaracji), (2) ekran dyktowania
@@ -26,7 +26,7 @@ struct DictationCardView: View {
     /// dla ścieżki klawiatury, patrz `KeyboardHandoffView`.
     var onFinished: ((String) -> Void)? = nil
 
-    @StateObject private var engine = ContainerDictationEngine()
+    @StateObject private var engine = DictationEngine()
     @State private var hasAutoStarted = false
 
     var body: some View {
@@ -42,12 +42,21 @@ struct DictationCardView: View {
                         .font(VFFont.mono(11))
                         .tracking(2)
                         .foregroundStyle(VFColor.muted)
+                    Spacer()
+                    if engine.state == .listening {
+                        LevelBars(level: engine.audioLevel)
+                            .frame(width: 72, height: 16)
+                    }
                 }
-                Text(engine.liveText.isEmpty ? "…" : engine.liveText)
+                Text(engine.liveText.isEmpty ? placeholder : engine.liveText)
                     .font(VFFont.mono(15))
-                    .foregroundStyle(VFColor.text)
+                    .foregroundStyle(engine.liveText.isEmpty ? VFColor.faint : VFColor.text)
                     .frame(minHeight: compact ? 56 : 80, alignment: .top)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                Text(engine.backend.label)
+                    .font(VFFont.mono(10))
+                    .tracking(1)
+                    .foregroundStyle(VFColor.faint)
             }
             .padding(compact ? 18 : 24)
             .background(VFColor.surface)
@@ -69,6 +78,7 @@ struct DictationCardView: View {
                 }
             }
             .buttonStyle(.plain)
+            .disabled(engine.state == .transcribing || engine.state == .requestingPermission)
 
             if case .error(let message) = engine.state {
                 Text(message)
@@ -108,7 +118,10 @@ struct DictationCardView: View {
             engine.toggle(recordToHistory: recordsToHistory)
         }
         .onChange(of: engine.state) { oldValue, newValue in
-            guard onFinished != nil, oldValue == .listening, newValue == .idle else { return }
+            // Apple kończy `.listening → .idle`, whisper `.listening →
+            // .transcribing → .idle` — obie ścieżki mają tekst gotowy w `.idle`.
+            guard onFinished != nil, newValue == .idle,
+                  oldValue == .listening || oldValue == .transcribing else { return }
             let finalText = engine.liveText
             guard !finalText.isEmpty else { return }
             onFinished?(finalText)
@@ -120,7 +133,43 @@ struct DictationCardView: View {
         case .idle: return "STUKNIJ, BY DYKTOWAĆ"
         case .requestingPermission: return "PROSZĘ O ZGODĘ"
         case .listening: return "SŁUCHAM"
+        case .transcribing: return "ROZPOZNAJĘ"
         case .error: return "BŁĄD"
         }
+    }
+
+    private var placeholder: String {
+        switch engine.state {
+        case .listening:
+            if case .whisper = engine.backend { return "Mów — tekst pojawi się po zakończeniu." }
+            return "…"
+        case .transcribing: return "Chwila…"
+        default: return "…"
+        }
+    }
+}
+
+/// Mały miernik poziomu na karcie: słupki rosną symetrycznie od osi, jak
+/// fala w pillu na Macu. Bez historii — telefon ma na to za mało miejsca.
+private struct LevelBars: View {
+    let level: Float
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 3) {
+            ForEach(0..<9, id: \.self) { index in
+                Capsule()
+                    .fill(VFColor.text.opacity(0.35 + 0.65 * Double(index) / 8))
+                    .frame(width: 3, height: height(index: index))
+                    .frame(maxHeight: .infinity, alignment: .center)
+                    .animation(.interpolatingSpring(stiffness: 420, damping: 22), value: level)
+            }
+        }
+    }
+
+    private func height(index: Int) -> CGFloat {
+        let boosted = min(1, pow(CGFloat(level) * 6, 0.7))
+        // Środkowe słupki najwyższe — sylwetka, nie płaska kreska.
+        let shape = 1 - abs(CGFloat(index) - 4) / 6
+        return max(3, boosted * 16 * shape)
     }
 }

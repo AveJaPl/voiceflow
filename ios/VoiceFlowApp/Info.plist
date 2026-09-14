@@ -37,7 +37,7 @@
 		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>VoiceFlow łączy się z Twoim Makiem w sieci lokalnej, żeby przesyłać dyktowanie i podgląd okien.</string>
+	<string>VoiceFlow może wysyłać nagranie do Twojego własnego serwera transkrypcji w sieci lokalnej, jeśli go ustawisz.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>VoiceFlow potrzebuje mikrofonu, żeby transkrybować dyktowanie na żywo.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

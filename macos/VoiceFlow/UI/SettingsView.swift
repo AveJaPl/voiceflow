@@ -37,6 +37,11 @@ enum SettingsKeys {
     /// (Discord, komendy głosowe). Domyślnie schowane — publiczna apka ma mieć
     /// mało opcji, a te są dla kilku osób.
     static let labEnabled = "voiceflow.labEnabled"
+    /// Własny serwer transkrypcji (kontrakt `TranscriptionWire`). Pusty =
+    /// liczenie lokalne. Używany, gdy `speechEngine == .server`.
+    static let transcriptionServerURL = "voiceflow.transcriptionServerURL"
+    /// Mac udostępnia własny silnik w LAN (`EngineShareServer`). Domyślnie NIE.
+    static let engineShareEnabled = "voiceflow.engineShareEnabled"
     // Wspólny pokój dyktowania — jedyna część aplikacji, która cokolwiek wysyła
     // poza tę maszynę, i wyłącznie zdarzenia obecności oraz liczby.
     static let roomEnabled = "voiceflow.roomEnabled"
@@ -120,13 +125,17 @@ enum SpeechEngineChoice: String, CaseIterable, Identifiable {
     /// Apple (patrz nagłówek pliku VoiceFlowApp.swift o awarii, która to wymusiła).
     case whisper
     case apple
+    /// Własny serwer (`server/`), drugi Mac w LAN albo płatne API — patrz
+    /// `RemoteWhisperEngine`. Adres w `SettingsKeys.transcriptionServerURL`.
+    case server
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
         case .whisper: "whisper.cpp (offline, na urządzeniu) — zalecane"
-        case .apple: "Apple (serwer, wymaga sieci)"
+        case .apple: "Apple (serwer Apple, wymaga sieci)"
+        case .server: "Własny serwer transkrypcji (adres niżej)"
         }
     }
 }
@@ -218,6 +227,12 @@ final class SettingsModel: ObservableObject {
     @Published var labEnabled: Bool {
         didSet { defaults.set(labEnabled, forKey: SettingsKeys.labEnabled) }
     }
+    @Published var transcriptionServerURL: String {
+        didSet { defaults.set(transcriptionServerURL, forKey: SettingsKeys.transcriptionServerURL) }
+    }
+    @Published var engineShareEnabled: Bool {
+        didSet { defaults.set(engineShareEnabled, forKey: SettingsKeys.engineShareEnabled) }
+    }
     /// Minuty bezczynności, po których whisper zwalnia model (0 = nigdy).
     @Published var modelIdleUnloadMinutes: Int {
         didSet { defaults.set(modelIdleUnloadMinutes, forKey: SettingsKeys.modelIdleUnloadMinutes) }
@@ -272,6 +287,8 @@ final class SettingsModel: ObservableObject {
         self.accountHost = defaults.string(forKey: SettingsKeys.accountHost) ?? ""
         self.accountEmail = defaults.string(forKey: SettingsKeys.accountEmail)
         self.labEnabled = defaults.bool(forKey: SettingsKeys.labEnabled)
+        self.transcriptionServerURL = defaults.string(forKey: SettingsKeys.transcriptionServerURL) ?? ""
+        self.engineShareEnabled = defaults.bool(forKey: SettingsKeys.engineShareEnabled)
         self.modelIdleUnloadMinutes = defaults.object(forKey: SettingsKeys.modelIdleUnloadMinutes) == nil
             ? WhisperSpeechEngine.defaultIdleUnloadMinutes
             : defaults.integer(forKey: SettingsKeys.modelIdleUnloadMinutes)
@@ -344,6 +361,7 @@ struct SettingsView: View {
     /// (`relay/README.md`, jeden kontener) wpisuje się w Zaawansowanych.
     static let defaultAccountHost = "https://voiceflow-relay.159.195.206.7.sslip.io"
     @State private var category: SettingsCategory = .dictation
+    @State private var transcriptionServerKey = KeychainPairingTokenStore.transcriptionServerKey.loadToken() ?? ""
 
     var body: some View {
         if embedded {
@@ -597,6 +615,21 @@ struct SettingsView: View {
                 selection: $model.speechEngine
             )
             VFHint("Angielski zawsze idzie przez Apple. Zmiana wymaga restartu VoiceFlow. whisper.cpp działa w pełni lokalnie i offline — zalecane po awarii serwera Apple 2026-08-10.")
+        }
+
+        VFSection(title: "Serwer transkrypcji", subtitle: "Gdy silnik wyżej to „Własny serwer”.") {
+            VFTextField(placeholder: "http://192.168.1.10:8090 albo https://api.openai.com/v1", text: $model.transcriptionServerURL)
+            VFTextField(placeholder: "Klucz API (opcjonalnie, trzymany w Keychainie)", text: $transcriptionServerKey, secure: true)
+                .onChange(of: transcriptionServerKey) { _, value in
+                    if value.isEmpty { KeychainPairingTokenStore.transcriptionServerKey.clearToken() }
+                    else { KeychainPairingTokenStore.transcriptionServerKey.saveToken(value) }
+                }
+            VFHint("Kontrakt zgodny z OpenAI (POST /v1/audio/transcriptions). Własny serwer stawia się jednym `docker compose up` z katalogu server/ w repo; działa też drugi Mac z włączonym udostępnianiem niżej. Gdy serwer nie odpowie, wypowiedź jest liczona lokalnie — nic nie ginie.")
+        }
+
+        VFSection(title: "Udostępnianie silnika", subtitle: "Ten Mac liczy dla telefonu i innych komputerów w sieci lokalnej.") {
+            VFSettingToggle(title: "Udostępnij silnik w sieci lokalnej (port \(TranscriptionWire.defaultPort))", isOn: $model.engineShareEnabled)
+            VFHint("iPhone z VoiceFlow w tej samej sieci Wi-Fi zobaczy ten Mac na liście w Ustawieniach i będzie liczył na jego GPU zamiast na własnej baterii. Nagranie przychodzi po sieci lokalnej, wraca tekst, nic nie jest zapisywane.")
         }
 
         VFSection(title: "Pamięć", subtitle: "Model whisper zajmuje od 0,4 do 1 GB, gdy jest załadowany.") {

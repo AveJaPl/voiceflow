@@ -22,6 +22,9 @@ targets:
     platform: macOS
     sources:
       - path: VoiceFlow
+      # Kontrakt własnego serwera transkrypcji — wspólny z iOS (WAV, multipart,
+      # adres końcówki), patrz server/README.md.
+      - path: ../shared/asr/TranscriptionWire.swift
       # Matematyka tablicy pokoju — również wspólna z iOS, z tego samego
       # powodu: dwie kopie liczyłyby udziały inaczej i nikt by tego nie zauważył.
       - path: ../shared/board/RoomBoard.swift
@@ -35,6 +38,7 @@ targets:
         NSLocalNetworkUsageDescription: "VoiceFlow szuka w Twojej sieci pokoi dyktowania rozgłaszanych przez inne komputery, żebyś nie musiał przepisywać kodu."
         NSBonjourServices:
           - _voiceflow._tcp
+          - _voiceflow-asr._tcp
         NSMicrophoneUsageDescription: "VoiceFlow potrzebuje mikrofonu, żeby transkrybować dyktowanie na żywo."
         NSSpeechRecognitionUsageDescription: "VoiceFlow potrzebuje rozpoznawania mowy Apple do transkrypcji polskiej i angielskiej."
         NSAppleEventsUsageDescription: "VoiceFlow wysyła zdarzenia klawiatury i schowka, żeby wstawić przetranskrybowany tekst w aktywnej aplikacji."

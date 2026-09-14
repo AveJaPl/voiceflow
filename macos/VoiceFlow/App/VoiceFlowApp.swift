@@ -25,6 +25,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Ten sam obiekt co `engine` w `SessionController`, trzymany osobno tylko
     /// po to, żeby zwolnić model przed wyjściem — patrz `applicationWillTerminate`.
     private var whisperEngine: WhisperSpeechEngine?
+    /// Serwer HTTP „udostępnij silnik w LAN” — patrz `EngineShareServer`.
+    private var engineShare: EngineShareServer?
     private var hotkeyMonitor: HotkeyMonitor?
     private var dictationLatch: DictationLatch?
     private var updateChecker: UpdateChecker?
@@ -86,6 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupSessionController()
         setupHotkey()
         importPairingTokenIfNeeded()
+        setupEngineShare()
 
         // Samo-aktualizacja z GitHub Releases (kanał mac-vX.Y.Z) — patrz
         // UpdateChecker. Restart tylko w bezczynnej chwili, nigdy w trakcie
@@ -368,6 +371,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return WhisperSpeechEngine(language: "pl")
         case .apple:
             return try AppleSpeechEngine(locale: Locale(identifier: "pl-PL"))
+        case .server:
+            return RemoteWhisperEngine(language: "pl")
         }
     }
 
@@ -518,6 +523,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         hotkeyMonitor = monitor
+    }
+
+    /// Udostępnianie silnika w LAN — liczy TYM SAMYM `WhisperSpeechEngine`,
+    /// który obsługuje skrót, więc model jest jeden w pamięci, a żądania z
+    /// sieci ustawiają się w kolejce za lokalnym dyktowaniem.
+    private func setupEngineShare() {
+        let server = EngineShareServer { [weak self] samples, prompt in
+            guard let engine = self?.whisperEngine else { return "" }
+            return await engine.transcribeExternal(samples: samples, prompt: prompt)
+        }
+        engineShare = server
+        if settingsModel.engineShareEnabled { server.start() }
+        settingsModel.$engineShareEnabled
+            .dropFirst()
+            .sink { [weak server] enabled in
+                if enabled { server?.start() } else { server?.stop() }
+            }
+            .store(in: &settingsCancellables)
     }
 
     /// Jednorazowy import tokenu konta podrzuconego przez `defaults`

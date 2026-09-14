@@ -6,8 +6,10 @@ import SwiftUI
 /// To tutaj Wojtek/Ty zobaczycie realny wynik kryterium #4 z planu bez
 /// podpinania Console.app.
 struct SettingsView: View {
-    @ObservedObject var remote: RemoteSession
+    @ObservedObject var remote: AccountSession
+    @ObservedObject var models: WhisperModelStore
     @State private var diagnostics = KeyboardDiagnostics.load()
+    @State private var showAdvanced = false
     @State private var refreshTimer: Timer?
 
     var body: some View {
@@ -20,6 +22,46 @@ struct SettingsView: View {
                     // której user tu szuka.
                     AccountSection(remote: remote)
                         .padding(.top, 20)
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("MODEL ROZPOZNAWANIA").vfEyebrow()
+                        ModelStatusView(models: models)
+                        if models.availableModels.count > 1 {
+                            VStack(spacing: 0) {
+                                ForEach(models.availableModels) { model in
+                                    Button {
+                                        models.select(model)
+                                    } label: {
+                                        HStack(alignment: .top, spacing: 12) {
+                                            Image(systemName: model == models.selected ? "largecircle.fill.circle" : "circle")
+                                                .foregroundStyle(model == models.selected ? VFColor.text : VFColor.faint)
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                Text("\(model.title) · \(model.approximateMB) MB")
+                                                    .font(VFFont.body(13, weight: .semibold))
+                                                    .foregroundStyle(VFColor.text)
+                                                Text(model.detail)
+                                                    .font(VFFont.body(12))
+                                                    .foregroundStyle(VFColor.faint)
+                                                    .fixedSize(horizontal: false, vertical: true)
+                                            }
+                                            Spacer()
+                                        }
+                                        .padding(.horizontal, 18)
+                                        .padding(.vertical, 12)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .overlay(alignment: .bottom) {
+                                        Rectangle().fill(VFColor.border).frame(height: 1).padding(.horizontal, 18)
+                                    }
+                                }
+                            }
+                            .background(VFColor.surface)
+                            .overlay(RoundedRectangle(cornerRadius: 2).stroke(VFColor.border, lineWidth: 1))
+                        }
+                        Text("Wybrany automatycznie pod ten telefon. Zmiana pobiera inny model; poprzedni zostaje na dysku.")
+                            .font(VFFont.body(12))
+                            .foregroundStyle(VFColor.faint)
+                    }
 
                     VStack(alignment: .leading, spacing: 6) {
                         Text("DIAGNOSTYKA KLAWIATURY")
@@ -61,7 +103,7 @@ struct SettingsView: View {
                         Text("VoiceFlow · \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")")
                             .font(VFFont.body(13))
                             .foregroundStyle(VFColor.muted)
-                        Text("Rozpoznawanie mowy działa w całości na urządzeniu (SFSpeechRecognizer, on-device, pl-PL) — nagranie nigdy nie opuszcza telefonu.")
+                        Text("Rozpoznawanie mowy działa w całości na urządzeniu (whisper przez Core ML; Apple jako zapas, dopóki model się pobiera) — nagranie nigdy nie opuszcza telefonu.")
                             .font(VFFont.body(12.5))
                             .foregroundStyle(VFColor.faint)
                     }

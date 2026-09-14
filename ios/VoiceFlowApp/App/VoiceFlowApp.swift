@@ -33,6 +33,9 @@ struct VoiceFlowApp: App {
 struct RootView: View {
     @State private var onboardingDone = AppGroup.defaults.bool(forKey: AppGroupKeys.keyboardHasLaunched)
         || LaunchOverrides.skipOnboarding
+    /// Model whisper zaczyna się pobierać/ładować od razu po starcie apki —
+    /// żeby był gotowy, zanim ktoś pierwszy raz stuknie mikrofon.
+    @ObservedObject private var models = WhisperModelStore.shared
     @State private var launchedForDictation = false
     @State private var dictationSessionID = UUID()
 
@@ -40,7 +43,10 @@ struct RootView: View {
         ZStack {
             VFColor.background.ignoresSafeArea()
             if onboardingDone {
-                MainTabView()
+                MainTabView {
+                    dictationSessionID = UUID()
+                    launchedForDictation = true
+                }
             } else {
                 OnboardingView { withAnimation(.easeOut(duration: 0.3)) { onboardingDone = true } }
             }
@@ -49,6 +55,7 @@ struct RootView: View {
             KeyboardHandoffView { launchedForDictation = false }
                 .id(dictationSessionID)
         }
+        .onAppear { models.prepare() }
         .onOpenURL { url in
             guard url.scheme == "voiceflow", url.host == "dictate" else { return }
             onboardingDone = true
@@ -58,36 +65,27 @@ struct RootView: View {
     }
 }
 
-/// Zakładki (redesign 2026-08-12, decyzja Wojtka): Pulpit z podsumowaniem
-/// konta, Mac, Historia z serwera, Pokoje i Ustawienia. Ekran „Dyktuj” zniknął
-/// — na telefonie dyktuje się z klawiatury (patrz `RootView`), a nie z osobnej
-/// karty w apce.
+/// Zakładki (decyzja Wojtka 2026-09-14): Klawiatura, Historia, Pokoje,
+/// Ustawienia. Zakładka „Mac” (zdalne sterowanie komputerem z telefonu)
+/// zniknęła razem z całym kodem pod nią — telefon jest klawiaturą głosową,
+/// nie pilotem. Dyktuje się z klawiatury (patrz `RootView`) albo przyciskiem
+/// „Dyktuj teraz” na pierwszej zakładce.
 struct MainTabView: View {
-    /// Jedna sesja na całą apkę, trzymana tutaj, a nie w `RemoteView` — inaczej
-    /// każde wejście w zakładkę zaczynałoby połączenie od zera. Pulpit i
-    /// Historia biorą stąd też poświadczenia konta do HTTP API.
-    @StateObject private var remote = RemoteSession()
+    /// Konto trzymane tutaj, a nie per ekran — Historia i Pulpit biorą stąd
+    /// poświadczenia do HTTP API.
+    @StateObject private var account = AccountSession()
+    @ObservedObject private var models = WhisperModelStore.shared
+    var onDictate: () -> Void
 
     var body: some View {
         TabView {
-            NavigationStack { DashboardView(remote: remote) }
-                .tabItem { Label("Pulpit", systemImage: "square.grid.2x2") }
-            // Zakładka pojawia się DOPIERO po zalogowaniu. Pokazywanie jej
-            // wcześniej znaczyłoby pokazywanie ekranu, który umie tylko
-            // powiedzieć „najpierw się zaloguj" — a od tego są Ustawienia.
-            if remote.isPaired {
-                // JEDEN ekran sterowania w dwóch trybach (klawiatura / pilot),
-                // przełączanych automatycznie po sieci — patrz `MacControlView`.
-                // Dwie osobne zakładki znaczyły dwa różne wyglądy tego samego
-                // sprzętu i tej samej sesji.
-                NavigationStack { MacControlView(session: remote) }
-                    .tabItem { Label("Mac", systemImage: "macbook.and.iphone") }
-            }
-            NavigationStack { HistoryView(remote: remote) }
+            NavigationStack { KeyboardTabView(models: models, onDictate: onDictate) }
+                .tabItem { Label("Klawiatura", systemImage: "keyboard") }
+            NavigationStack { HistoryView(remote: account) }
                 .tabItem { Label("Historia", systemImage: "clock") }
             NavigationStack { RoomsView() }
                 .tabItem { Label("Pokoje", systemImage: "person.2") }
-            NavigationStack { SettingsView(remote: remote) }
+            NavigationStack { SettingsView(remote: account, models: models) }
                 .tabItem { Label("Ustawienia", systemImage: "gearshape") }
         }
         .tint(VFColor.text)
@@ -97,11 +95,6 @@ struct MainTabView: View {
             appearance.backgroundColor = UIColor(VFColor.surfaceSolid)
             UITabBar.appearance().standardAppearance = appearance
             UITabBar.appearance().scrollEdgeAppearance = appearance
-
-            // Łączymy się PRZY STARCIE APKI, nie dopiero po wejściu w zakładkę
-            // Mac — inaczej pierwsze wejście płaci pełny czas uściśnięcia dłoni
-            // i pobrania listy okien, i przycisk „Mów" długo jest martwy.
-            remote.connect()
         }
     }
 }

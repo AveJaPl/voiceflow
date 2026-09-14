@@ -1,13 +1,9 @@
 import SwiftUI
 
-/// Logowanie kontem — JEDYNA droga do Maca (decyzja Wojtka 2026-08-12:
-/// wszystko idzie przez konto, parowanie kodem QR po sieci lokalnej zniknęło
-/// z UI razem z `PairingView`).
-///
-/// Token konta JEST tokenem połączenia, więc „wyloguj" rozłącza też telefon od
-/// Maca — apka nie ma stanu „zalogowany, ale nierozłączony".
+/// Logowanie kontem — konto jest opcjonalne i służy wyłącznie synchronizacji
+/// historii między telefonem a Makiem. Dyktowanie działa bez niego.
 struct AccountSection: View {
-    @ObservedObject var remote: RemoteSession
+    @ObservedObject var remote: AccountSession
     /// Wołane po udanym logowaniu — np. żeby zamknąć ekran parowania.
     var onLoggedIn: (() -> Void)? = nil
 
@@ -32,7 +28,7 @@ struct AccountSection: View {
                 }
                 .buttonStyle(VFOutlineButtonStyle())
             } else {
-                Text("Zaloguj się kontem VoiceFlow, żeby zobaczyć swoją historię dyktowań i połączyć się z Makiem.")
+                Text("Konto jest opcjonalne: z nim historia dyktowań jest wspólna dla telefonu i Maca. Bez niego wszystko działa lokalnie.")
                     .font(VFFont.body(12.5))
                     .foregroundStyle(VFColor.faint)
                 field("E-mail", text: $email, placeholder: "ty@przyklad.pl")
@@ -57,7 +53,7 @@ struct AccountSection: View {
         if let knownEmail, !knownEmail.isEmpty {
             return "Zalogowano jako \(knownEmail)."
         }
-        return "Połączono kodem QR, bez konta — historia wymaga zalogowania."
+        return "Zalogowano."
     }
 
     private func logIn() async {
@@ -68,10 +64,6 @@ struct AccountSection: View {
         do {
             let token = try await AccountAPI.logIn(email: address, password: password)
             let credentials = RemoteCredentials(host: AccountAPI.defaultHost, token: token)
-            guard RemotePairing.relayURL(credentials) != nil else {
-                errorText = "Adres relaya jest nieprawidłowy."
-                return
-            }
             password = ""
             AccountIdentity.email = address
             knownEmail = address

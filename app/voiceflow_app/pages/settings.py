@@ -418,7 +418,6 @@ class SettingsPage(Gtk.ScrolledWindow):
         self._muted_apps = string_list_value(
             mute_apps, "apps", ["WEBRTC VoiceEngine"]
         )
-        self.apps_entry.set_text("")
         self._render_apps()
         self._render_duck_apps()
         self._set_duck_controls_sensitive()

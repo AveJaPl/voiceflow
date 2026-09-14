@@ -44,6 +44,128 @@ export function rankingRows(rows) {
     .sort((a, b) => b.words - a.words);
 }
 
+/**
+ * Dokłada do rankingu osoby, które są w pokoju, ale jeszcze nic nie powiedziały.
+ *
+ * `ranking` liczy się z dyktowań, więc ktoś, kto właśnie dołączył — albo kogo
+ * zastała nowa sesja — nie miałby tam ani jednego wiersza i zniknąłby z ekranu.
+ * Dla osoby patrzącej na tablicę to wygląda, jakby jej tam nie było, choć
+ * blokada mikrofonu jak najbardziej jej dotyczy.
+ *
+ * Zera lądują na końcu, bo sortowanie po słowach i tak je tam stawia.
+ */
+export function withSilentMembers(ranking, members) {
+  const present = new Set(ranking.map((entry) => entry.deviceId));
+  const silent = (members ?? [])
+    .filter((member) => !present.has(member.id))
+    .map((member) => ({
+      deviceId: member.id,
+      name: member.name,
+      words: 0,
+      seconds: 0,
+      dictations: 0,
+      averageWords: 0,
+    }));
+  return [...ranking, ...silent];
+}
+
+/**
+ * Zamknięte i trwające sesje pokoju, z sumami każdej z nich.
+ *
+ * Sesja bez ani jednego dyktowania też tu jest: „zaczęliśmy i nic z tego nie
+ * wyszło" to prawdziwy fakt o pracy, a ukrycie takiej sesji wyglądałoby na
+ * zgubione dane.
+ */
+export function historyRows(rows) {
+  return rows.map((row) => {
+    const words = Number(row.words);
+    const dictations = Number(row.dictations);
+    return {
+      id: Number(row.id),
+      name: row.name,
+      startedAt: row.started_at,
+      endedAt: row.ended_at,
+      words,
+      seconds: Number(row.seconds),
+      dictations,
+      speakers: Number(row.speakers),
+      averageWords: dictations > 0 ? Math.round(words / dictations) : 0,
+    };
+  });
+}
+
+/**
+ * Dyktowania sesji pokrojone na kubełki czasu, per osoba.
+ *
+ * Do wykresu „kto kiedy mówił". Kubełek jest liczony w SQL, nie w JavaScripcie:
+ * inaczej trzeba by ściągnąć każde dyktowanie z osobna tylko po to, żeby je
+ * zaraz zsumować.
+ */
+export function timelineRows(rows) {
+  return rows.map((row) => ({
+    deviceId: row.device_id,
+    name: row.name,
+    at: row.bucket,
+    words: Number(row.words),
+    dictations: Number(row.dictations),
+  }));
+}
+
+/**
+ * Rozkład dobowy: ile słów pada w pokoju o której godzinie, przez wszystkie sesje.
+ *
+ * Godzina jest w UTC, bo baza nie ma prawa zgadywać, w jakiej strefie siedzi
+ * osoba patrząca na tablicę. Przesunięcie na czas lokalny robi przeglądarka,
+ * która swoją strefę zna.
+ */
+export function hourlyRows(rows) {
+  const byHour = new Array(24).fill(null).map((_unused, hour) => ({
+    hour, words: 0, dictations: 0,
+  }));
+  for (const row of rows) {
+    const hour = Number(row.hour);
+    if (!Number.isInteger(hour) || hour < 0 || hour > 23) continue;
+    byHour[hour] = { hour, words: Number(row.words), dictations: Number(row.dictations) };
+  }
+  return byHour;
+}
+
+/** Dorobek każdej osoby w pokoju przez WSZYSTKIE sesje, nie tylko bieżącą. */
+export function summaryRows(rows) {
+  return rows
+    .map((row) => {
+      const words = Number(row.words);
+      const dictations = Number(row.dictations);
+      return {
+        deviceId: row.device_id,
+        name: row.name,
+        sessions: Number(row.sessions),
+        words,
+        seconds: Number(row.seconds),
+        dictations,
+        averageWords: dictations > 0 ? Math.round(words / dictations) : 0,
+      };
+    })
+    .sort((a, b) => b.words - a.words);
+}
+
+/**
+ * Sumy całego pokoju — jedna liczba na wiersz tablicy „razem".
+ *
+ * `sessionCount` przychodzi osobno, a nie z długości listy: lista jest jedną
+ * stroną wyników, więc liczenie jej wierszy pokazywałoby „20 sesji" w pokoju,
+ * który ma ich sto.
+ */
+export function historyTotals(sessionCount, people) {
+  return {
+    sessions: sessionCount,
+    people: people.length,
+    words: people.reduce((total, person) => total + person.words, 0),
+    seconds: people.reduce((total, person) => total + person.seconds, 0),
+    dictations: people.reduce((total, person) => total + person.dictations, 0),
+  };
+}
+
 export function createStore(pool) {
   return {
     async registerDevice(name, platform) {
@@ -72,7 +194,7 @@ export function createStore(pool) {
     async createRoom(name) {
       const code = generateCode();
       const { rows } = await pool.query(
-        'INSERT INTO rooms (code, name) VALUES ($1, $2) RETURNING id, code, name',
+        'INSERT INTO rooms (code, name) VALUES ($1, $2) RETURNING id, code, name, mode',
         [code, name ?? null],
       );
       return rows[0];
@@ -80,10 +202,15 @@ export function createStore(pool) {
 
     async roomByCode(code) {
       const { rows } = await pool.query(
-        'SELECT id, code, name FROM rooms WHERE code = $1',
+        'SELECT id, code, name, mode FROM rooms WHERE code = $1',
         [String(code).toUpperCase()],
       );
       return rows[0] ?? null;
+    },
+
+    /** Wartość jest sprawdzona wyżej — do bazy nie trafia cudzy tekst z żądania. */
+    async setRoomMode(roomId, mode) {
+      await pool.query('UPDATE rooms SET mode = $2 WHERE id = $1', [roomId, mode]);
     },
 
     async joinRoom(roomId, deviceId) {
@@ -120,6 +247,94 @@ export function createStore(pool) {
         [roomId],
       );
       return rows[0] ?? null;
+    },
+
+    /**
+     * Historia sesji pokoju, od najnowszej. LEFT JOIN, żeby sesja bez ani
+     * jednego dyktowania nie wypadła z listy.
+     */
+    async sessionHistory(roomId, limit = 20, offset = 0) {
+      const { rows } = await pool.query(
+        `SELECT s.id, s.name, s.started_at, s.ended_at,
+                COALESCE(SUM(d.words), 0)          AS words,
+                COALESCE(SUM(d.seconds), 0)        AS seconds,
+                COUNT(d.id)                        AS dictations,
+                COUNT(DISTINCT d.device_id)        AS speakers
+         FROM sessions s
+         LEFT JOIN dictations d ON d.session_id = s.id
+         WHERE s.room_id = $1
+         GROUP BY s.id
+         ORDER BY s.started_at DESC
+         LIMIT $2 OFFSET $3`,
+        // Bierzemy o jeden wiersz za dużo: to najtańszy sposób, żeby wiedzieć,
+        // czy jest co dociągać, bez drugiego zapytania liczącego wszystko.
+        [roomId, limit + 1, offset],
+      );
+      return historyRows(rows);
+    },
+
+    /**
+     * Szereg czasowy sesji: ile kto powiedział w kolejnych kubełkach.
+     *
+     * Szerokość kubełka dobiera wywołujący, bo sesja pięciominutowa i
+     * pięciogodzinna potrzebują innej rozdzielczości, żeby wykres coś mówił.
+     */
+    async sessionTimeline(sessionId, bucketSeconds = 300) {
+      const { rows } = await pool.query(
+        `SELECT d.device_id, dev.name,
+                to_timestamp(floor(extract(epoch FROM d.at) / $2) * $2) AS bucket,
+                COALESCE(SUM(d.words), 0) AS words,
+                COUNT(*)                  AS dictations
+         FROM dictations d
+         JOIN devices dev ON dev.id = d.device_id
+         WHERE d.session_id = $1
+         GROUP BY d.device_id, dev.name, bucket
+         ORDER BY bucket`,
+        [sessionId, bucketSeconds],
+      );
+      return timelineRows(rows);
+    },
+
+    /** O której godzinie ten pokój pracuje — zbiorczo, ze wszystkich sesji. */
+    async hourlyActivity(roomId) {
+      const { rows } = await pool.query(
+        `SELECT extract(hour FROM d.at AT TIME ZONE 'UTC')::int AS hour,
+                COALESCE(SUM(d.words), 0) AS words,
+                COUNT(*)                  AS dictations
+         FROM dictations d
+         JOIN sessions s ON s.id = d.session_id
+         WHERE s.room_id = $1
+         GROUP BY hour`,
+        [roomId],
+      );
+      return hourlyRows(rows);
+    },
+
+    /** Ile sesji miał ten pokój w całości — niezależnie od strony wyników. */
+    async sessionCount(roomId) {
+      const { rows } = await pool.query(
+        'SELECT COUNT(*) AS total FROM sessions WHERE room_id = $1',
+        [roomId],
+      );
+      return Number(rows[0]?.total ?? 0);
+    },
+
+    /** Dorobek każdej osoby przez wszystkie sesje tego pokoju. */
+    async roomSummary(roomId) {
+      const { rows } = await pool.query(
+        `SELECT d.device_id, dev.name,
+                COUNT(DISTINCT d.session_id) AS sessions,
+                COALESCE(SUM(d.words), 0)    AS words,
+                COALESCE(SUM(d.seconds), 0)  AS seconds,
+                COUNT(*)                     AS dictations
+         FROM dictations d
+         JOIN devices dev ON dev.id = d.device_id
+         JOIN sessions s  ON s.id = d.session_id
+         WHERE s.room_id = $1
+         GROUP BY d.device_id, dev.name`,
+        [roomId],
+      );
+      return summaryRows(rows);
     },
 
     async endSession(sessionId) {

@@ -183,3 +183,242 @@ test('anulowanie zwalnia głos, ale nie tworzy wpisu w rankingu', async () => {
     'druga osoba może od razu mówić',
   );
 });
+
+test('co gra rozsyła się do pokoju i nie dotyka bazy', async () => {
+  const writes = [];
+  const hub = createHub({
+    store: { async activeSession() { return { id: 1 }; }, async recordDictation(...a) { writes.push(a); } },
+  });
+  const filip = fakeConnection('dev-1', 'Filip');
+  const widz = { ...fakeConnection('viewer-1', null), viewer: true, sent: [], send(o) { this.sent.push(o); } };
+  await hub.handleMessage(filip, { type: 'hello' });
+  await hub.handleMessage(widz, { type: 'hello' });
+  filip.sent.length = 0;
+  widz.sent.length = 0;
+
+  await hub.handleMessage(filip, {
+    type: 'now_playing',
+    track: { title: 'Smells Like Teen Spirit', artist: 'Nirvana', player: 'Spotify', artUrl: 'https://x' },
+  });
+
+  const played = widz.sent.filter((m) => m.type === 'now_playing');
+  assert.equal(played.length, 1);
+  assert.equal(played[0].playing[0].title, 'Smells Like Teen Spirit');
+  assert.equal(played[0].playing[0].name, 'Filip');
+  assert.deepEqual(writes, [], 'utwór nie ma prawa trafić do bazy');
+});
+
+test('cisza w odtwarzaczu zdejmuje kafelek', async () => {
+  const hub = createHub({ store: noopStore });
+  const filip = fakeConnection('dev-1', 'Filip');
+  await hub.handleMessage(filip, { type: 'hello' });
+  await hub.handleMessage(filip, { type: 'now_playing', track: { title: 'x' } });
+  filip.sent.length = 0;
+
+  await hub.handleMessage(filip, { type: 'now_playing', track: null });
+
+  const played = filip.sent.filter((m) => m.type === 'now_playing');
+  assert.deepEqual(played.at(-1).playing, []);
+});
+
+test('wyjście z pokoju zabiera ze sobą kafelek muzyki', async () => {
+  const hub = createHub({ store: noopStore });
+  const filip = fakeConnection('dev-1', 'Filip');
+  const wojtek = fakeConnection('dev-2', 'Wojtek');
+  await hub.handleMessage(filip, { type: 'hello' });
+  await hub.handleMessage(wojtek, { type: 'hello' });
+  await hub.handleMessage(filip, { type: 'now_playing', track: { title: 'x' } });
+  wojtek.sent.length = 0;
+
+  hub.disconnect(filip);
+
+  const played = wojtek.sent.filter((m) => m.type === 'now_playing');
+  assert.deepEqual(played.at(-1).playing, []);
+});
+
+test('zużycie Claude Code rozsyła się i nie dotyka bazy', async () => {
+  const writes = [];
+  const hub = createHub({
+    store: { async activeSession() { return { id: 1 }; }, async recordDictation(...a) { writes.push(a); } },
+  });
+  const filip = fakeConnection('dev-1', 'Filip');
+  const widz = { ...fakeConnection('viewer-1', null), viewer: true, sent: [], send(o) { this.sent.push(o); } };
+  await hub.handleMessage(filip, { type: 'hello' });
+  await hub.handleMessage(widz, { type: 'hello' });
+  widz.sent.length = 0;
+
+  await hub.handleMessage(filip, { type: 'claude_usage', usage: { fiveHour: 58, sevenDay: 5 } });
+
+  const seen = widz.sent.filter((m) => m.type === 'claude_usage').at(-1);
+  assert.equal(seen.people[0].fiveHour, 58);
+  assert.equal(seen.people[0].name, 'Filip');
+  assert.deepEqual(writes, [], 'zużycie nie ma prawa trafić do bazy');
+});
+
+test('bzdurne procenty są przycinane, nie przepisywane', async () => {
+  const hub = createHub({ store: noopStore });
+  const filip = fakeConnection('dev-1', 'Filip');
+  await hub.handleMessage(filip, { type: 'hello' });
+  filip.sent.length = 0;
+
+  await hub.handleMessage(filip, { type: 'claude_usage', usage: { fiveHour: 900, sevenDay: -5 } });
+
+  const seen = filip.sent.filter((m) => m.type === 'claude_usage').at(-1);
+  assert.equal(seen.people[0].fiveHour, 100);
+  assert.equal(seen.people[0].sevenDay, 0);
+});
+
+test('liczby tokenów wędrują dalej; bzdurne stają się zerem', async () => {
+  const hub = createHub({ store: noopStore });
+  const filip = fakeConnection('dev-1', 'Filip');
+  await hub.handleMessage(filip, { type: 'hello' });
+  filip.sent.length = 0;
+
+  await hub.handleMessage(filip, {
+    type: 'claude_usage',
+    usage: { fiveHour: 21, tokensIn: 490440619.9, tokensOut: -7 },
+  });
+
+  const seen = filip.sent.filter((m) => m.type === 'claude_usage').at(-1);
+  assert.equal(seen.people[0].tokensIn, 490440619);
+  assert.equal(seen.people[0].tokensOut, 0);
+});
+
+test('stary klient bez pól tokenów nadal przechodzi', async () => {
+  const hub = createHub({ store: noopStore });
+  const filip = fakeConnection('dev-1', 'Filip');
+  await hub.handleMessage(filip, { type: 'hello' });
+  filip.sent.length = 0;
+
+  await hub.handleMessage(filip, { type: 'claude_usage', usage: { fiveHour: 58, sevenDay: 5 } });
+
+  const seen = filip.sent.filter((m) => m.type === 'claude_usage').at(-1);
+  assert.equal(seen.people[0].tokensIn, 0);
+  assert.equal(seen.people[0].tokensOut, 0);
+});
+
+test('nieznane procenty (null) docierają jako null, nie jako 0%', async () => {
+  const hub = createHub({ store: noopStore });
+  const filip = fakeConnection('dev-1', 'Filip');
+  await hub.handleMessage(filip, { type: 'hello' });
+  filip.sent.length = 0;
+
+  await hub.handleMessage(filip, {
+    type: 'claude_usage',
+    usage: { fiveHour: null, sevenDay: null, tokensIn: 500, tokensOut: 20 },
+  });
+
+  const seen = filip.sent.filter((m) => m.type === 'claude_usage').at(-1);
+  assert.equal(seen.people[0].fiveHour, null, '0% to zmyślona liczba, null to prawda');
+  assert.equal(seen.people[0].tokensIn, 500);
+});
+
+/* --- tryb zdalny ---------------------------------------------------------- */
+
+/** Połączenie z pokoju, który w bazie ma ustawiony tryb zdalny. */
+function remoteConnection(deviceId, name) {
+  return { ...fakeConnection(deviceId, name), roomMode: 'remote', sent: [], send(obj) { this.sent.push(obj); } };
+}
+
+test('w trybie zdalnym nikt nikomu nie zabiera mikrofonu', async () => {
+  const recorded = [];
+  const hub = createHub({
+    store: {
+      async activeSession() { return { id: 3 }; },
+      async recordDictation(sessionId, deviceId, at, seconds, words) {
+        recorded.push({ deviceId, words });
+      },
+    },
+  });
+  const filip = remoteConnection('f', 'Filip');
+  const wojtek = remoteConnection('w', 'Wojtek');
+  await hub.handleMessage(filip, { type: 'hello' });
+  await hub.handleMessage(wojtek, { type: 'hello' });
+
+  await hub.handleMessage(filip, { type: 'speaking_started' }, 1000);
+  await hub.handleMessage(wojtek, { type: 'speaking_started' }, 1100);
+  await hub.handleMessage(wojtek, { type: 'speaking_ended', words: 30, seconds: 4 }, 5000);
+  await hub.handleMessage(filip, { type: 'speaking_ended', words: 12, seconds: 6 }, 7000);
+
+  assert.equal(
+    wojtek.sent.filter((m) => m.type === 'speaking_denied').length, 0,
+    'siedzą w różnych domach — czekanie na siebie nie ma po co istnieć',
+  );
+  assert.deepEqual(recorded, [{ deviceId: 'w', words: 30 }, { deviceId: 'f', words: 12 }],
+    'oba dyktowania liczą się do rankingu');
+});
+
+test('w trybie zdalnym demon nie dowiaduje się o cudzym mówieniu', async () => {
+  const hub = createHub({ store: noopStore });
+  const filip = remoteConnection('f', 'Filip');
+  const wojtek = remoteConnection('w', 'Wojtek');
+  await hub.handleMessage(filip, { type: 'hello' });
+  await hub.handleMessage(wojtek, { type: 'hello' });
+  wojtek.sent.length = 0;
+
+  await hub.handleMessage(filip, { type: 'speaking_started' }, 1000);
+
+  const last = wojtek.sent.filter((m) => m.type === 'speaker_changed').at(-1);
+  assert.equal(last.speaking, null, 'cudze dyktowanie nie ma prawa ściszyć mu muzyki');
+  assert.deepEqual(last.speakers, []);
+});
+
+test('tablica w trybie zdalnym widzi wszystkich mówiących naraz', async () => {
+  const hub = createHub({ store: noopStore });
+  const filip = remoteConnection('f', 'Filip');
+  const wojtek = remoteConnection('w', 'Wojtek');
+  const tablet = { ...remoteConnection('v', null), viewer: true };
+  await hub.handleMessage(filip, { type: 'hello' });
+  await hub.handleMessage(wojtek, { type: 'hello' });
+  await hub.handleMessage(tablet, { type: 'hello' });
+
+  await hub.handleMessage(filip, { type: 'speaking_started' }, 1000);
+  await hub.handleMessage(wojtek, { type: 'speaking_started' }, 1100);
+
+  const last = tablet.sent.filter((m) => m.type === 'speaker_changed').at(-1);
+  assert.deepEqual(last.speakers.map((s) => s.name), ['Filip', 'Wojtek']);
+  assert.equal(last.speaking.name, 'Filip', 'stara tablica pokaże przynajmniej pierwszego');
+});
+
+test('przełączenie na tryb zdalny natychmiast zdejmuje blokadę', async () => {
+  const hub = createHub({ store: noopStore });
+  const filip = fakeConnection('f', 'Filip');
+  const wojtek = fakeConnection('w', 'Wojtek');
+  await hub.handleMessage(filip, { type: 'hello' });
+  await hub.handleMessage(wojtek, { type: 'hello' });
+  await hub.handleMessage(filip, { type: 'speaking_started' }, 1000);
+  wojtek.sent.length = 0;
+
+  hub.setMode('ROOM01', 'remote');
+  await hub.handleMessage(wojtek, { type: 'speaking_started' }, 1200);
+
+  assert.equal(wojtek.sent.filter((m) => m.type === 'room_mode').at(-1).mode, 'remote');
+  assert.equal(
+    wojtek.sent.filter((m) => m.type === 'speaker_changed').at(-1).speaking, null,
+    'nie trzeba czekać do końca cudzego dyktowania, żeby zobaczyć skutek',
+  );
+  assert.equal(wojtek.sent.filter((m) => m.type === 'speaking_denied').length, 0);
+});
+
+test('powrót do trybu razem przywraca jeden mikrofon', async () => {
+  const hub = createHub({ store: noopStore });
+  const filip = remoteConnection('f', 'Filip');
+  const wojtek = remoteConnection('w', 'Wojtek');
+  await hub.handleMessage(filip, { type: 'hello' });
+  await hub.handleMessage(wojtek, { type: 'hello' });
+
+  hub.setMode('ROOM01', 'together');
+  await hub.handleMessage(filip, { type: 'speaking_started' }, 1000);
+  await hub.handleMessage(wojtek, { type: 'speaking_started' }, 1100);
+
+  assert.equal(wojtek.sent.filter((m) => m.type === 'speaking_denied').at(-1).blockedBy, 'Filip');
+});
+
+test('hello mówi, w jakim trybie jest pokój', async () => {
+  const hub = createHub({ store: noopStore });
+  const tablet = { ...remoteConnection('v', null), viewer: true };
+
+  await hub.handleMessage(tablet, { type: 'hello' });
+
+  assert.equal(tablet.sent.find((m) => m.type === 'room_state').mode, 'remote');
+});

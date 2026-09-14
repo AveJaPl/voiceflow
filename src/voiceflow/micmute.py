@@ -28,6 +28,13 @@ If the ducked value is what gets persisted, every future stream of that app is
 born quiet — permanently, surviving reboots. Restoring must therefore never
 give up on a dead node id: it falls back to re-resolving the app by name, and
 failed restores are remembered and retried when the app's stream reappears.
+
+Those parked restores are written to disk, because the daemon restarting is
+exactly as fatal to them as forgetting them would be: measured on a live
+system, three dictations whose restore never landed left Chromium persisted at
+0.6³ ≈ 22% of its slider, surviving reboots. The same reasoning gives ducking a
+floor — an app already this quiet gains nothing from being ducked further, and
+has everything to lose if that value is the one WirePlumber remembers.
 """
 
 from __future__ import annotations
@@ -36,9 +43,24 @@ import json
 import logging
 import shutil
 import subprocess
+import threading
 from dataclasses import dataclass
+from pathlib import Path
 
 from voiceflow.config import MuteAppsConfig
+from voiceflow.paths import pending_restores_file
+
+#: Jak często, w trakcie dyktowania, sprawdzamy czy nie pojawił się nowy
+#: strumień do ściszenia. Zmiana utworu w odtwarzaczu potrafi zamknąć jeden
+#: strumień i otworzyć drugi — bez tego nowy leciałby na pełnej głośności.
+DUCK_RESCAN_SECONDS = 1.0
+
+#: Poniżej tego poziomu nie ściszamy dalej. Ściszanie czegoś, co i tak ledwo
+#: słychać, nic nie daje, a gdyby przywrócenie nie doszło do skutku, to właśnie
+#: ta wartość zostałaby zapamiętana przez WirePlumbera jako głośność aplikacji.
+#: Podłoga jest bezpiecznikiem na wypadek, gdyby zapamiętany oryginał gdzieś
+#: przepadł — sama w sobie nie zastępuje przywracania.
+DUCK_FLOOR = 0.2
 
 LOGGER = logging.getLogger(__name__)
 
@@ -58,14 +80,30 @@ class MicMuter:
     themselves in Discord by hand, that state is theirs and must survive.
     """
 
-    def __init__(self, config: MuteAppsConfig) -> None:
+    def __init__(self, config: MuteAppsConfig, *, store: Path | None = None) -> None:
         self.config = config
+        #: Gdzie trafiają odłożone przywrócenia. Wstrzykiwalne, żeby testy nie
+        #: pisały do prawdziwego katalogu danych użytkownika.
+        self._store = store
         self._muted: list[_Target] = []
         #: (target, original volume) pairs for playback streams we turned down.
         self._ducked: list[tuple[_Target, float]] = []
+        #: Węzły już ściszone -> poziom, do którego je ściszyliśmy. Sam zbiór id
+        #: nie wystarczy: Spotify przy zmianie utworu zostawia ten sam węzeł,
+        #: ale ustawia mu głośność od nowa — trzeba wiedzieć, dokąd dościszyć.
+        #: (Drugiego ściszenia „od zera" nadal nie robimy: zapamiętałoby ściszony
+        #: poziom jako oryginalny i zostawiło aplikację cicho na stałe.)
+        self._duck_targets: dict[int, float] = {}
+        #: Ściszanie działa przez cały czas nagrywania, nie tylko w chwili startu,
+        #: więc dogląda go osobny wątek. Blokada chroni listę współdzieloną z nim.
+        self._duck_lock = threading.Lock()
+        self._duck_stop: threading.Event | None = None
+        self._duck_thread: threading.Thread | None = None
         #: app (casefolded) -> (display name, original volume) for restores that
         #: found no live stream; retried whenever the app shows up again.
-        self._pending_restores: dict[str, tuple[str, float]] = {}
+        #: Wczytywane z dysku, bo poprzedni demon mógł zakończyć się, zanim
+        #: zdążył je zastosować.
+        self._pending_restores: dict[str, tuple[str, float]] = self._load_pending()
         self._wpctl = shutil.which("wpctl")
         self._pw_dump = shutil.which("pw-dump")
         if config.enabled and (self._wpctl is None or self._pw_dump is None):
@@ -99,9 +137,11 @@ class MicMuter:
                 LOGGER.info("Wyciszono mikrofon aplikacji %s (node %d)", target.app, target.node_id)
         if self.config.duck_enabled:
             self._duck()
+            self._start_duck_watch()
 
     def unmute(self) -> None:
         """Restore every stream muted or ducked by :meth:`mute`. Never raises."""
+        self._stop_duck_watch()
         for target in self._muted:
             if self._set_mute(target.node_id, False):
                 LOGGER.info(
@@ -128,7 +168,9 @@ class MicMuter:
                     target.app,
                 )
                 self._pending_restores[target.app.casefold()] = (target.app, original)
+                self._save_pending()
         self._ducked = []
+        self._duck_targets.clear()
 
     def _restore_by_app(self, app: str, original: float) -> bool:
         """Set ``original`` on every current playback stream of ``app``."""
@@ -146,9 +188,119 @@ class MicMuter:
 
     def _retry_pending_restores(self) -> None:
         """Fix apps whose restore failed because their stream was gone."""
+        changed = False
         for key, (app, original) in list(self._pending_restores.items()):
             if self._restore_by_app(app, original):
                 del self._pending_restores[key]
+                changed = True
+        if changed:
+            self._save_pending()
+
+    # -- trwały zapis odłożonych przywróceń ---------------------------------
+
+    def _store_path(self) -> Path | None:
+        """Where parked restores live, or None if the directory is unusable."""
+        if self._store is not None:
+            return self._store
+        try:
+            return pending_restores_file()
+        except OSError as exc:
+            LOGGER.warning("Brak katalogu na odłożone przywrócenia: %s", exc)
+            return None
+
+    def _load_pending(self) -> dict[str, tuple[str, float]]:
+        """Read restores a previous daemon run could not apply.
+
+        Anything unreadable is treated as "nothing parked": a corrupt file must
+        not stop dictation from starting, and the worst case it costs is one
+        application staying quiet until the user raises it by hand.
+        """
+        path = self._store_path()
+        if path is None:
+            return {}
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError) as exc:
+            LOGGER.warning("Nie można odczytać odłożonych przywróceń: %s", exc)
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+        parked: dict[str, tuple[str, float]] = {}
+        # Same file as the Windows backend, which also parks mic unmutes under
+        # "unmutes"; PipeWire never loses a mute this way, so only "restores"
+        # matter here. A flat dict is the shape this module wrote before.
+        entries = raw.get("restores") if isinstance(raw.get("restores"), dict) else raw
+        for key, value in entries.items():
+            try:
+                app = str(value["app"])
+                volume = float(value["volume"])
+            except (TypeError, KeyError, ValueError):
+                continue
+            # A garbled number must never be handed to set-volume: restoring to
+            # something absurd is worse than leaving the app quiet.
+            if app and 0.0 < volume <= 2.0:
+                parked[str(key)] = (app, volume)
+        if parked:
+            LOGGER.info(
+                "Wczytano %d odłożonych przywróceń głośności z poprzedniej sesji", len(parked)
+            )
+        return parked
+
+    def _save_pending(self) -> None:
+        """Persist parked restores; write through a temp file so a crash mid-write
+        cannot leave a half-written list behind."""
+        path = self._store_path()
+        if path is None:
+            return
+        payload = {
+            "restores": {
+                key: {"app": app, "volume": volume}
+                for key, (app, volume) in self._pending_restores.items()
+            }
+        }
+        try:
+            if not payload["restores"]:
+                path.unlink(missing_ok=True)
+                return
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp.replace(path)
+        except OSError as exc:
+            LOGGER.warning("Nie można zapisać odłożonych przywróceń: %s", exc)
+
+    def _start_duck_watch(self) -> None:
+        """Keep ducking whatever starts playing until the recording ends.
+
+        Ducking once, at the start, only covered streams that already existed.
+        Changing a track closes one stream and opens another, and that new one
+        came in at full volume straight into the microphone.
+        """
+        if self._duck_stop is not None:
+            return
+        stop = threading.Event()
+        self._duck_stop = stop
+        thread = threading.Thread(target=self._watch_ducking, args=(stop,), daemon=True)
+        self._duck_thread = thread
+        thread.start()
+
+    def _stop_duck_watch(self) -> None:
+        stop, thread = self._duck_stop, self._duck_thread
+        self._duck_stop = None
+        self._duck_thread = None
+        if stop is not None:
+            stop.set()
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=2.0)
+
+    def _watch_ducking(self, stop: threading.Event) -> None:
+        while not stop.wait(DUCK_RESCAN_SECONDS):
+            try:
+                self._duck()
+            except Exception:
+                # Zepsute doglądanie nie może przewrócić nagrywania.
+                LOGGER.warning("Nie udało się dościszyć nowych strumieni", exc_info=True)
 
     def _duck(self) -> None:
         """Turn every playing app down to a fraction of where its own slider is.
@@ -162,7 +314,14 @@ class MicMuter:
         # Clamp: a multiplier above 1.0 would make audio LOUDER while dictating.
         default = min(self.config.duck_to, 1.0)
         rules = {name.casefold(): volume for name, volume in self.config.duck_rules}
+        with self._duck_lock:
+            self._duck_streams(default, rules)
+
+    def _duck_streams(self, default: float, rules: dict[str, float]) -> None:
         for target in self._find_playback_streams():
+            if target.node_id in self._duck_targets:
+                self._reduck_if_raised(target)
+                continue
             factor = min(rules.get(target.app.casefold(), default), 1.0)
             if factor >= 1.0:
                 # An explicit "never duck this app" rule.
@@ -171,12 +330,24 @@ class MicMuter:
             if original is None or original <= 0.0:
                 # Unreadable, or already silent and nothing to take away.
                 continue
+            if original < DUCK_FLOOR:
+                # Already barely audible. Taking more away is inaudible anyway,
+                # and if this restore is the one that goes missing, this is the
+                # value the app is stuck with from now on.
+                LOGGER.debug(
+                    "%s gra już na %.0f%%; nie ściszam poniżej podłogi %.0f%%",
+                    target.app,
+                    original * 100,
+                    DUCK_FLOOR * 100,
+                )
+                continue
             duck_to = round(original * factor, 2)
             if duck_to >= original:
                 # Rounding swallowed the whole reduction; nothing to do.
                 continue
             if self._set_volume(target.node_id, duck_to):
                 self._ducked.append((target, original))
+                self._duck_targets[target.node_id] = duck_to
                 LOGGER.info(
                     "Ściszono %s z %.0f%% do %.0f%% (mnożnik %.2f, node %d)",
                     target.app,
@@ -185,6 +356,28 @@ class MicMuter:
                     factor,
                     target.node_id,
                 )
+
+    def _reduck_if_raised(self, target: _Target) -> None:
+        """Push a stream back down if its app raised the volume on its own.
+
+        Spotify does exactly that on every track change: same node, volume set
+        anew (measured live: our 0.10 was back at 0.41 within a second). The
+        original volume stays the one from the first duck — the app was only
+        restoring its idea of that same level, not choosing a new one.
+        """
+        duck_to = self._duck_targets[target.node_id]
+        current = self._get_volume(target.node_id)
+        if current is None or current <= duck_to + 0.01:
+            return
+        if self._set_volume(target.node_id, duck_to):
+            LOGGER.info(
+                "Aplikacja %s podniosła sobie głośność do %.0f%%; ściszam z powrotem "
+                "do %.0f%% (node %d)",
+                target.app,
+                current * 100,
+                duck_to * 100,
+                target.node_id,
+            )
 
     def _find_playback_streams(self) -> list[_Target]:
         """Every application playback stream — ducking is not limited to the

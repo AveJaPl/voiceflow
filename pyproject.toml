@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "voiceflow"
-version = "0.4.0"
+version = "0.6.2"
 description = "Local, GPU-accelerated voice dictation for Linux and Windows. Press a hotkey, speak, get text in any window. Whisper on your own hardware — no cloud, no subscription."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
@@ -39,6 +39,10 @@ dependencies = [
   # The desktop window. Linux has the GTK4/libadwaita app in app/; PyGObject
   # publishes no Windows wheel at all, so the Windows UI is Qt.
   "PySide6; sys_platform == 'win32'",
+  # Room discovery on the local network. Linux does this through Avahi, which
+  # the GTK application already has on the bus; Windows has no Avahi and no
+  # Python binding to its own DNS-SD, so it speaks the same protocol itself.
+  "zeroconf; sys_platform == 'win32'",
 ]
 
 [project.urls]
@@ -53,8 +57,12 @@ voiceflow = "voiceflow.cli:main"
 [project.gui-scripts]
 voiceflow-app = "voiceflow.gui.app:main"
 
+[project.optional-dependencies]
+# `voiceflow serve` — serwer HTTP transkrypcji (Docker na VM), bez pulpitu.
+server = ["fastapi", "uvicorn", "python-multipart"]
+
 [dependency-groups]
-dev = ["pytest"]
+dev = ["pytest", "httpx"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/voiceflow"]

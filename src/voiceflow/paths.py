@@ -91,3 +91,29 @@ def stats_file() -> Path:
     directory = data_dir()
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     return directory / "stats.json"
+
+
+def pending_restores_file() -> Path:
+    """Return the file holding volume restores that could not be applied yet.
+
+    Parked restores must outlive the daemon. WirePlumber persists a stream's
+    volume per application name, so a restore that is dropped on shutdown does
+    not merely get postponed — it leaves that application quiet in every future
+    session, and the next duck multiplies the already-reduced value again.
+    Same directory and same reasoning as `stats_file`.
+    """
+    directory = data_dir()
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return directory / "pending-restores.json"
+
+
+def room_state_file() -> Path:
+    """Return the live room state file read by the desktop application.
+
+    The application runs in a different Python environment and cannot import
+    the daemon's code, so who-is-speaking travels through this file rather than
+    through a call. Same directory and same reasoning as `stats_file`.
+    """
+    directory = data_dir()
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return directory / "room.json"

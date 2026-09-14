@@ -6,7 +6,12 @@
  * tylko tym, co która trasa robi.
  */
 
-const ROOM_PATH = /^\/api\/rooms\/([^/]+)(\/join|\/ranking|\/session\/end)?$/;
+import { historyTotals, withSilentMembers } from './store.js';
+import { isMode } from './roomState.js';
+
+// `/session/end` stoi przed `/session`, bo alternatywa jest uporządkowana —
+// odwrotna kolejność zjadałaby dłuższą trasę krótszym wariantem.
+const ROOM_PATH = /^\/api\/rooms\/([^/]+)(\/join|\/ranking|\/history|\/timeline|\/mode|\/session\/end|\/session)?$/;
 
 export function routeFor(method, url) {
   if (method === 'GET' && url === '/health') return { name: 'health', code: null };
@@ -19,8 +24,19 @@ export function routeFor(method, url) {
   const tail = match[2] ?? '';
   if (method === 'POST' && tail === '/join') return { name: 'join', code };
   if (method === 'GET' && tail === '/ranking') return { name: 'ranking', code };
+  if (method === 'GET' && tail === '/history') return { name: 'history', code };
+  if (method === 'GET' && tail === '/timeline') return { name: 'timeline', code };
+  if (method === 'POST' && tail === '/mode') return { name: 'setMode', code };
   if (method === 'POST' && tail === '/session/end') return { name: 'endSession', code };
+  if (method === 'POST' && tail === '/session') return { name: 'startSession', code };
   return null;
+}
+
+/** Cudza wartość w adresie nie może kazać bazie policzyć miliona wierszy. */
+function clampLimit(raw) {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) return 20;
+  return Math.min(100, Math.floor(value));
 }
 
 function sendJson(res, status, body) {
@@ -40,9 +56,11 @@ async function readJson(req) {
   }
 }
 
-export function createHttpApi({ store }) {
+export function createHttpApi({ store, hub = null }) {
   return async function handle(req, res) {
-    const route = routeFor(req.method, req.url.split('?')[0]);
+    const [rawPath, rawQuery] = req.url.split('?');
+    const query = new URLSearchParams(rawQuery ?? '');
+    const route = routeFor(req.method, rawPath);
     if (!route) return sendJson(res, 404, { error: 'not_found' });
 
     if (route.name === 'health') {
@@ -79,6 +97,18 @@ export function createHttpApi({ store }) {
       return sendJson(res, 200, { room, session, device: { id: device.id, name: device.name } });
     }
 
+    if (route.name === 'setMode') {
+      const body = await readJson(req);
+      if (body === null) return sendJson(res, 400, { error: 'invalid_json' });
+      const mode = String(body.mode ?? '');
+      if (!isMode(mode)) return sendJson(res, 400, { error: 'invalid_mode' });
+      await store.setRoomMode(room.id, mode);
+      // Baza pamięta, hub działa. Bez tego drugiego przełącznik zaczynałby
+      // obowiązywać dopiero po ponownym połączeniu każdej z aplikacji.
+      hub?.setMode(room.code, mode);
+      return sendJson(res, 200, { room: { ...room, mode } });
+    }
+
     if (route.name === 'endSession') {
       const active = await store.activeSession(room.id);
       if (active) await store.endSession(active.id);
@@ -87,13 +117,71 @@ export function createHttpApi({ store }) {
       return sendJson(res, 200, { ended: active?.id ?? null, session: next });
     }
 
+    if (route.name === 'startSession') {
+      const body = await readJson(req);
+      if (body === null) return sendJson(res, 400, { error: 'invalid_json' });
+      // Zamknięcie poprzedniej jest CZĘŚCIĄ tej operacji, nie osobnym krokiem:
+      // dwie otwarte sesje w jednym pokoju rozjechałyby ranking, bo `ranking`
+      // liczy zawsze jedną aktywną.
+      const active = await store.activeSession(room.id);
+      if (active) await store.endSession(active.id);
+      const session = await store.startSession(room.id, body.name || null);
+      return sendJson(res, 201, { ended: active?.id ?? null, session });
+    }
+
+    if (route.name === 'history') {
+      // Historia i sumy jadą jednym wejściem, bo strona i tak rysuje je razem,
+      // a dwa odpytania dawałyby widok, w którym sumy nie zgadzają się z listą.
+      const limit = clampLimit(query.get('limit'));
+      const offset = Math.max(0, Number(query.get('offset')) || 0);
+      const [page, people, sessionCount, hours] = await Promise.all([
+        store.sessionHistory(room.id, limit, offset),
+        store.roomSummary(room.id),
+        store.sessionCount(room.id),
+        store.hourlyActivity(room.id),
+      ]);
+      // Zapytanie pobrało jeden wiersz ponad limit — on nie jedzie do klienta,
+      // służy wyłącznie za odpowiedź na „czy jest coś dalej".
+      const hasMore = page.length > limit;
+      const sessions = hasMore ? page.slice(0, limit) : page;
+      return sendJson(res, 200, {
+        room,
+        sessions,
+        people,
+        hasMore,
+        offset,
+        hours,
+        // Sumy dotyczą CAŁEGO pokoju, nie tej strony wyników — inaczej
+        // przewijanie historii zmieniałoby dorobek ludzi w locie.
+        totals: historyTotals(sessionCount, people),
+      });
+    }
+
+    if (route.name === 'timeline') {
+      const active = await store.activeSession(room.id);
+      if (!active) return sendJson(res, 200, { room, session: null, points: [] });
+      // Kubełek dobierany do długości sesji: przy pięciu minutach pracy wykres
+      // co pół godziny byłby jednym słupkiem, a przy ośmiu godzinach — ścianą.
+      const started = new Date(active.started_at).getTime();
+      const minutes = Math.max(1, (Date.now() - started) / 60000);
+      const bucket = minutes <= 30 ? 60 : minutes <= 180 ? 300 : 900;
+      const points = await store.sessionTimeline(active.id, bucket);
+      return sendJson(res, 200, { room, session: active, bucketSeconds: bucket, points });
+    }
+
     if (route.name === 'ranking') {
       const active = await store.activeSession(room.id);
       const [ranking, members] = await Promise.all([
         active ? store.ranking(active.id) : Promise.resolve([]),
         store.members(room.id),
       ]);
-      return sendJson(res, 200, { room, session: active, members, ranking });
+      // Kto jest w pokoju, ten jest na tablicy — także zanim cokolwiek powie.
+      return sendJson(res, 200, {
+        room,
+        session: active,
+        members,
+        ranking: withSilentMembers(ranking, members),
+      });
     }
 
     return sendJson(res, 404, { error: 'not_found' });

@@ -21,6 +21,15 @@ def _record(timestamp: str, words: int, audio_seconds: float) -> Record:
     )
 
 
+def _local(day: date, hour: int, minute: int = 0) -> str:
+    """A timestamp at that hour of *this machine's* clock, whatever its zone.
+
+    The hourly series buckets by local hour, so a fixture with a fixed offset
+    asserts a different bucket depending on where the suite runs.
+    """
+    return datetime(day.year, day.month, day.day, hour, minute).astimezone().isoformat()
+
+
 def test_build_stats_reports_every_period() -> None:
     records = [
         _record("2026-08-10T09:00:00+02:00", 3, 60.0),
@@ -36,7 +45,7 @@ def test_build_stats_reports_every_period() -> None:
 
 
 def test_build_stats_carries_raw_chart_series() -> None:
-    records = [_record("2026-08-10T09:30:00+02:00", 3, 60.0)]
+    records = [_record(_local(date(2026, 8, 10), 9, 30), 3, 60.0)]
 
     stats = build_stats(records, today=date(2026, 8, 10))
 

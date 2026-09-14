@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -78,8 +80,11 @@ class _FakeMuter(MicMuter):
         *,
         premuted: set[int] | None = None,
         volumes: dict[int, float] | None = None,
+        store: Path | None = None,
     ) -> None:
-        super().__init__(config)
+        # Domyślnie prywatny katalog tymczasowy: bez tego każdy test czytałby
+        # i nadpisywał prawdziwe odłożone przywrócenia użytkownika.
+        super().__init__(config, store=store or Path(tempfile.mkdtemp()) / "pending.json")
         # Pretend the binaries exist regardless of the test machine.
         self._wpctl = "/usr/bin/wpctl"
         self._pw_dump = "/usr/bin/pw-dump"
@@ -355,3 +360,156 @@ def test_config_parses_duck_rules() -> None:
     config = parse_config({"mute_apps": {"duck_rules": {"Spotify": 0.2, "Discord": 0.3}}})
 
     assert dict(config.mute_apps.duck_rules) == {"Spotify": 0.2, "Discord": 0.3}
+
+
+# --- ściszanie musi obejmować też to, co zaczyna grać W TRAKCIE -------------
+
+
+def test_track_started_during_recording_is_ducked_too() -> None:
+    """Zmiana utworu zamyka jeden strumień i otwiera drugi.
+
+    Ściszenie wykonywane raz, na starcie, obejmowało tylko strumienie już
+    istniejące — nowy utwór wchodził na pełnej głośności prosto w mikrofon.
+    """
+    muter = _FakeMuter(_linux_config(duck_to=0.5), volumes={90: 1.0, 95: 1.0})
+    muter.mute()
+
+    muter.kill_node(90)                                   # koniec utworu
+    muter.spawn_output(101, "Spotify", volume=0.8)        # następny rusza
+    muter._duck()                                         # tik wątku doglądającego  # noqa: SLF001
+
+    assert muter.volumes[101] == 0.4, "nowy strumień gra dalej na pełnej głośności"
+
+
+def test_new_stream_is_restored_to_its_own_original_volume() -> None:
+    muter = _FakeMuter(_linux_config(duck_to=0.5), volumes={90: 1.0, 95: 1.0})
+    muter.mute()
+    muter.spawn_output(101, "Spotify", volume=0.8)
+    muter._duck()  # noqa: SLF001
+
+    muter.unmute()
+
+    assert muter.volumes[101] == 0.8, "przywrócono nie ten poziom, który zastaliśmy"
+
+
+def test_app_resetting_its_own_volume_mid_recording_is_ducked_again() -> None:
+    """Spotify przy zmianie utworu zostawia TEN SAM węzeł, ale sam ustawia mu
+    głośność od nowa (zmierzono na żywo: 0.10 wróciło do 0.41 w niecałą
+    sekundę). Strażnik pomijający węzły „już ściszone" nigdy tego nie cofał."""
+    muter = _FakeMuter(_linux_config(duck_to=0.5), volumes={90: 1.0, 95: 1.0})
+    muter.mute()
+    assert muter.volumes[90] == 0.5
+
+    muter.volumes[90] = 1.0  # aplikacja sama przywraca głośność przy nowym utworze
+    muter._duck()  # tik wątku doglądającego  # noqa: SLF001
+
+    assert muter.volumes[90] == 0.5, "strumień gra dalej na pełnej głośności"
+
+
+def test_reducked_stream_still_restores_to_the_first_original() -> None:
+    muter = _FakeMuter(_linux_config(duck_to=0.5), volumes={90: 0.8, 95: 1.0})
+    muter.mute()
+    muter.volumes[90] = 0.8
+    muter._duck()  # noqa: SLF001
+
+    muter.unmute()
+
+    assert muter.volumes[90] == 0.8, "podwójne ściszenie zgubiło oryginalny poziom"
+
+
+def test_repeated_ticks_do_not_compound_the_ducking() -> None:
+    """Drugie ściszenie tego samego strumienia zapamiętałoby ściszony poziom
+    jako oryginalny i zostawiło aplikację cicho na stałe."""
+    muter = _FakeMuter(_linux_config(duck_to=0.5), volumes={90: 1.0, 95: 1.0})
+    muter.mute()
+
+    for _ in range(5):
+        muter._duck()  # noqa: SLF001
+    muter.unmute()
+
+    assert muter.volumes[90] == 1.0
+    assert muter.volumes[95] == 1.0
+
+
+def test_watcher_stops_when_recording_ends() -> None:
+    muter = _FakeMuter(_linux_config(duck_to=0.5), volumes={90: 1.0, 95: 1.0})
+    muter.mute()
+    assert muter._duck_thread is not None and muter._duck_thread.is_alive()  # noqa: SLF001
+
+    muter.unmute()
+
+    assert muter._duck_thread is None  # noqa: SLF001
+
+
+def test_parked_restore_survives_a_daemon_restart(tmp_path: Path) -> None:
+    """Restart demona nie odracza przywrócenia — bez zapisu na dysk kasuje je.
+
+    WirePlumber trzyma głośność per nazwa aplikacji, więc zgubione przywrócenie
+    zostawia aplikację cichą w każdej kolejnej sesji, także po restarcie systemu.
+    """
+    store = tmp_path / "pending.json"
+    muter = _FakeMuter(_linux_config(), volumes={90: 1.0, 95: 1.0}, store=store)
+    muter.mute()
+    muter.kill_node(90)
+    muter.unmute()  # nie ma na czym przywrócić — odkładamy
+
+    assert store.exists(), "odłożone przywrócenie nie trafiło na dysk"
+
+    # Demon startuje od nowa: nowy obiekt, ten sam magazyn.
+    reborn = _FakeMuter(_linux_config(), volumes={95: 1.0}, store=store)
+    assert reborn._pending_restores, "nowy demon nie wczytał odłożonych przywróceń"  # noqa: SLF001
+
+    reborn.spawn_output(97, "WEBRTC VoiceEngine", volume=0.4)  # urodzony cichy
+    reborn.mute()
+
+    assert (97, 1.0) in reborn.volume_calls, "nie naprawiono głośności po restarcie"
+
+
+def test_landed_restore_clears_the_file(tmp_path: Path) -> None:
+    """Nic nie zostaje odłożone — plik ma zniknąć, nie zostać pustą skorupą."""
+    store = tmp_path / "pending.json"
+    muter = _FakeMuter(_linux_config(), volumes={90: 1.0, 95: 1.0}, store=store)
+    muter.mute()
+    muter.kill_node(90)
+    muter.unmute()
+    assert store.exists()
+
+    muter.spawn_output(97, "WEBRTC VoiceEngine", volume=0.4)
+    muter.mute()  # ponowienie się udaje
+
+    assert not store.exists(), "plik został po zastosowaniu wszystkich przywróceń"
+
+
+def test_corrupt_pending_file_does_not_block_dictation(tmp_path: Path) -> None:
+    """Uszkodzony plik to najwyżej jedna cicha aplikacja, nie zepsute dyktowanie."""
+    store = tmp_path / "pending.json"
+    store.write_text("{to nie jest json", encoding="utf-8")
+
+    muter = _FakeMuter(_linux_config(), volumes={90: 1.0, 95: 1.0}, store=store)
+
+    assert muter._pending_restores == {}  # noqa: SLF001
+    muter.mute()
+    assert muter.volume_calls, "ściszanie nie ruszyło mimo uszkodzonego pliku"
+
+
+def test_absurd_saved_volume_is_ignored(tmp_path: Path) -> None:
+    """Przywrócenie do zapisanej bzdury byłoby gorsze niż zostawienie ciszy."""
+    store = tmp_path / "pending.json"
+    store.write_text(
+        json.dumps({"spotify": {"app": "Spotify", "volume": 40.0}}), encoding="utf-8"
+    )
+
+    muter = _FakeMuter(_linux_config(), store=store)
+
+    assert muter._pending_restores == {}  # noqa: SLF001
+
+
+def test_already_quiet_stream_is_not_ducked_further() -> None:
+    """Podłoga ściszania: z 15% nie ma co zabierać, a gdyby przywrócenie
+    przepadło, to właśnie ta wartość zostałaby zapamiętana na stałe."""
+    muter = _FakeMuter(_linux_config(duck_to=0.6), volumes={90: 0.15, 95: 1.0})
+
+    muter.mute()
+
+    assert muter.volume_calls == [(95, 0.6)], "ściszono strumień, który i tak ledwo słychać"
+

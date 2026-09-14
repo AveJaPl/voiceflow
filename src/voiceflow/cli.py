@@ -66,6 +66,11 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "download-model", help="pobierz model mowy z paskiem postępu (używane przez instalator)"
     )
+    serve = subparsers.add_parser(
+        "serve", help="serwer HTTP transkrypcji (konfiguracja zmiennymi VOICEFLOW_*)"
+    )
+    serve.add_argument("--host", default=None)
+    serve.add_argument("--port", type=int, default=None)
     return parser
 
 
@@ -279,15 +284,11 @@ def _print_update() -> int:
 def _room_command(args) -> int:
     """Create or join a room and write the result into config.yaml."""
     from voiceflow.config import load_config
-    from voiceflow.paths import config_dir
-    from voiceflow.roomsetup import RoomSetupError, create_room, join_room, save_to_config
+    from voiceflow.roomsetup import RoomSetupError, create_room, join_room, leave_room, save_to_config
 
     if args.room_command == "leave":
         config = load_config()
-        save_to_config(config.room.server, config.room.code, config.room.token)
-        path = config_dir() / "config.yaml"
-        text = path.read_text(encoding="utf-8").replace("  enabled: true\n  server:", "  enabled: false\n  server:")
-        path.write_text(text, encoding="utf-8")
+        leave_room(config.room.server, config.room.code, config.room.token)
         print("Wyszedłeś z pokoju. Dyktowanie działa dalej, lokalnie.")
         print("Zrestartuj demona: systemctl --user restart voiceflow")
         return 0
@@ -316,6 +317,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the voiceflow command-line interface."""
     parser = build_parser()
     arguments = parser.parse_args(argv)
+    if arguments.command == "daemon" and _WINDOWS:
+        # Before anything is logged: a console handed to a background process
+        # is a window in the user's face, not a place anyone reads. One started
+        # from a terminal is left alone — see winplat.console.
+        from voiceflow.winplat.console import hide_own_console
+
+        hide_own_console()
     if arguments.command == "models":
         return _print_models()
     if arguments.command == "last":
@@ -324,6 +332,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _print_update()
     if arguments.command == "room":
         return _room_command(arguments)
+    if arguments.command == "serve":
+        # Serwer nie czyta config.yaml — wszystko ze środowiska, jak w kontenerze.
+        from voiceflow.server.app import main as serve_main
+
+        argv_serve: list[str] = []
+        if arguments.host:
+            argv_serve += ["--host", arguments.host]
+        if arguments.port:
+            argv_serve += ["--port", str(arguments.port)]
+        return serve_main(argv_serve)
     try:
         config = load_config()
     except RuntimeError as exc:

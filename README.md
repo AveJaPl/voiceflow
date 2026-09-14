@@ -213,6 +213,28 @@ The config file is generated once and not migrated — delete it to regenerate w
 current defaults.
 </details>
 
+## Server mode (HTTP API)
+
+The same recognizer can run as a small HTTP service — for a web app, a tablet,
+or any machine without a GPU — so audio never leaves your own infrastructure:
+
+```bash
+pip install "voiceflow[server]"        # or: docker build -t voiceflow-api .
+VOICEFLOW_API_TOKEN=$(openssl rand -hex 32) voiceflow serve --port 8000
+```
+
+- `POST /api/v1/transcribe` — `multipart/form-data` with an `audio` field
+  (webm/opus, ogg, m4a, wav…), header `Authorization: Bearer <token>`.
+  Returns `{"text", "language", "audio_seconds", "transcription_seconds"}`.
+- `GET /api/health` — liveness only. `GET /api/v1/model` — model details (token).
+- Configured entirely through environment variables: `VOICEFLOW_MODEL`
+  (default `large-v3-turbo`), `VOICEFLOW_DEVICE` (`cpu`), `VOICEFLOW_COMPUTE_TYPE`
+  (`int8`), `VOICEFLOW_LANGUAGE` (`pl`), `VOICEFLOW_CPU_THREADS`,
+  `VOICEFLOW_VOCABULARY` (comma-separated), `VOICEFLOW_ROOT_PATH` (`/api`).
+- The token is mandatory: the server refuses to start without one, and requests
+  without it are rejected before the body is read. Put the model cache on a
+  volume (`HF_HOME=/models`) so redeploys do not download it again.
+
 ## How it works
 
 ```

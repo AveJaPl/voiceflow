@@ -179,3 +179,38 @@ def test_daemon_launcher_prefers_a_windowless_interpreter() -> None:
 
     assert command[1:] == ["-m", "voiceflow", "daemon"]
     assert Path(command[0]).name in {"pythonw.exe", "python.exe"}
+
+
+def test_update_launcher_runs_the_documented_installer_on_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Clicking 'Aktualizacja' must run the install command, not open a web page."""
+    monkeypatch.setattr(service.os, "name", "nt")
+    command = service.update_launcher()
+
+    assert command is not None
+    assert command[0] == "powershell"
+    assert "-NoExit" in command
+    assert command[-1] == f"irm {service.INSTALLER_URL} | iex"
+    assert service.INSTALLER_URL.endswith("/windows/install.ps1")
+
+
+def test_update_launcher_is_windows_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Other platforms keep the release page; nothing to run for them."""
+    monkeypatch.setattr(service.os, "name", "posix")
+
+    assert service.update_launcher() is None
+    assert service.start_update() is False
+
+
+def test_start_update_detaches_the_installer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The installer kills this very process, so it must not be a child that dies with it."""
+    monkeypatch.setattr(service.os, "name", "nt")
+    launched: list[tuple[list[str], dict]] = []
+    monkeypatch.setattr(
+        service.subprocess, "Popen", lambda cmd, **kw: launched.append((cmd, kw)) or object()
+    )
+
+    assert service.start_update() is True
+    assert launched[0][0] == service.update_launcher()
+    assert launched[0][1]["creationflags"] == getattr(service.subprocess, "CREATE_NEW_CONSOLE", 0)

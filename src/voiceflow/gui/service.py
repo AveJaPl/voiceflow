@@ -30,7 +30,7 @@ import yaml
 
 from voiceflow.daemon import send_request
 from voiceflow.history import read_records
-from voiceflow.paths import config_dir, data_dir, history_file
+from voiceflow.paths import config_dir, data_dir, history_file, room_state_file
 
 LOGGER = logging.getLogger(__name__)
 
@@ -125,12 +125,33 @@ def _daemon_launcher() -> list[str]:
     return [str(interpreter), "-m", "voiceflow", "daemon"]
 
 
+#: The daemon this window launched, while it is still starting up. A daemon
+#: takes half a minute to load its model and answers nothing until it has, so
+#: without this every impatient second click spawned another one — and each one
+#: loaded its own copy of the model, making the wait longer still.
+_LAUNCHED: "subprocess.Popen[bytes] | None" = None
+
+
+def launch_pending() -> bool:
+    """True while a daemon this window launched is still running.
+
+    Deliberately does not ask the daemon anything: this is called from the UI
+    thread on every status refresh, and the answer has to be free.
+    """
+    return _LAUNCHED is not None and _LAUNCHED.poll() is None
+
+
 def start_daemon() -> None:
-    """Launch the daemon and detach from it."""
+    """Launch the daemon and detach from it, unless one is already on its way."""
+    global _LAUNCHED
+
     if daemon_status() is not None:
         return
+    if _LAUNCHED is not None and _LAUNCHED.poll() is None:
+        LOGGER.info("Demon już się uruchamia; nie uruchamiam drugiego")
+        return
     try:
-        subprocess.Popen(
+        _LAUNCHED = subprocess.Popen(
             _daemon_launcher(),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
@@ -457,3 +478,185 @@ def open_in_explorer(path: Path) -> None:
             subprocess.Popen(["xdg-open", str(path)])
     except OSError as exc:
         raise RuntimeError(f"Nie można otworzyć {path}: {exc}") from exc
+
+
+# -- the room ----------------------------------------------------------------
+
+
+def room_state():
+    """The daemon's live view of the room: who is speaking, is the link up.
+
+    Read from the file the daemon writes rather than asked over the control
+    channel, because it must also be readable while the daemon is restarting —
+    which is exactly what happens right after joining a room.
+    """
+    from voiceflow.roomstate import read_room_state
+
+    return read_room_state()
+
+
+def room_state_path() -> Path:
+    return room_state_file()
+
+
+def create_room(server: str, name: str, display_name: str) -> str:
+    """Create a room, write it into the configuration, restart the daemon.
+
+    The restart is not optional and not the user's business: the daemon reads
+    its configuration once, at startup, so without it joining a room would
+    silently do nothing.
+    """
+    from voiceflow.roomsetup import RoomSetupError, create_room as setup_create, save_to_config
+
+    try:
+        result = setup_create(server, name, display_name, _existing_room_token())
+        save_to_config(server, result["code"], result["token"])
+    except RoomSetupError as exc:
+        raise RuntimeError(f"Nie udało się utworzyć pokoju: {exc}") from exc
+    _restart_for_room()
+    return str(result["code"])
+
+
+def join_room(server: str, code: str, display_name: str) -> str:
+    """Join an existing room by code, then restart the daemon so it takes hold."""
+    from voiceflow.roomsetup import RoomSetupError, join_room as setup_join, save_to_config
+
+    try:
+        result = setup_join(server, code, display_name, _existing_room_token())
+        save_to_config(server, result["code"], result["token"])
+    except RoomSetupError as exc:
+        raise RuntimeError(f"Nie udało się dołączyć: {exc}") from exc
+    _restart_for_room()
+    return str(result["code"])
+
+
+def leave_room() -> None:
+    """Switch the room off, keeping the code for a quick return."""
+    from voiceflow.roomsetup import RoomSetupError, leave_room as setup_leave
+
+    raw = load_raw_config()
+    room = section(raw, "room")
+    try:
+        setup_leave(
+            string_value(room, "server", ""),
+            string_value(room, "code", ""),
+            string_value(room, "token", ""),
+        )
+    except (RoomSetupError, OSError) as exc:
+        raise RuntimeError(f"Nie udało się wyjść z pokoju: {exc}") from exc
+    _restart_for_room()
+
+
+def _existing_room_token() -> str:
+    """Reuse this machine's device token instead of registering it twice."""
+    return string_value(section(load_raw_config(), "room"), "token", "")
+
+
+def _restart_for_room() -> None:
+    if daemon_status() is not None:
+        restart_daemon()
+
+
+def room_advertiser():
+    """The mDNS publisher, or a silent stand-in on a platform without one."""
+    if os.name == "nt":
+        from voiceflow.winplat.mdns import RoomAdvertiser
+
+        return RoomAdvertiser()
+    return _NoAdvertiser()
+
+
+def room_browser(on_change):
+    """The mDNS browser, or a silent stand-in on a platform without one."""
+    if os.name == "nt":
+        from voiceflow.winplat.mdns import RoomBrowser
+
+        return RoomBrowser(on_change)
+    return _NoBrowser()
+
+
+class _NoAdvertiser:
+    """Discovery absent is a missing shortcut, not a broken room."""
+
+    def publish(self, **_fields: str) -> None:
+        return None
+
+    def withdraw(self) -> None:
+        return None
+
+
+class _NoBrowser:
+    def start(self) -> None:
+        return None
+
+    def stop(self) -> None:
+        return None
+
+    def rooms(self) -> list:
+        return []
+
+
+# -- updates -----------------------------------------------------------------
+
+
+def newer_release() -> tuple[str, str] | None:
+    """Return (tag, url) when GitHub has a newer release; None otherwise.
+
+    One anonymous request, made once per launch from a worker thread.
+    """
+    from voiceflow.updates import RELEASES_URL, fetch_latest_version, installed_version, is_newer
+
+    result = fetch_latest_version()
+    if result is None:
+        return None
+    tag, url = result
+    if not is_newer(tag, installed_version()):
+        return None
+    return tag, url or RELEASES_URL
+
+
+#: The documented install command, which on re-run is also the update command.
+#: Run fresh from the repository rather than from the installed copy: the
+#: installer itself gets fixed between releases, and the copy on disk is by
+#: definition the one from before the update.
+INSTALLER_URL = "https://raw.githubusercontent.com/AveJaPl/voiceflow/main/windows/install.ps1"
+
+
+def update_launcher() -> list[str] | None:
+    """Command that installs the newer version in place, or None where there is none.
+
+    Windows only: the installer stops the daemon and this very window, replaces
+    the files, and starts the daemon again — the user only has to click. The
+    console stays open (``-NoExit``) so an error is readable rather than a flash
+    of red that vanishes with the window. Other platforms keep the release page.
+    """
+    if os.name != "nt":
+        return None
+    return [
+        "powershell",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-NoExit",
+        "-Command",
+        f"irm {INSTALLER_URL} | iex",
+    ]
+
+
+def start_update() -> bool:
+    """Run the in-place update in its own console. False where this platform has none."""
+    command = update_launcher()
+    if command is None:
+        return False
+    try:
+        # A visible console on purpose: the installer prints its progress and
+        # takes minutes. Detached, because the installer kills this process.
+        subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+            close_fds=True,
+        )
+    except OSError as exc:
+        raise RuntimeError(f"Nie można uruchomić aktualizacji: {exc}") from exc
+    return True

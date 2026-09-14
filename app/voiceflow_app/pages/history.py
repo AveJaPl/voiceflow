@@ -14,6 +14,13 @@ from voiceflow_app import statlib, style
 from voiceflow_app.pages.common import empty_state, label, page_content, page_header
 from voiceflow_app.services import HistoryRecord
 
+#: Ile wpisów dokłada jedno kliknięcie „pokaż starsze". Na raz potrzebne są
+#: ostatnie kilka; starsze są do odszukania, nie do przewijania.
+PAGE_SIZE = 10
+#: Jak głęboko w plik w ogóle sięgamy. Szukanie ma po czym chodzić, ale nie ma
+#: powodu trzymać w pamięci widoku całej historii.
+HISTORY_DEPTH = 200
+
 
 def _day_title(day: date) -> str:
     today = date.today()
@@ -53,6 +60,13 @@ class HistoryPage(Gtk.ScrolledWindow):
         self._on_delete = on_delete
         self._records: list[HistoryRecord] = []
         self._expanded: set[str] = set()
+        #: Ile wpisów pokazujemy. Na ekran wchodzi kilka, a reszta i tak jest
+        #: przewijana rzadko — więc domyślnie rysujemy garść, a nie wszystko.
+        self._visible_count = PAGE_SIZE
+        #: Podpis ostatnio narysowanych danych. Odświeżanie leci co kilka sekund,
+        #: a przerysowanie listy gubi pozycję przewijania i zacina obraz —
+        #: więc gdy nic się nie zmieniło, nie ruszamy widżetów w ogóle.
+        self._drawn_signature: tuple[int, str] | None = None
 
         content = page_content(self)
         content.append(
@@ -75,13 +89,29 @@ class HistoryPage(Gtk.ScrolledWindow):
         self._render()
 
     def update_history(self, records: list[HistoryRecord]) -> None:
-        """Replace current records with the newest-first view source."""
-        self._records = list(reversed(records[-200:]))
+        """Replace current records with the newest-first view source.
+
+        Returns without touching a single widget when the data is the same as
+        last time. The window refreshes on a timer, and rebuilding the list
+        under the user's cursor threw away the scroll position and dropped
+        frames every few seconds.
+        """
+        self._records = list(reversed(records[-HISTORY_DEPTH:]))
+        signature = (
+            len(self._records),
+            _record_key(self._records[0]) if self._records else "",
+        )
+        if signature == self._drawn_signature:
+            return
+        self._drawn_signature = signature
         available = {_record_key(record) for record in self._records}
         self._expanded.intersection_update(available)
         self._render()
 
     def _on_search_changed(self, _entry: Gtk.SearchEntry) -> None:
+        # Nowe pytanie to nowa lista — pokazywanie jej od miejsca, do którego
+        # ktoś doczytał poprzednią, nie ma sensu.
+        self._visible_count = PAGE_SIZE
         self._render()
 
     def _render(self) -> None:
@@ -102,6 +132,11 @@ class HistoryPage(Gtk.ScrolledWindow):
             self.list_box.append(empty_state("document-open-recent-symbolic", message))
             return
 
+        # Szukanie przegląda wszystko, ale rysujemy tylko tyle, ile trzeba —
+        # reszta czeka za przyciskiem.
+        total = len(visible)
+        visible = visible[: self._visible_count]
+
         grouped: dict[date, list[HistoryRecord]] = {}
         for record in visible:
             grouped.setdefault(statlib.record_date(record), []).append(record)
@@ -114,6 +149,17 @@ class HistoryPage(Gtk.ScrolledWindow):
             for record in records:
                 group.append(self._record_card(record))
             self.list_box.append(group)
+
+        if total > len(visible):
+            more = Gtk.Button(label=f"Pokaż starsze ({total - len(visible)})")
+            more.add_css_class("secondary-button")
+            more.set_halign(Gtk.Align.CENTER)
+            more.connect("clicked", self._on_show_more)
+            self.list_box.append(more)
+
+    def _on_show_more(self, _button: Gtk.Button) -> None:
+        self._visible_count += PAGE_SIZE
+        self._render()
 
     def _record_card(self, record: HistoryRecord) -> Gtk.Widget:
         key = _record_key(record)
@@ -167,38 +213,54 @@ class HistoryPage(Gtk.ScrolledWindow):
             transition_duration=style.REVEAL_MS,
             reveal_child=expanded,
         )
-        detail = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL,
-            spacing=style.SPACE_16,
-        )
-        detail.add_css_class("history-detail")
-        full_text = label(content, "history-full-text")
-        full_text.set_wrap(True)
-        full_text.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-        detail.append(full_text)
-
-        actions = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=style.SPACE_8,
-        )
-        if isinstance(text, str) and text:
-            copy_button = Gtk.Button(label="Kopiuj")
-            copy_button.add_css_class("secondary-button")
-            copy_button.connect("clicked", lambda _button, text=text: self._on_copy(text))
-            actions.append(copy_button)
-
-        delete_button = Gtk.Button(label="Usuń wpis")
-        delete_button.add_css_class("destructive-button")
-        actions.append(delete_button)
-        detail.append(actions)
-        revealer.set_child(detail)
         card.append(revealer)
 
+        # Zawartość szczegółów powstaje dopiero przy rozwinięciu. Wcześniej
+        # każda karta budowała pełny tekst i przyciski, których nikt nie widział
+        # — przy dwustu wpisach to setki widżetów zbudowanych na zapas.
+        delete_button: Gtk.Button | None = None
         confirming = False
+
+        def build_detail() -> None:
+            nonlocal delete_button
+            if revealer.get_child() is not None:
+                return
+            revealer.set_child(_detail_box())
+
+        def _detail_box() -> Gtk.Widget:
+            nonlocal delete_button
+            detail = Gtk.Box(
+                orientation=Gtk.Orientation.VERTICAL,
+                spacing=style.SPACE_16,
+            )
+            detail.add_css_class("history-detail")
+            full_text = label(content, "history-full-text")
+            full_text.set_wrap(True)
+            full_text.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            detail.append(full_text)
+
+            actions = Gtk.Box(
+                orientation=Gtk.Orientation.HORIZONTAL,
+                spacing=style.SPACE_8,
+            )
+            if isinstance(text, str) and text:
+                copy_button = Gtk.Button(label="Kopiuj")
+                copy_button.add_css_class("secondary-button")
+                copy_button.connect("clicked", lambda _button, text=text: self._on_copy(text))
+                actions.append(copy_button)
+
+            delete_button = Gtk.Button(label="Usuń wpis")
+            delete_button.add_css_class("destructive-button")
+            delete_button.connect("clicked", delete)
+            actions.append(delete_button)
+            detail.append(actions)
+            return detail
 
         def toggle(_button: Gtk.Button) -> None:
             nonlocal confirming
             will_expand = not revealer.get_reveal_child()
+            if will_expand:
+                build_detail()
             revealer.set_reveal_child(will_expand)
             summary_button.set_tooltip_text(
                 "Zwiń szczegóły wpisu" if will_expand else "Rozwiń szczegóły wpisu"
@@ -210,11 +272,14 @@ class HistoryPage(Gtk.ScrolledWindow):
                 self._expanded.discard(key)
                 chevron.remove_css_class("expanded")
                 confirming = False
-                delete_button.set_label("Usuń wpis")
-                delete_button.remove_css_class("confirming")
+                if delete_button is not None:
+                    delete_button.set_label("Usuń wpis")
+                    delete_button.remove_css_class("confirming")
 
         def delete(_button: Gtk.Button) -> None:
             nonlocal confirming
+            if delete_button is None:
+                return
             if not confirming:
                 confirming = True
                 delete_button.set_label("Potwierdź usunięcie")
@@ -224,5 +289,7 @@ class HistoryPage(Gtk.ScrolledWindow):
             self._on_delete(record)
 
         summary_button.connect("clicked", toggle)
-        delete_button.connect("clicked", delete)
+        # Karta odtworzona jako rozwinięta musi mieć treść od razu.
+        if expanded:
+            build_detail()
         return card

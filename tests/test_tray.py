@@ -3,13 +3,25 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from voiceflow.config import TrayConfig
 from voiceflow.history import Record
 from voiceflow.tray import NullTray, Tray, build_payload
+
+#: The indicator is a GNOME top-bar icon: Tray.start() looks for the system
+#: PyGObject interpreter at /usr/bin/python3, which no Windows machine has, and
+#: the daemon does not even ask for one there (it takes NullTray instead). The
+#: tests that need a live child process are therefore Linux's; everything above
+#: them is arithmetic on history and runs everywhere.
+needs_gnome = pytest.mark.skipif(
+    os.name == "nt", reason="wskaźnik GNOME nie istnieje na Windowsie"
+)
 
 
 def _record(timestamp: str, words: int, audio_seconds: float) -> Record:
@@ -99,6 +111,7 @@ def _wait_for(log: Path, count: int, timeout: float = 5.0) -> list[dict]:
     raise AssertionError(f"oczekiwano {count} linii, jest {len(lines)}: {lines!r}")
 
 
+@needs_gnome
 def test_start_leaves_the_process_running(tmp_path: Path) -> None:
     tray = _tray(tmp_path)
 
@@ -109,6 +122,7 @@ def test_start_leaves_the_process_running(tmp_path: Path) -> None:
         tray.stop()
 
 
+@needs_gnome
 def test_update_sends_label_and_summary_preserving_polish_characters(tmp_path: Path) -> None:
     tray = _tray(tmp_path)
     tray.start()
@@ -124,6 +138,7 @@ def test_update_sends_label_and_summary_preserving_polish_characters(tmp_path: P
     }
 
 
+@needs_gnome
 def test_stop_ends_the_process(tmp_path: Path) -> None:
     tray = _tray(tmp_path)
     tray.start()
@@ -162,6 +177,7 @@ def test_update_after_stop_does_not_raise(tmp_path: Path) -> None:
     assert tray.is_running is False
 
 
+@needs_gnome
 def test_starting_twice_replaces_the_first_process(tmp_path: Path) -> None:
     tray = _tray(tmp_path)
     tray.start()

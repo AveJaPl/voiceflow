@@ -41,6 +41,11 @@ class WebSocketTransport:
         self.config = config
         self._on_message: Callable[[dict[str, Any]], None] | None = None
         self._on_disconnected = on_disconnected
+        #: Bramka pulsu: serwer rozumie heartbeat jako „wciąż mówię", więc
+        #: pulsujemy tylko w trakcie własnego dyktowania. Niepodpięta bramka
+        #: (inne wywołania niż demon) pulsuje zawsze — brak pulsu ścinałby
+        #: prawdziwego mówiącego po dziesięciu sekundach.
+        self.is_speaking: Callable[[], bool] | None = None
         self._socket: Any = None
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -100,7 +105,17 @@ class WebSocketTransport:
         attempt = 0
         while not self._stop.is_set():
             try:
-                with connect(self._url(), open_timeout=5) as socket:
+                with connect(
+                    self._url(),
+                    open_timeout=5,
+                    # Własny puls idzie co 3 s (patrz `_pump`), więc pingi
+                    # biblioteki są tu drugim, nadmiarowym mechanizmem. Zostają
+                    # dla wykrycia martwego gniazda, ale z hojnym oknem: przy
+                    # domyślnych 20 s połączenie ginęło, gdy proces akurat
+                    # mielił transkrypcję i pong nie zdążył wrócić na czas.
+                    ping_interval=20,
+                    ping_timeout=60,
+                ) as socket:
                     with self._lock:
                         self._socket = socket
                     attempt = 0
@@ -128,7 +143,8 @@ class WebSocketTransport:
             try:
                 raw = socket.recv(timeout=HEARTBEAT_SECONDS)
             except TimeoutError:
-                socket.send(json.dumps({"type": "heartbeat"}))
+                if self.is_speaking is None or self.is_speaking():
+                    socket.send(json.dumps({"type": "heartbeat"}))
                 continue
             if raw is None:
                 return

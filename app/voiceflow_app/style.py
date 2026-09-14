@@ -208,6 +208,19 @@ headerbar.content-header button:active { background-color: rgba(255,255,255,0.02
 }
 .hero-icon { color: @text_primary; -gtk-icon-size: 24px; }
 .hero-state { color: @text_primary; font-size: 15px; font-weight: 600; }
+.room-share {
+  min-height: 4px;
+}
+.room-share trough {
+  min-height: 4px;
+  border-radius: 3px;
+  background-color: alpha(@text_primary, 0.08);
+}
+.room-share progress {
+  min-height: 4px;
+  border-radius: 3px;
+  background-color: alpha(@text_primary, 0.45);
+}
 .recording-dot {
   color: @recording;
   font-size: 13px;

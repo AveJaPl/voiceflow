@@ -3,8 +3,16 @@
 Same protocol as the Linux overlay controller (``start``/``update``/``stop``),
 but in-process: tkinter runs on a dedicated thread with a queue instead of a
 child process on the system Python. The window is borderless, always-on-top,
-bottom-centered, and — the part that matters — marked ``WS_EX_NOACTIVATE`` so
-it can never steal focus from the window that should receive the paste.
+bottom-centered, and — the part that matters — must never take the focus away
+from the window that is going to receive the paste.
+
+That last part takes two mechanisms, because one is not enough. ``WS_EX_NOACTIVATE``
+keeps the card from being activated once it exists, but tkinter takes the
+foreground the instant it *realizes* its window — before any style of ours can
+be applied to a handle that does not exist yet. So the window in front is
+remembered before tkinter is started and handed back afterwards, and only if
+the card is the one holding it. Without this the dictation was pasted into an
+overlay nobody can type in, which looks exactly like injection being broken.
 """
 
 from __future__ import annotations
@@ -38,6 +46,54 @@ _DOT = {
 NOTICE_TIMEOUT_MS = 2400
 
 
+def _user32():
+    """user32, imported where it exists — and replaceable in tests."""
+    import ctypes
+
+    return ctypes.windll.user32  # type: ignore[attr-defined]
+
+
+def foreground_window() -> int:
+    """The window in front right now — the one the dictation is meant for."""
+    try:
+        return int(_user32().GetForegroundWindow() or 0)
+    except Exception:  # noqa: BLE001 - a missing foreground is not an error
+        return 0
+
+
+def window_handle(root) -> int:
+    """The toplevel Windows frame behind a Tk window, or 0 if there is none.
+
+    For an ``overrideredirect`` Tk window the widget handle is a child of the
+    frame Windows actually activates, and that frame is what every call here
+    cares about.
+    """
+    try:
+        user32 = _user32()
+        widget = root.winfo_id()
+        return int(user32.GetParent(widget) or widget)
+    except Exception:  # noqa: BLE001 - the window may be gone already
+        return 0
+
+
+def hand_back_foreground(previous: int, ours: int) -> None:
+    """Give the foreground back to ``previous``, but only if ``ours`` took it.
+
+    The guard is the whole point: the card undoes its own theft and nothing
+    else. Pulling a window forward that the user chose in the meantime would be
+    the same rudeness in the other direction.
+    """
+    if not previous or not ours or previous == ours:
+        return
+    try:
+        user32 = _user32()
+        if user32.GetForegroundWindow() != ours:
+            return
+        user32.SetForegroundWindow(previous)
+    except Exception:  # noqa: BLE001 - focus is best effort, never fatal
+        LOGGER.debug("Nie udało się oddać focusu oknu %s", previous)
+
+
 class WinOverlay:
     """Thread-hosted tkinter card mirroring the Linux overlay behaviour."""
 
@@ -55,8 +111,13 @@ class WinOverlay:
             return
         if not self.is_running:
             self._queue = queue.Queue()
+            # Which window is this dictation for? Read here, on the caller's
+            # thread, because the answer is gone a moment after tkinter starts.
             self._thread = threading.Thread(
-                target=self._run, name="voiceflow-overlay", daemon=True
+                target=self._run,
+                args=(foreground_window(),),
+                name="voiceflow-overlay",
+                daemon=True,
             )
             self._thread.start()
         self.update(state, text)
@@ -89,17 +150,86 @@ class WinOverlay:
             self._thread.join(timeout=2)
         self._thread = None
 
-    def _run(self) -> None:  # pragma: no cover - requires a Windows display
+    def _run(self, previous: int = 0) -> None:  # pragma: no cover - needs a display
         try:
             import tkinter
         except ImportError:
             LOGGER.warning("Brak tkintera — okno podglądu wyłączone")
             return
+        # Two kinds of thread-bound objects share this process with the cyclic
+        # garbage collector, which runs on whichever thread happens to cross
+        # its threshold - and the burst of imports below is the most reliable
+        # trigger in the daemon.
+        #
+        # Core Audio pointers (pycaw/comtypes) are made on the MTA audio thread
+        # and freed by that collector wherever it runs. Tk puts the thread it
+        # is created on into a single-threaded apartment, and releasing an MTA
+        # pointer from an STA is an access violation inside the collector. So
+        # this thread joins the MTA first: with no STA left in the process, a
+        # late Release is in-apartment wherever it lands. Tk tolerates the
+        # changed mode - it wants OLE for drag-and-drop and the clipboard,
+        # neither of which a borderless label uses.
+        try:
+            import comtypes
+
+            comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)
+        except (ImportError, OSError):
+            pass
+        try:
+            self._pump(tkinter, previous)
+        finally:
+            # The other kind: Tk objects may only be finalized by the thread
+            # that made them, or Tcl aborts the process with "async handler
+            # deleted by the wrong thread". They are unreferenced now that
+            # _pump has returned and its frame is gone, but widgets hold each
+            # other in cycles, so it takes a collection to free them - done
+            # here, on their own thread, before any other thread's collector
+            # can find them.
+            import gc
+
+            gc.collect()
+
+    def _pump(self, tkinter, previous: int) -> None:  # pragma: no cover - needs a display
+        """Build the card, run its loop, and return once it has been destroyed.
+
+        Every Tk object lives in this frame and nowhere else, which is what
+        lets :meth:`_run` collect them on this thread the moment it returns.
+        """
         root = tkinter.Tk()
         root.withdraw()
         root.overrideredirect(True)
         root.attributes("-topmost", True)
         root.configure(bg=_BG)
+
+        def no_activate() -> None:
+            """Mark the window unfocusable, so it cannot swallow the paste.
+
+            The style belongs on the toplevel Windows frame, which for an
+            overrideredirect Tk window is the parent of the widget handle.
+            """
+            try:
+                import ctypes
+
+                user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+                widget = root.winfo_id()
+                hwnd = user32.GetParent(widget) or widget
+                style = user32.GetWindowLongW(hwnd, _GWL_EXSTYLE)
+                user32.SetWindowLongW(
+                    hwnd, _GWL_EXSTYLE, style | _WS_EX_NOACTIVATE | _WS_EX_TOOLWINDOW
+                )
+            except Exception:
+                LOGGER.exception("Nie udało się ustawić WS_EX_NOACTIVATE")
+
+        def hand_back() -> None:
+            """Return the foreground to whoever had it before this card."""
+            hand_back_foreground(previous, window_handle(root))
+
+        # Realizing the window is where tkinter takes the foreground, so the
+        # style goes on as soon as there is a handle to put it on, and the
+        # focus goes straight back to the window the user is dictating into.
+        root.update_idletasks()
+        no_activate()
+        hand_back()
 
         frame = tkinter.Frame(root, bg=_BG, padx=20, pady=14)
         frame.pack()
@@ -124,25 +254,6 @@ class WinOverlay:
             y = root.winfo_screenheight() - height - 90
             root.geometry(f"+{x}+{y}")
 
-        def no_activate() -> None:
-            """Mark the window unfocusable, so it cannot swallow the paste.
-
-            The style belongs on the toplevel Windows frame, which for an
-            overrideredirect Tk window is the parent of the widget handle.
-            """
-            try:
-                import ctypes
-
-                user32 = ctypes.windll.user32  # type: ignore[attr-defined]
-                widget = root.winfo_id()
-                hwnd = user32.GetParent(widget) or widget
-                style = user32.GetWindowLongW(hwnd, _GWL_EXSTYLE)
-                user32.SetWindowLongW(
-                    hwnd, _GWL_EXSTYLE, style | _WS_EX_NOACTIVATE | _WS_EX_TOOLWINDOW
-                )
-            except Exception:
-                LOGGER.exception("Nie udało się ustawić WS_EX_NOACTIVATE")
-
         shown = False
 
         def pump() -> None:
@@ -163,7 +274,11 @@ class WinOverlay:
                         message.configure(text="Słucham…", fg=_MUTED)
                     if not shown:
                         root.deiconify()
+                        # Again, because mapping the window is where Tk gets to
+                        # rewrite the style it was given before — and to take
+                        # the foreground a second time.
                         no_activate()
+                        hand_back()
                         shown = True
                     place()
             except queue.Empty:

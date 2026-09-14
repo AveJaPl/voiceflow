@@ -1,198 +1,165 @@
-"""The decoding-bias vocabulary: proper nouns Whisper otherwise mangles."""
+"""Editable Whisper vocabulary presented as a five-column card grid."""
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from typing import Any
 
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QLineEdit,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QGridLayout, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
-from voiceflow.gui import service
+from voiceflow.gui import icons, theme
 from voiceflow.gui.widgets import (
-    BackgroundCall,
     Card,
+    StyledWidget,
+    clear_layout,
+    empty_state,
     label,
+    page_body,
     page_header,
     page_scroll,
+    plain,
+    section_label,
+    vbox,
 )
 
-#: Mirrors MAX_PROMPT_CHARS in the transcriber: past this the prompt starts
-#: crowding out the audio and leaking into transcripts.
-PROMPT_BUDGET = 600
-COLUMNS = 4
-#: How long to wait for the user to stop editing before reloading the daemon.
-RESTART_DEBOUNCE_MS = 3000
+#: The grid the GTK page pins to five per line, so both wrap identically.
+COLUMNS = 5
 
 
 class VocabularyPage(QWidget):
-    """Add and remove terms; saved into model.vocabulary."""
+    """Manage proper names and domain terms passed to Whisper."""
 
-    def __init__(self, window) -> None:
+    def __init__(self, on_dirty: Callable[[], None], on_toast: Callable[[str], None]) -> None:
         super().__init__()
-        self._window = window
-        self._raw: dict[str, Any] = {}
+        self._on_dirty = on_dirty
+        self._on_toast = on_toast
         self._terms: list[str] = []
-        self._restart_timer = QTimer(self)
-        self._restart_timer.setSingleShot(True)
-        self._restart_timer.timeout.connect(self._restart_daemon)
 
-        body = QWidget()
-        layout = QVBoxLayout(body)
-        layout.setContentsMargins(36, 32, 36, 36)
-        layout.setSpacing(20)
+        clamp, layout = page_body()
         layout.addWidget(
             page_header(
                 "Słownik",
-                "Nazwy własne i żargon, w stronę których ma się skłaniać model. "
-                "To tylko podpowiedź — voiceflow nigdy nie przepisuje Twoich słów.",
+                "Dodaj nazwy własne i terminy, które Whisper ma rozpoznawać dokładniej.",
             )
         )
 
-        entry_row = QHBoxLayout()
-        self._entry = QLineEdit()
-        self._entry.setPlaceholderText("Dodaj termin…")
-        self._entry.returnPressed.connect(self._add)
-        entry_row.addWidget(self._entry, 1)
+        add_card = Card(horizontal=True)
+        self.entry = QLineEdit()
+        self.entry.setPlaceholderText("Dodaj termin…")
+        self.entry.returnPressed.connect(self._on_add)
+        add_card.body.addWidget(self.entry, 1)
         add_button = QPushButton("Dodaj")
-        add_button.setObjectName("primary")
-        add_button.clicked.connect(self._add)
-        entry_row.addWidget(add_button)
-        layout.addLayout(entry_row)
+        add_button.setObjectName("primary-button")
+        add_button.clicked.connect(self._on_add)
+        add_card.body.addWidget(add_button)
+        layout.addWidget(add_card)
 
-        self._budget = label("", name="faint")
-        layout.addWidget(self._budget)
-
-        self._grid_host = QWidget()
-        self._grid = QVBoxLayout(self._grid_host)
-        self._grid.setContentsMargins(0, 0, 0, 0)
-        self._grid.setSpacing(10)
-        layout.addWidget(self._grid_host)
+        terms_group = plain(vbox(theme.SPACE_16))
+        self.counter = section_label("0 terminów")
+        terms_group.layout().addWidget(self.counter)
+        self.terms_holder = vbox(0)
+        terms_group.layout().addLayout(self.terms_holder)
+        layout.addWidget(terms_group)
         layout.addStretch(1)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(page_scroll(body))
-
-    def refresh(self) -> None:
-        BackgroundCall(service.load_raw_config, self._apply, self._failed)
-
-    def _failed(self, message: str) -> None:
-        self._window.notify(message, tone="error")
-
-    def _apply(self, raw: object) -> None:
-        if not isinstance(raw, dict):
-            return
-        self._raw = raw
-        self._terms = service.string_list_value(service.section(raw, "model"), "vocabulary")
+        outer.addWidget(page_scroll(clamp))
         self._render()
 
+    def load_config(self, config: Mapping[str, Any]) -> None:
+        """Replace the editor state from a raw configuration mapping."""
+        from voiceflow.gui import service
+
+        self._terms = service.string_list_value(service.section(config, "model"), "vocabulary")
+        self.entry.setText("")
+        self._render()
+
+    def apply_to_config(self, config: dict[str, Any]) -> None:
+        """Overlay the vocabulary while preserving unknown model keys."""
+        from voiceflow.gui import service
+
+        service.mutable_section(config, "model")["vocabulary"] = list(self._terms)
+
+    # -- editing -------------------------------------------------------------
+
+    def _on_add(self) -> None:
+        term = self.entry.text().strip()
+        if not term:
+            return
+        if term.casefold() in {item.casefold() for item in self._terms}:
+            self._on_toast("Ten termin jest już w słowniku")
+            return
+        self._terms.append(term)
+        self.entry.setText("")
+        self._render()
+        self._on_dirty()
+
+    def _remove(self, term: str) -> None:
+        if term not in self._terms:
+            return
+        self._terms.remove(term)
+        self._render()
+        self._on_dirty()
+
+    # -- drawing -------------------------------------------------------------
+
     def _render(self) -> None:
-        while self._grid.count():
-            item = self._grid.takeAt(0)
-            if item.widget() is not None:
-                item.widget().deleteLater()
-
-        used = sum(len(term) + 2 for term in self._terms)
-        self._budget.setText(
-            f"{len(self._terms)} terminów · {used}/{PROMPT_BUDGET} znaków podpowiedzi"
-            + ("  — nadmiar zostanie pominięty" if used > PROMPT_BUDGET else "")
-        )
-
+        clear_layout(self.terms_holder)
+        count = len(self._terms)
+        self.counter.setText("1 TERMIN" if count == 1 else f"{count} TERMINÓW")
         if not self._terms:
-            self._grid.addWidget(
-                label("Słownik jest pusty. Dodaj pierwszy termin powyżej.", name="muted")
+            self.terms_holder.addWidget(
+                empty_state(
+                    "accessories-dictionary-symbolic",
+                    "Słownik jest pusty. Dodaj pierwszy termin w polu powyżej.",
+                )
             )
             return
 
-        row: QHBoxLayout | None = None
+        grid_host = plain()
+        grid = QGridLayout(grid_host)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setSpacing(theme.SPACE_8)
         for index, term in enumerate(self._terms):
-            if index % COLUMNS == 0:
-                container = QWidget()
-                row = QHBoxLayout(container)
-                row.setContentsMargins(0, 0, 0, 0)
-                row.setSpacing(10)
-                self._grid.addWidget(container)
-            assert row is not None
-            row.addWidget(self._build_tile(term), 1)
-        # Keep the last row's tiles the same width as full rows.
-        remainder = len(self._terms) % COLUMNS
-        if remainder and row is not None:
-            for _ in range(COLUMNS - remainder):
-                row.addWidget(QWidget(), 1)
+            grid.addWidget(_Tile(term, self._remove), index // COLUMNS, index % COLUMNS)
+        for column in range(COLUMNS):
+            grid.setColumnStretch(column, 1)
+        self.terms_holder.addWidget(grid_host)
 
-    def _build_tile(self, term: str) -> Card:
-        tile = Card(padding=12)
-        line = QHBoxLayout()
-        line.setSpacing(8)
-        line.addWidget(label(term))
-        line.addStretch(1)
-        remove = QPushButton("×")
-        remove.setObjectName("ghost")
-        remove.setFixedWidth(30)
-        remove.setToolTip(f"Usuń termin {term}")
-        remove.clicked.connect(lambda: self._remove(term))
-        line.addWidget(remove)
-        tile.body.addLayout(line)
-        return tile
 
-    def _add(self) -> None:
-        term = self._entry.text().strip()
-        if not term:
-            return
-        if any(term.casefold() == existing.casefold() for existing in self._terms):
-            self._window.notify("Ten termin jest już w słowniku", tone="error")
-            return
-        self._terms.append(term)
-        self._entry.clear()
-        self._render()
-        self._persist()
+class _Tile(StyledWidget):
+    """One term, with a remove button that appears under the pointer."""
 
-    def _remove(self, term: str) -> None:
-        self._terms = [item for item in self._terms if item != term]
-        self._render()
-        self._persist()
+    def __init__(self, term: str, on_remove: Callable[[str], None]) -> None:
+        super().__init__()
+        self.setObjectName("vocabulary-tile")
+        self.setMinimumHeight(56)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(theme.SPACE_16, theme.SPACE_12, theme.SPACE_16, theme.SPACE_12)
+        text = label(term, "vocabulary-term", wrap=True)
+        text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(text)
 
-    def _persist(self) -> None:
-        """Save now, restart later.
+        self._remove = QPushButton(self)
+        self._remove.setObjectName("vocabulary-remove")
+        self._remove.setIcon(icons.icon("window-close-symbolic", 12, theme.TEXT_SECONDARY_SOLID))
+        self._remove.setToolTip(f"Usuń termin {term}")
+        self._remove.setFixedSize(24, 24)
+        self._remove.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._remove.clicked.connect(lambda: on_remove(term))
+        self._remove.hide()
 
-        Writing the file is cheap; restarting the daemon reloads a
-        multi-gigabyte model. Typing five terms must not cost five reloads, so
-        the restart is debounced and a burst of edits collapses into one.
-        """
-        terms = list(self._terms)
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        super().resizeEvent(event)
+        self._remove.move(self.width() - self._remove.width() - 4, 4)
 
-        def apply(raw: dict[str, Any]) -> None:
-            service.mutable_section(raw, "model")["vocabulary"] = terms
+    def enterEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        self._remove.show()
+        self._remove.raise_()
+        super().enterEvent(event)
 
-        BackgroundCall(
-            lambda: service.update_config(apply),
-            self._saved,
-            self._failed,
-        )
-
-    def _saved(self, written: object) -> None:
-        if isinstance(written, dict):
-            self._raw = written
-        self._schedule_restart()
-
-    def _schedule_restart(self) -> None:
-        self._window.notify("Słownik zapisany")
-        self._restart_timer.start(RESTART_DEBOUNCE_MS)
-
-    def _restart_daemon(self) -> None:
-        def work() -> None:
-            # Nothing to reload if it is not running; the file is already saved.
-            if service.daemon_status() is not None:
-                service.restart_daemon()
-
-        BackgroundCall(
-            work,
-            lambda _result: self._window.notify("Demon przeładował słownik"),
-            self._failed,
-        )
+    def leaveEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        self._remove.hide()
+        super().leaveEvent(event)

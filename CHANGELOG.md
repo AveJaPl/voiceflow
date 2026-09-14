@@ -15,6 +15,259 @@ Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[
   the tabs and closes back to where you were. Both history screens need an
   account: a phone paired with the old QR code is told to log in instead.
 
+## 0.6.2 — 2026-09-11
+
+- **[Windows]** The **Aktualizacja** button installs the update instead of
+  opening the release page. It used to send the user to GitHub to find the
+  install command on their own; it now runs that command — the installer opens
+  in its own console, stops the daemon and the window, replaces the files and
+  starts the daemon again.
+- **[Windows]** The daemon no longer dies with an access violation in
+  `_ctypes.pyd` after a dictation. The session manager of each capture device
+  was obtained with `comtypes.cast`, which builds a second pointer over the same
+  interface without an AddRef; the temporary from `Activate()` then died at the
+  end of the statement and released the manager to zero while it was still in
+  use, so the eventual second Release landed on freed memory. It is now taken
+  with `QueryInterface`, the way pycaw does one layer down. Alongside it, the
+  Core Audio thread joins the multi-threaded apartment *before* comtypes is
+  imported (the import itself puts the importing thread in an STA otherwise),
+  refuses all work if it could not, abandons jobs whose caller stopped waiting,
+  and mutes on a short budget so a slow audio service is not read by the
+  watchdog as a wedged daemon. What a dictation owes the user — volumes ducked,
+  microphones muted — is written to disk the moment it is taken, so a daemon
+  that dies mid-dictation leaves the debt to its successor rather than to the
+  user's mixer.
+- **[Windows]** The watchdog is actually installed. The 0.6.0 notes promised
+  it, but the installer that shipped with 0.6.0 still pointed the autostart
+  entry straight at the daemon; `finish-install.ps1` now installs the watchdog
+  beside the data and starts the daemon through it, and the bootstrap stops a
+  running watchdog before it replaces the files, so it cannot restart the old
+  copy in the middle of an update.
+- **[Windows]** No console window under uv's launcher trampoline either: the
+  check that asked whether this process was alone on its console read the
+  trampoline as "somebody else's terminal" and left the window standing; every
+  extra process is now checked, and a console shared only with our own
+  launchers counts as ours.
+
+## 0.6.1 — 2026-09-03
+
+- **[Windows]** The daemon no longer dies on the second dictation. Two kinds of
+  thread-bound objects share the process with Python's cyclic garbage collector,
+  which runs on whichever thread happens to cross its allocation threshold.
+  Core Audio pointers (pycaw/comtypes) are made on the one MTA thread allowed to
+  talk to Core Audio, but pycaw leaves them in reference cycles, so they were
+  freed wherever the collector ran next — a transcription worker, an
+  `onnxruntime` import, the overlay starting up — and releasing a COM pointer
+  from a thread outside its apartment is an access violation raised inside the
+  collector, with nothing in the trace pointing at audio. The `tcl86t.dll` crash
+  Windows reported was the same trap the other way round: the overlay's Tk
+  objects finalized by a foreign thread's collection, which Tcl answers with
+  *async handler deleted by the wrong thread*. The Core Audio thread now
+  collects its own garbage right after each job, before it answers, holding the
+  GIL throughout so no other thread's collector can get there first; the overlay
+  thread does the same for its Tk objects when the card closes, and joins the
+  MTA before Tk so a stray COM release on it would be in-apartment anyway.
+  Reproduced with twenty dictation cycles that used to kill the daemon on the
+  first or second; none do now.
+
+## 0.6.0 — 2026-09-03
+
+- **[All]** Only one daemon can start, including during the half-minute the
+  first one spends loading its model. The old guard asked whether anything was
+  answering the control channel — but that channel is opened at the *end* of
+  startup, so for thirty seconds voiceflow looked exactly like nothing was
+  running. Seven daemons were found doing this at once: each loaded its own copy
+  of the model, which made every one of them slower to start, which kept the
+  window reporting that nothing was running, which invited another click. Only
+  the first held the dictation shortcut, so the other six reported it as taken
+  by "another application" — it was, by voiceflow. A daemon now claims an
+  OS-level lock before it touches anything at all (no model, no microphone, no
+  room), and the operating system drops that claim when the process dies, so a
+  crash cannot leave voiceflow locked out. The desktop window also stops
+  offering to start a second one and says **Demon się uruchamia** while it waits.
+- **[All]** A long dictation no longer means a long wait. What has already been
+  said is transcribed during the pauses, so after the hotkey only the stretch
+  since the last pause is left to do — measured on an i7-1260P, 50 s of Polish
+  went from 24.7 s of waiting to 10.1 s, and the text came out the same.
+  The cut is made in silence the speaker meant (0.7 s, never a breath) and keeps
+  a margin past the last word, because at 0.15 s a rehearsal cut "zbliżającym"
+  into "zbli za jacym" — the VAD ends a word where its energy stops, which is
+  slightly before the word does. Nothing is committed below 25 s of audio, and
+  that number is Whisper's, not a preference: its encoder always processes a
+  30-second window, so decoding 6 s costs 7.6 s while decoding 29 s costs 11.8 s.
+  Committing in small pieces does not divide the work between the pauses, it
+  multiplies it — the first version of this shortened nothing and made a 29 s
+  dictation wait 16 s instead of 11.8 s. Shorter dictations are transcribed in
+  one pass exactly as before; `incremental.enabled: false` restores the old
+  behaviour outright.
+- **[All]** Transcription on the CPU uses the whole processor. CTranslate2 takes
+  four threads regardless of what the machine has, which on a laptop left two
+  thirds of it idle while its owner waited for their text; the model is now given
+  one thread per physical core (hyperthreads excluded — they measured slower on a
+  memory-bound int8 matrix multiply). Measured on an i7-1260P, 20 s of Polish:
+  12.2 s → 9.8 s. `model.cpu_threads` overrides the count for anyone who wants
+  to leave the machine room to breathe; 0, the default, means "read the machine".
+- **[Windows]** Dictation lands in the focused window again. The preview card is
+  marked `WS_EX_NOACTIVATE` precisely so it cannot take the focus, but tkinter
+  takes the foreground the moment it *realizes* its window — before there is a
+  handle to put that style on. So from the first word spoken the card was the
+  window in front, and the paste chord went to it instead of the terminal or
+  editor the user was dictating into: the text reached the clipboard, the
+  history recorded it as injected, and nothing appeared anywhere. The card now
+  remembers which window was in front before it starts and hands the foreground
+  straight back — its own theft and nothing else, so a window the user chose in
+  the meantime is left alone.
+- **[Windows]** No console window any more — not at login, not when the Start
+  Menu icon is clicked. The daemon and the desktop window are started through
+  `pythonw.exe` precisely so that none exists, but uv builds
+  `.venv\Scripts\pythonw.exe` as a trampoline that re-launches the *console*
+  interpreter, and a console program whose parent has no console is given a
+  brand-new console window of its own: a black window of log lines over the
+  user's work, with the desktop window opening behind it. Both installers now
+  replace that trampoline with the real `pythonw.exe`, so the window is never
+  created; `python.exe` keeps its console, because the command line needs one.
+  Copies installed before this fix are covered too — the daemon and the window
+  free a console of their own at startup, while a console shared with a shell
+  (`voiceflow daemon` typed into a terminal) is left alone, log output included.
+- **[Windows]** `windows\install-local.ps1` installs the working copy as the
+  installed one, keeping the environment and the downloaded model, so the Start
+  Menu icon opens the application being worked on instead of the last release.
+- **[Windows]** The desktop window is now the same window as on Linux, not a
+  Qt-flavoured relative of it. It was two pages behind and looked like a
+  different product: red accent buttons where GTK has white ones, no Pokój and
+  no Sesje tab at all, ducking edited as a comma-separated list of executables
+  in a text box, and no way to see which application was holding the microphone.
+  Ported across, group for group: the sidebar with its brand mark and selection
+  indicator, the page title in the window bar, one shared **Niezapisane zmiany**
+  bar with Cofnij/Zastosuj instead of per-page save buttons, and all seven pages
+  — Przegląd, Historia, Statystyki, Pokój, Sesje, Słownik, Ustawienia.
+- **[Windows]** Ducking and microphone muting are edited the way they are on
+  Linux: every detected application is a row with its own volume slider ("60%
+  obecnej", "100% · nie ściszaj"), applications holding the microphone right now
+  are switches marked *nagrywa teraz*, and a rule for an application that is no
+  longer running stays visible as *zapamiętana · niedziałająca* with a button to
+  forget it. Moving the default slider moves every application that has no rule
+  of its own, and leaves the ones that do alone.
+- **[Windows]** Rooms are reachable without a terminal, including discovery on
+  the local network. Linux announces a room over Avahi; Windows has no Avahi, so
+  it speaks the same mDNS protocol through `zeroconf` — the wire format is
+  identical, so a room advertised from a Linux laptop appears in the Windows
+  window and the other way round. Creating, joining and leaving now restart the
+  daemon themselves, because it reads its configuration only at startup.
+- **[Windows]** The icons the GTK application takes from the desktop icon theme
+  are drawn as vector strokes instead, since Windows has no icon theme to borrow
+  from: sharp at any scale, and the same colour as the text beside them.
+- **[Windows]** The installer installs again. When the two installers were given
+  a shared half on 17 August, `install.ps1` started reaching into the tree it
+  had just downloaded for `windows\common.ps1` — but that script is read from
+  `main`, the tree is the latest release, and the release predates the file. So
+  every install since ended, right after `uv sync`, with *common.ps1 is not
+  recognized as the name of a cmdlet*. The bootstrap now needs exactly one thing
+  from the tree it downloads: `windows\finish-install.ps1`, the second half of
+  the install (environment, launcher repair, shortcuts, model, check, daemon),
+  which travels with the code, so a release keeps installing with the steps it
+  shipped with. A release cut before that file existed is skipped for `main`,
+  where the bootstrap itself comes from. `install-local.ps1` ends in the same
+  file, so it now downloads the model and verifies the install too. The second
+  half runs in a PowerShell of its own with the execution policy bypassed, so
+  `irm … | iex` pasted into a stock PowerShell works whatever the machine's
+  policy, as it did before the split. `VOICEFLOW_REF` names a branch or tag to
+  install instead of the release.
+- **[Windows]** The installer asks for the newest release *for Windows*.
+  Releases are per platform — macOS ships a packaged build tagged `mac-v0.6.0`,
+  everyone else runs the source release tagged `v0.5.0` — and the installer
+  trusted `/releases/latest`, which returns whichever was published last. On a
+  Windows machine that named a macOS tag, and a mac build published after a
+  source release would have quietly installed the older tree. The release list
+  is now filtered by tag the way the daemon's own update check filters it, so
+  the two agree on what "latest" means.
+- **[All]** A volume turned down for dictation is turned back up even when the
+  daemon was restarted in between. A restore lost when the daemon shut down was
+  not postponed, it was permanent: WirePlumber remembers volume per application
+  name and Windows keeps mixer state per application, so every later stream was
+  born quiet and the next ducking multiplied the already lowered value again —
+  Chromium was found saved at 0.6³ = 22% of the slider after three dictations
+  without a restore. Pending restores of volume, and on Windows of the
+  microphone unmute, are now written to `pending-restores.json` (one format for
+  both platforms) and replayed at startup; a damaged entry is skipped. A stream
+  already playing below 20% is not ducked any further — nothing to be gained by
+  ear, and it limits the damage should a restore still go missing.
+- **[Linux]** A track change no longer brings the music back at full volume.
+  Spotify keeps the same PipeWire node between tracks but sets its volume anew
+  (measured live: 0.10 → 0.41 within a second), and the guard skipped nodes it
+  had already ducked. They are pushed back down like any other.
+- **[All]** Rooms have a mode: *together* or *remote*. Together — everyone in one
+  physical room, so there is one microphone for all, because two people speaking
+  at once record each other. Remote — everyone somewhere else, where a queue for
+  the microphone would be nothing but an obstacle, so the room stays a shared
+  board and stops being a lock. Existing rooms stay *together*: that is how every
+  room behaved before, and changing an existing room's behaviour has to be
+  someone's decision. Switching is live — entering remote mode releases the
+  microphone at once — and the mode travels in the `hello`, so the daemon knows
+  from the first message whether to respect the queue.
+- **[All]** A room no longer shows someone dictating forever after their link
+  dropped. The link could fail exactly between the end of speaking and the
+  delivery of `speaking_ended`; the unconditional heartbeat every 3 s then kept
+  the entry alive (the server reads a heartbeat as *still speaking*), and the
+  client saw *itself* as somebody else's dictation and blocked its own shortcut
+  until the daemon was restarted. The heartbeat is sent only while this machine
+  is dictating (a lost end expires on the server after 10 s), and a client that
+  is not speaking releases the floor blindly when the link returns — a no-op for
+  the server unless our stale entry is what it holds. Same on macOS.
+- **[All]** Whisper's hallucinated farewells are cut. Trained on YouTube
+  subtitles, the model appends *Dziękuję za oglądanie* and the like to trailing
+  silence. Only known phrases are removed, only from the end, and only when the
+  segment's metadata (`no_speech_prob`, `avg_logprob`) betrays an invention — a
+  *dziękuję* that was actually said stays. With incremental transcription the
+  end of *every* chunk is a stretch of silence, so the filter sits in the decode
+  step and covers both passes.
+- **[All]** The update check asks for the newest release *for this platform*.
+  Releases are per platform — `mac-v0.6.0` is the macOS build, `v0.5.0` the
+  source release everyone else runs — and `/releases/latest` returns whichever
+  was published last, so a mac build published after the last source release
+  announced itself to Linux as an update to 0.6.0 that did not exist and could
+  not be installed, at every login. The release list is filtered by tag instead;
+  no release for this platform means silence, not a message. A cache written by
+  the previous version of the check is discarded, so the false message does not
+  survive until the next daily check.
+- **[All]** `voiceflow serve` exposes the same transcriber over HTTP (FastAPI)
+  under `/api`: `POST /api/v1/transcribe` takes a browser recording,
+  `GET /api/health` answers liveness, and a `Dockerfile` packages it. The token
+  in the `Authorization` header is mandatory — the server refuses to start
+  without one, and requests without it are rejected before the body is read.
+  Configured entirely through `VOICEFLOW_*` environment variables; see the
+  README.
+- **[Web]** The room board shows each person's Claude Code usage as a table —
+  name, tokens today, 5 h, 7 d — beside the music tile, under a spark mark drawn
+  in-house (claude.ai's own icon refuses to load cross-origin). Tokens are summed
+  incrementally from the session transcripts with de-duplication by request id;
+  only the numbers ever leave the machine. A machine without a status-bar
+  snapshot (typically Windows and macOS) sends its percentages as null and the
+  board shows a dash rather than an invented 0%.
+- **[All]** Claude Code usage is reported from Windows and macOS as well, not
+  only Linux. Sharing it is on by default — whoever sits in a room plays with
+  open cards — and the switch (privacy settings on Windows, the room section on
+  macOS) is a conscious opt-out, not a condition for starting.
+- **[Web]** Switching rooms on the board clears the previous room's speakers and
+  refreshes the mode indicator; both used to linger until the new room's first
+  message arrived.
+- **[Web]** The landing page fits a phone: no sideways scroll at 375 px (grid
+  columns that would not shrink below the terminal lines, an uncropped hero
+  statue, an overflowing comparison table), the page scrolls all the way to the
+  footer again, and on a phone the footer is a vertical list of links in two
+  justified columns.
+
+## 0.5.0 — 2026-08-14
+
+- **[Windows]** Music stays quiet for the whole dictation. Ducking used to be a
+  single pass over the audio sessions that existed when the hotkey was pressed,
+  and a session is born at the application's own volume — so when Spotify moved
+  to the next track mid-sentence, the new song came back at full blast, and
+  anything that only started playing after the hotkey was never turned down at
+  all. The ducked applications are now re-checked every half second until the
+  recording ends: a stream found above its target is pushed back down, a new
+  application is ducked like any other, and the level restored afterwards is
+  still the one the user had set before dictating.
 - **[All]** Shared dictation rooms. Two people in one room stop talking over each
   other: whoever is speaking blocks the others, and their speaking quietens audio
   on every machine in the room, not just their own. Sessions are measured — who

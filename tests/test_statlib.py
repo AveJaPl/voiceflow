@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from voiceflow.history import Record
 from voiceflow.statlib import (
@@ -44,6 +44,16 @@ def _record(timestamp: str, words: int, audio_seconds: float) -> Record:
         transcription_seconds=0.1,
         injected=True,
     )
+
+
+def _local(day: date, hour: int, minute: int = 0) -> str:
+    """A timestamp at that hour of *this machine's* clock, whatever its zone.
+
+    The aggregation buckets by local hour, so a fixture with a fixed offset
+    asserts a different bucket depending on where the suite runs — which is how
+    a developer in Warsaw and CI in UTC disagreed about the same test.
+    """
+    return datetime(day.year, day.month, day.day, hour, minute).astimezone().isoformat()
 
 
 def test_record_date_reads_the_local_calendar_day() -> None:
@@ -134,10 +144,10 @@ def test_hourly_word_totals_buckets_by_local_hour() -> None:
     from voiceflow.statlib import hourly_word_totals
 
     records = [
-        _record("2026-08-10T09:15:00+02:00", 3, 10.0),
-        _record("2026-08-10T09:45:00+02:00", 5, 10.0),   # same hour, same day
-        _record("2026-08-10T14:00:00+02:00", 7, 10.0),   # different hour
-        _record("2026-08-09T09:00:00+02:00", 100, 10.0),  # yesterday, excluded
+        _record(_local(date(2026, 8, 10), 9, 15), 3, 10.0),
+        _record(_local(date(2026, 8, 10), 9, 45), 5, 10.0),   # same hour, same day
+        _record(_local(date(2026, 8, 10), 14), 7, 10.0),      # different hour
+        _record(_local(date(2026, 8, 9), 9), 100, 10.0),      # yesterday, excluded
     ]
 
     result = hourly_word_totals(records, today=date(2026, 8, 10))

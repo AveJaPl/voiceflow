@@ -24,7 +24,10 @@ implemented on macOS yet.
 | **Microphone isolation** | Optional: swaps the system default input to a silent device (BlackHole) so a voice chat cannot hear the dictation, and restores it after. Needs BlackHole installed and Discord set to "Default" input. |
 | **Discord Rich Presence** | Optional, shows that you are dictating. Local IPC only. |
 | **Wspólny pokój** | Dołącz kodem w Ustawieniach. Kiedy ktoś inny w pokoju mówi, Twój skrót nie zaczyna nagrywać, a dźwięk na tym Macu ścisza się sam; Twoje dyktowania liczą się do rankingu sesji. Wysyłane są wyłącznie zdarzenia obecności i liczby — nagranie i tekst nigdy. Wyłączone, dopóki nie dołączysz. |
-| **Remote microphone** | Optional: an iPhone can act as a hold-to-talk microphone over a relay. |
+| **Account** | Optional. Log in with the same account as the iPhone app and the dictation history and vocabulary are shared between devices (`relay/`, self-hostable). Nothing from the dictation itself goes through it. |
+| **Memory** | The whisper model is freed ten minutes after the last dictation (~530 MB → ~60 MB) and reloaded in the background on the next hotkey press. Configurable under Zaawansowane. |
+| **Own transcription server** | Optional. Point the app at any OpenAI-compatible `/v1/audio/transcriptions` endpoint — `../server/` (Docker, whisper.cpp), another Mac sharing its engine on the LAN, or a paid API. Falls back to local whisper when the server does not answer. |
+| **Engine sharing** | Optional. The Mac serves its own Metal engine to the iPhone (and other machines) on the same Wi-Fi, announced over Bonjour. |
 
 Not implemented: per-application volume rules (`duck_rules` on Linux) — macOS
 exposes no per-app volume API, so ducking is all-or-nothing here.
@@ -51,11 +54,15 @@ whisper.cpp core the project already uses elsewhere, wired into a persistent
 streaming session with local-agreement partial-commit logic. English stays on
 Apple's engine (on-device there, no known issues).
 
-## Build
+## Install
 
-There is no installer and no release artifact for macOS. You build it yourself,
-because the app needs a code-signing identity tied to *your* Apple ID — nobody
-can ship you a working binary without one.
+Download **VoiceFlow-mac.dmg** from the
+[latest release](https://github.com/AveJaPl/voiceflow/releases/latest), drag
+the app to Applications, launch. The app is signed with Developer ID and
+notarised; it updates itself from the same release channel. Apple Silicon and
+macOS 26 only.
+
+## Build from source
 
 ### 0. Check this before anything else
 
@@ -67,14 +74,21 @@ macOS 26 as a hard requirement for now.
 
 ```bash
 xcode-select --install                 # or the full Xcode from the App Store
-brew install whisper-cpp xcodegen
+brew install cmake ninja xcodegen
 ```
 
-`whisper-cpp` is not optional: `WhisperSpeechEngine` links against Homebrew's
-`libwhisper` directly (see `Core/VoiceFlow-Bridging-Header.h` for why, rather
-than the official SPM package).
+### 2. Build whisper.cpp once
 
-### 2. Generate the Xcode project
+The app links whisper.cpp **statically** from the same pinned submodule the
+Android app uses, so the finished `.app` has no Homebrew dependency (it used
+to link `/opt/homebrew/opt/whisper-cpp/lib/libwhisper.dylib`, which meant a
+Mac without Homebrew could not launch it at all):
+
+```bash
+tools/build-whisper-macos.sh           # ~2 min, output in third_party/whisper-macos (gitignored)
+```
+
+### 3. Generate the Xcode project
 
 The `.xcodeproj` is **not** in git — it is generated, so that project settings
 live in a reviewable `project.yml` instead of a binary blob:
@@ -84,7 +98,7 @@ cd macos
 xcodegen generate
 ```
 
-### 3. Signing — the step that trips everyone
+### 4. Signing
 
 `project.yml` carries a hardcoded `DEVELOPMENT_TEAM`, and it is the team of
 whoever set the port up. On your Mac it will not resolve. Two ways out:
@@ -114,11 +128,20 @@ the Accessibility and Input Monitoring grants to the code signature, so every
 rebuild changes the hash and the system silently drops the permissions the app
 needs to type anywhere.
 
-### 4. Intel Macs
+Intel Macs are not supported: the static library is built for arm64 (Metal).
 
-`HEADER_SEARCH_PATHS` and `LIBRARY_SEARCH_PATHS` point at `/opt/homebrew`,
-which is the Apple Silicon prefix. On Intel, Homebrew lives in `/usr/local` —
-change both paths in `project.yml` (and in the test target, which repeats them).
+### Releasing (maintainers)
+
+`tools/release-mac.sh` builds Release with Developer ID, notarises the app and
+a DMG, staples both and publishes them as `mac-vX.Y.Z` on GitHub Releases —
+`VoiceFlow-mac.dmg` for first installs, `VoiceFlow-mac.zip` for the in-app
+updater, which verifies the signature and team before installing.
+
+### Visual check of the pill
+
+`VoiceFlow.app/Contents/MacOS/VoiceFlow --pill-demo --frames <dir>` runs the
+overlay through every phase with synthetic audio and writes PNG frames — no
+microphone, no screen-recording permission needed.
 
 ### 5. First run
 
@@ -131,10 +154,10 @@ Dictation history is written to
 `~/Library/Application Support/VoiceFlow/history.jsonl`, in the same format
 Linux and Windows use.
 
-## Also included: remote microphone (phone → Mac) relay
+## Also included: account server
 
-`../relay/` is a small WebSocket relay (Node, pass-through only, never logs
-audio) that lets the iOS app act as a remote hold-to-talk microphone for this
-Mac app over the internet (not just local WiFi) — `Core/RemoteMicClient.swift`
-on this side. Optional, off by default, requires pairing through the relay's
-`/pair` endpoint.
+`../relay/` is the optional account service (Node + SQLite): login, dictation
+history and vocabulary shared between this app and the iPhone app. Nothing from
+the dictation itself goes through it. `../server/` is the optional
+transcription server (Docker, whisper.cpp) for machines too weak to run
+whisper locally.

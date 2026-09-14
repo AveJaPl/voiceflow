@@ -4,6 +4,54 @@ Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[
 
 ## Unreleased
 
+- **[macOS]** The app no longer depends on Homebrew: whisper.cpp is built
+  statically from the pinned submodule (`tools/build-whisper-macos.sh`), with
+  the Metal, BLAS and CPU backends compiled in. Until now the shipped bundle
+  linked `/opt/homebrew/opt/whisper-cpp/lib/libwhisper.dylib` and would not
+  even launch on a Mac without `brew install whisper-cpp`. Releases are now a
+  notarised DMG (`tools/release-mac.sh`), and the in-app updater verifies the
+  downloaded bundle's signature and team before installing it.
+- **[macOS]** The whisper model is freed from memory ten minutes after the
+  last dictation (measured: 527 MB → ~60 MB with `small`) and reloaded in the
+  background on the next hotkey press while audio already buffers — no word
+  is lost. Configurable under Zaawansowane → Pamięć. Quitting no longer aborts
+  in ggml-metal's static destructor (a crash report on every quit).
+- **[macOS]** Remote desktop and the remote microphone are gone with the iOS
+  Mac tab: screenshots, window list, terminal text, Space switching, key
+  chords, the relay WebSocket. The account stays, for history and vocabulary.
+- **[macOS]** Settings are two-tier: the basics (hotkey, model, live preview,
+  language, insertion, ducking, dictionary, room, account) and Zaawansowane
+  (engine choice, model memory, account server, own transcription server,
+  engine sharing, and a Laboratorium switch that reveals mic isolation, Discord
+  and voice commands — off by default).
+- **[macOS]** The pill's waveform sat at the top of its frame in silence (the
+  bars lived in a top-left-anchored GeometryReader); it now grows from a fixed
+  centre axis, levels get attack/release smoothing, each bar springs, silence
+  breathes, and the wave keeps running while live text appears. `--pill-demo
+  --frames <dir>` renders the phases to PNG for visual checks.
+- **[macOS]** Own transcription server: Zaawansowane accepts any
+  OpenAI-compatible `/v1/audio/transcriptions` endpoint (the Docker server in
+  `server/`, another Mac, a paid API); when it does not answer the utterance
+  is transcribed locally instead of being lost. The Mac can also share its own
+  Metal engine on the LAN over Bonjour for the iPhone.
+- **[macOS]** The dictionary syncs through the account: pushed a second after
+  every edit, pulled on launch and login, never overwriting a newer copy from
+  another device.
+- **[iOS]** Whisper on the phone through WhisperKit (Core ML / Neural Engine):
+  large-v3-turbo on iPhone 15 Pro and newer, small below, downloaded on first
+  launch and loaded in the background. Until it is ready, Apple's on-device
+  recogniser keeps dictation working and the app switches per utterance. The
+  account's dictionary is pulled to the phone so whisper gets the same prompt.
+- **[iOS]** Four tabs: Klawiatura, Historia, Pokoje, Ustawienia. The Mac tab
+  (remote desktop and microphone streaming) is removed with all its code.
+- **[All]** Rooms have a switch for whether one person speaking blocks the
+  others (the service's `together`/`remote` mode), on the Mac's Pokój page and
+  the iPhone's Pokoje tab; the change reaches every connected app at once.
+- **[Web]** The relay is an account server: `PUT/GET /vocabulary` and
+  `/settings` per account, `compose.yml` for self-hosting, README rewritten.
+  A Docker transcription server lives in `server/`. The landing page links the
+  macOS DMG and describes the optional self-hosted server.
+
 - **[iOS]** The app is now four tabs — Pulpit, Mac, Historia, Ustawienia — and
   the old "Dyktuj" page is gone. Pulpit summarises the account: words today,
   words in total, how many dictations and how much speaking time, plus the last

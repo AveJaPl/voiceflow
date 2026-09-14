@@ -10,9 +10,14 @@
 #   third_party/whisper-macos/include/*.h        whisper.h + ggml headers
 # macos/project.yml points HEADER_SEARCH_PATHS / LIBRARY_SEARCH_PATHS there.
 #
-# Metal: GGML_METAL_EMBED_LIBRARY=ON compiles the shaders into the library, so
-# no .metallib has to be copied into the bundle and `ggml_backend_load_all` is
-# not needed — the Metal, BLAS and CPU backends are registered statically.
+# Metal: shaders are PRECOMPILED into third_party/whisper-macos/lib/default.metallib
+# and copied into the app bundle's Resources (macos/project.yml) — ggml-metal
+# finds it through `[NSBundle bundleForClass:]`, i.e. the main bundle when
+# linked statically. The embedded-source variant (GGML_METAL_EMBED_LIBRARY=ON)
+# compiled the shaders at every launch: measured 45 s to the first ready
+# model on a loaded Mac (2026-09-14), against 0.4 s with the precompiled
+# library. The backends themselves are registered statically — no
+# `ggml_backend_load_all`, no Homebrew.
 #
 # Usage: tools/build-whisper-macos.sh            (incremental, ~2 min cold)
 #        tools/build-whisper-macos.sh --clean
@@ -43,7 +48,7 @@ cmake -S "$SRC" -B "$BUILD" -G Ninja \
     -DWHISPER_BUILD_TESTS=OFF \
     -DWHISPER_BUILD_SERVER=OFF \
     -DGGML_METAL=ON \
-    -DGGML_METAL_EMBED_LIBRARY=ON \
+    -DGGML_METAL_EMBED_LIBRARY=OFF \
     -DGGML_BLAS=ON \
     -DGGML_BLAS_DEFAULT=ON \
     -DGGML_NATIVE=OFF \
@@ -62,10 +67,14 @@ ARCHIVES=$(find "$BUILD" -name '*.a' -not -path '*/CMakeFiles/*')
 echo "$ARCHIVES" | sed 's/^/  /'
 libtool -static -o "$OUT/lib/libwhisper.a" $ARCHIVES 2>&1 | grep -v "has no symbols" || true
 
+METALLIB=$(find "$BUILD" -name default.metallib | head -1)
+[[ -n "$METALLIB" ]] || { echo "[build-whisper] brak default.metallib (Xcode z narzędziami Metal?)" >&2; exit 1; }
+cp "$METALLIB" "$OUT/lib/default.metallib"
+
 cp "$SRC/include/whisper.h" "$OUT/include/"
 cp "$SRC"/ggml/include/ggml.h "$SRC"/ggml/include/ggml-alloc.h "$SRC"/ggml/include/ggml-backend.h \
    "$SRC"/ggml/include/ggml-metal.h "$SRC"/ggml/include/ggml-cpu.h "$SRC"/ggml/include/ggml-blas.h \
    "$SRC"/ggml/include/gguf.h "$OUT/include/"
 
-echo "[build-whisper] $(du -h "$OUT/lib/libwhisper.a" | cut -f1) → $OUT/lib/libwhisper.a"
+echo "[build-whisper] $(du -h "$OUT/lib/libwhisper.a" | cut -f1) → $OUT/lib/libwhisper.a, $(du -h "$OUT/lib/default.metallib" | cut -f1) → default.metallib"
 nm "$OUT/lib/libwhisper.a" 2>/dev/null | grep -c "ggml_backend_metal_reg" | sed 's/^/[build-whisper] metal symbols: /'

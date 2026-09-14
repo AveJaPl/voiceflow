@@ -22,6 +22,10 @@ targets:
     platform: macOS
     sources:
       - path: VoiceFlow
+      # Prekompilowane shadery Metalu whisper.cpp — ggml-metal szuka
+      # `default.metallib` w głównym pakiecie (patrz tools/build-whisper-macos.sh).
+      - path: ../third_party/whisper-macos/lib/default.metallib
+        buildPhase: resources
       # Kontrakt własnego serwera transkrypcji — wspólny z iOS (WAV, multipart,
       # adres końcówki), patrz server/README.md.
       - path: ../shared/asr/TranscriptionWire.swift
@@ -55,7 +59,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.avejapl.voiceflow
         PRODUCT_NAME: VoiceFlow
         GENERATE_INFOPLIST_FILE: NO
-        MARKETING_VERSION: "0.6.0"
+        MARKETING_VERSION: "0.7.0"
         CURRENT_PROJECT_VERSION: "1"
         # Wymagane do notaryzacji (Developer ID). Debug dostaje
         # get-task-allow od Xcode automatycznie, więc debugowanie działa.

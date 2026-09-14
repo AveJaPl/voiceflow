@@ -43,7 +43,7 @@ final class WhisperContext {
             }
         }
         DebugLog.write("Whisper", "backendy ggml (statyczne): \(names.joined(separator: ", "))")
-        if !names.contains("Metal") {
+        if !names.contains(where: { $0 == "Metal" || $0 == "MTL" }) {
             DebugLog.write("Whisper", "UWAGA: brak backendu Metal — liczenie pójdzie po CPU")
         }
     }

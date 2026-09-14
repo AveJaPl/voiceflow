@@ -73,7 +73,6 @@ final class AppUIModel: ObservableObject {
 struct MainView: View {
     @ObservedObject var model: AppUIModel
     @ObservedObject var settingsModel: SettingsModel
-    let remoteMic: RemoteMicClient
 
     @State private var page: VFPage = .dashboard
 
@@ -187,7 +186,7 @@ struct MainView: View {
             )
             // `embedded` — nagłówek, przewijanie i szerokość daje ta strona,
             // więc widok ustawień nie może narzucać własnego rozmiaru okna.
-            SettingsView(model: settingsModel, remoteMic: remoteMic, embedded: true)
+            SettingsView(model: settingsModel, embedded: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

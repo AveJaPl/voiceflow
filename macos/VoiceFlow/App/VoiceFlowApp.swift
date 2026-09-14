@@ -33,14 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Migawki okien dla trybu nasłuchu — własna instancja, żeby nasłuch nie
     /// podbijał generacji, na której opiera się telefon.
     private let ambientSnapshotter = WindowSnapshotter()
-    /// Dzielona z `RemoteMicClient` (docs/plans/remote-mic-relay.md) — ten sam
-    /// `AudioCapture`, który używa `SessionController` skrótu lokalnego.
-    /// Trzymana tutaj jawnie (nie tylko wewnątrz `SessionController`), żeby
-    /// zdalny mikrofon mógł na czas SWOJEJ wypowiedzi podstawić
-    /// `startOverride`/`stopOverride` bez tworzenia drugiej instancji i bez
-    /// duplikowania pipeline'u — patrz doc-comment `RemoteMicClient`.
     private var sharedAudioCapture: AudioCapture?
-    private var remoteMicClient: RemoteMicClient?
     private let notesStore = NotesStore()
     private let pillController = PillWindowController()
     private var pillHideWorkItem: DispatchWorkItem?
@@ -80,6 +73,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         DebugLog.write("App", "=== start VoiceFlow, pid \(ProcessInfo.processInfo.processIdentifier) ===")
+        if CommandLine.arguments.contains("--pill-demo") {
+            runPillDemo()
+            return
+        }
         // PRZED czymkolwiek innym: jeśli poprzednia sesja padła z podmienionym
         // wejściem audio, użytkownik jest teraz niesłyszalny na czatach i nie
         // wie dlaczego. Naprawiamy to sami, zanim cokolwiek zaczniemy.
@@ -88,7 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         requestAccessibilityPermissionIfNeeded()
         setupSessionController()
         setupHotkey()
-        setupRemoteMic()
+        importPairingTokenIfNeeded()
 
         // Samo-aktualizacja z GitHub Releases (kanał mac-vX.Y.Z) — patrz
         // UpdateChecker. Restart tylko w bezczynnej chwili, nigdy w trakcie
@@ -113,6 +110,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { [weak self] in
             await self?.sessionController?.prewarm()
             DebugLog.write("App", "prewarm zakończony")
+        }
+    }
+
+    // MARK: - Demo pilla (bez mikrofonu, bez skrótu)
+
+    /// `VoiceFlow.app/Contents/MacOS/VoiceFlow --pill-demo` — pokazuje pill i
+    /// przepuszcza go przez wszystkie fazy z syntetycznym poziomem audio:
+    /// 3 s ciszy, 4 s „mowy”, tekst na żywo, domykanie, wynik. Jedyny cel:
+    /// oglądać i mierzyć animacje pilla bez uruchamiania silnika i bez
+    /// wchodzenia w drogę działającej kopii aplikacji (nie zakłada skrótu,
+    /// nie dotyka mikrofonu). Numer okna leci do logu dla `screencapture -l`.
+    private func runPillDemo() {
+        let model = pillController.model
+        model.phase = .listening
+        pillController.show()
+        DebugLog.write("PillDemo", "okno pilla: \(pillController.windowNumber)")
+        print("pill-window \(pillController.windowNumber)")
+
+        var tick = 0
+        var frame = 0
+        let words = "Dzień dobry, chciałbym dzisiaj porozmawiać o planach na przyszły tydzień".split(separator: " ")
+        // Klatki do katalogu z argumentu `--frames <dir>` (co ~0,7 s) — jedyny
+        // sposób, żeby agent bez zgody na nagrywanie ekranu zobaczył pill.
+        let framesDir = CommandLine.arguments.firstIndex(of: "--frames")
+            .flatMap { CommandLine.arguments.indices.contains($0 + 1) ? CommandLine.arguments[$0 + 1] : nil }
+        let started = Date()
+        Timer.scheduledTimer(withTimeInterval: 1.0 / 47, repeats: true) { [weak self] timer in
+            guard let self else { return timer.invalidate() }
+            tick += 1
+            let seconds = Date().timeIntervalSince(started)
+            if let framesDir, tick % 33 == 0, let png = self.pillController.snapshotPNG() {
+                frame += 1
+                let url = URL(fileURLWithPath: framesDir).appendingPathComponent(String(format: "pill-%02d-%.1fs.png", frame, seconds))
+                try? png.write(to: url)
+            }
+            switch seconds {
+            case ..<3:
+                model.audioLevel = 0.002
+            case ..<9:
+                // Sylaby: impulsy co ~180 ms o losowej sile, między nimi cisza.
+                let syllable = Int(seconds * 5.5)
+                let inSyllable = (seconds * 5.5 - Double(syllable)) < 0.55
+                model.audioLevel = inSyllable ? Float.random(in: 0.04...0.14) : 0.006
+                let shown = min(words.count, Int((seconds - 3) * 2.2))
+                if shown > 0 {
+                    model.liveText = words.prefix(shown).joined(separator: " ")
+                    if model.phase == .listening { model.phase = .transcribing }
+                }
+            case ..<11:
+                model.audioLevel = 0
+                if model.phase != .finalizing { model.phase = .finalizing }
+            case ..<15:
+                if model.phase != .result {
+                    model.resultText = words.joined(separator: " ") + "."
+                    model.phase = .result
+                }
+            default:
+                timer.invalidate()
+                self.pillController.hide()
+                DebugLog.write("PillDemo", "koniec")
+                NSApp.terminate(nil)
+            }
         }
     }
 
@@ -147,11 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showMainWindow() {
         if mainWindow == nil {
-            guard let remoteMicClient else {
-                log.error("showMainWindow wołane przed setupRemoteMic — pomijam okno")
-                return
-            }
-            let root = MainView(model: uiModel, settingsModel: settingsModel, remoteMic: remoteMicClient)
+            let root = MainView(model: uiModel, settingsModel: settingsModel)
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 1180, height: 760),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -177,11 +232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showSettings() {
         if settingsWindow == nil {
-            guard let remoteMicClient else {
-                log.error("showSettings wołane przed setupRemoteMic — pomijam okno")
-                return
-            }
-            let hosting = NSHostingView(rootView: SettingsView(model: settingsModel, remoteMic: remoteMicClient))
+            let hosting = NSHostingView(rootView: SettingsView(model: settingsModel))
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 480, height: 900),
                 styleMask: [.titled, .closable],
@@ -469,60 +520,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeyMonitor = monitor
     }
 
-    /// Zdalny mikrofon (telefon) — docs/plans/remote-mic-relay.md. Wymaga
-    /// `sessionController`/`sharedAudioCapture` już zainicjowanych przez
-    /// `setupSessionController()` (kolejność w `applicationDidFinishLaunching`).
-    /// Domyślnie WYŁĄCZONE (`SettingsKeys.remoteMicEnabled`) — `start()` sam
-    /// sprawdza ten toggle i nic nie robi, jeśli nie włączony.
-    /// Bez zgody „Nagrywanie ekranu" macOS nie oddaje TYTUŁÓW okien i nie
-    /// pozwala na zrzut. Objaw na telefonie: sześć terminali bez nazw i brak
-    /// podglądu pulpitu — czyli lista, z której nic nie wynika. Zgody nikt
-    /// nigdy nie prosił, więc prosimy raz, przy starcie, gdy zdalne sterowanie
-    /// jest włączone. Systemowe okno pojawia się tylko wtedy, gdy zgody
-    /// naprawdę nie ma; po jej przyznaniu macOS wymaga restartu aplikacji.
-    private func requestScreenRecordingIfNeeded() {
-        guard UserDefaults.standard.bool(forKey: SettingsKeys.remoteMicEnabled) else { return }
-        guard !CGPreflightScreenCaptureAccess() else {
-            DebugLog.write("App", "zgoda Nagrywanie ekranu: jest")
-            return
-        }
-        DebugLog.write("App", "zgoda Nagrywanie ekranu: BRAK — proszę o nią")
-        CGRequestScreenCaptureAccess()
-    }
-
-    private func setupRemoteMic() {
-        requestScreenRecordingIfNeeded()
-        guard let sessionController, let sharedAudioCapture else {
-            log.error("setupRemoteMic wołane przed setupSessionController — pomijam")
-            return
-        }
-        // Jednorazowy import tokenu parowania podrzuconego przez `defaults`
-        // (np. skonfigurowanego skryptem/agentem). Wpis do Keychaina zrobiony
-        // przez `security` z CLI ma partition-list ograniczoną do narzędzi
-        // Apple i apka NIE MOŻE go odczytać — jedyna czysta droga to zapis
-        // przez samą aplikację. Token jest natychmiast USUWANY z defaults;
-        // na dysku zostaje wyłącznie w Keychainie.
+    /// Jednorazowy import tokenu konta podrzuconego przez `defaults`
+    /// (np. skonfigurowanego skryptem/agentem). Wpis do Keychaina zrobiony
+    /// przez `security` z CLI ma partition-list ograniczoną do narzędzi
+    /// Apple i apka NIE MOŻE go odczytać — jedyna czysta droga to zapis
+    /// przez samą aplikację. Token jest natychmiast USUWANY z defaults;
+    /// na dysku zostaje wyłącznie w Keychainie.
+    private func importPairingTokenIfNeeded() {
         let importKey = "voiceflow.pairingTokenImport"
         if let imported = UserDefaults.standard.string(forKey: importKey), !imported.isEmpty {
             KeychainPairingTokenStore().saveToken(imported)
             UserDefaults.standard.removeObject(forKey: importKey)
-            DebugLog.write("RemoteMic", "token parowania zaimportowany z defaults do Keychaina")
+            DebugLog.write("Account", "token konta zaimportowany z defaults do Keychaina")
         }
-
-        let client = RemoteMicClient(sessionController: sessionController, audioCapture: sharedAudioCapture)
-        remoteMicClient = client
-
-        settingsModel.$remoteMicEnabled
-            .dropFirst()
-            .sink { [weak client] _ in client?.restart() }
-            .store(in: &settingsCancellables)
-        settingsModel.$remoteMicHost
-            .dropFirst()
-            .debounce(for: .seconds(1), scheduler: DispatchQueue.main)
-            .sink { [weak client] _ in client?.restart() }
-            .store(in: &settingsCancellables)
-
-        client.start()
     }
 
     /// Zakłada/zdejmuje globalny monitor Escape — TYLKO aktywny w trakcie

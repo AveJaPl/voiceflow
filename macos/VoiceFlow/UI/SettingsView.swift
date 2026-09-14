@@ -29,8 +29,14 @@ enum SettingsKeys {
     static let customVocabulary = "voiceflow.customVocabulary"
     static let discordPresenceEnabled = "voiceflow.discordPresenceEnabled"
     static let discordPresenceClientID = "voiceflow.discordPresenceClientID"
-    static let remoteMicEnabled = "voiceflow.remoteMicEnabled"
-    static let remoteMicHost = "voiceflow.remoteMicHost"
+    /// Adres serwera konta (relay). Klucz historycznie nazywał się
+    /// `remoteMicHost` — zostaje, żeby istniejące instalacje nie straciły
+    /// adresu przy aktualizacji.
+    static let accountHost = "voiceflow.remoteMicHost"
+    /// „Laboratorium”: pokazuje w Ustawieniach funkcje eksperymentalne
+    /// (Discord, komendy głosowe). Domyślnie schowane — publiczna apka ma mieć
+    /// mało opcji, a te są dla kilku osób.
+    static let labEnabled = "voiceflow.labEnabled"
     // Wspólny pokój dyktowania — jedyna część aplikacji, która cokolwiek wysyła
     // poza tę maszynę, i wyłącznie zdarzenia obecności oraz liczby.
     static let roomEnabled = "voiceflow.roomEnabled"
@@ -198,17 +204,23 @@ final class SettingsModel: ObservableObject {
     @Published var discordPresenceClientID: String {
         didSet { defaults.set(discordPresenceClientID, forKey: SettingsKeys.discordPresenceClientID) }
     }
-    /// Zdalny mikrofon (telefon) — §remote-mic-relay planu. Domyślnie
-    /// WYŁĄCZONE — nowa, niesprawdzona ścieżka sieciowa (ten sam wzorzec co
-    /// `micIsolationEnabled` wyżej: użytkownik włącza jawnie).
-    @Published var remoteMicEnabled: Bool {
-        didSet { defaults.set(remoteMicEnabled, forKey: SettingsKeys.remoteMicEnabled) }
+    /// Adres serwera konta — pełny URL (`https://…` albo `wss://…`) lub sam
+    /// host. Pusty = domyślny serwer (`SettingsView.defaultAccountHost`).
+    @Published var accountHost: String {
+        didSet { defaults.set(accountHost, forKey: SettingsKeys.accountHost) }
     }
-    /// Adres relaya — pełny URL ze schematem (`wss://…`, albo `ws://…` do
-    /// testu lokalnego) lub sam host (domyślnie `wss://`), patrz
-    /// `RemoteMicClient.relayURL(from:token:)`.
-    @Published var remoteMicHost: String {
-        didSet { defaults.set(remoteMicHost, forKey: SettingsKeys.remoteMicHost) }
+    @Published var accountEmail: String? {
+        didSet {
+            if let accountEmail { defaults.set(accountEmail, forKey: SettingsKeys.accountEmail) }
+            else { defaults.removeObject(forKey: SettingsKeys.accountEmail) }
+        }
+    }
+    @Published var labEnabled: Bool {
+        didSet { defaults.set(labEnabled, forKey: SettingsKeys.labEnabled) }
+    }
+    /// Minuty bezczynności, po których whisper zwalnia model (0 = nigdy).
+    @Published var modelIdleUnloadMinutes: Int {
+        didSet { defaults.set(modelIdleUnloadMinutes, forKey: SettingsKeys.modelIdleUnloadMinutes) }
     }
 
     private let defaults: UserDefaults
@@ -257,14 +269,18 @@ final class SettingsModel: ObservableObject {
         self.customVocabulary = defaults.stringArray(forKey: SettingsKeys.customVocabulary) ?? []
         self.discordPresenceEnabled = defaults.bool(forKey: SettingsKeys.discordPresenceEnabled)
         self.discordPresenceClientID = defaults.string(forKey: SettingsKeys.discordPresenceClientID) ?? ""
-        self.remoteMicEnabled = defaults.bool(forKey: SettingsKeys.remoteMicEnabled)
-        self.remoteMicHost = defaults.string(forKey: SettingsKeys.remoteMicHost) ?? ""
+        self.accountHost = defaults.string(forKey: SettingsKeys.accountHost) ?? ""
+        self.accountEmail = defaults.string(forKey: SettingsKeys.accountEmail)
+        self.labEnabled = defaults.bool(forKey: SettingsKeys.labEnabled)
+        self.modelIdleUnloadMinutes = defaults.object(forKey: SettingsKeys.modelIdleUnloadMinutes) == nil
+            ? WhisperSpeechEngine.defaultIdleUnloadMinutes
+            : defaults.integer(forKey: SettingsKeys.modelIdleUnloadMinutes)
     }
 }
 
 /// Kategorie ustawień — jedna lista po lewej zamiast jednego długiego zwoju.
 enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
-    case dictation, insertion, audio, vocabulary, room, remote
+    case dictation, insertion, audio, vocabulary, room, account, advanced
 
     var id: String { rawValue }
 
@@ -275,7 +291,8 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .audio: "Dźwięk"
         case .vocabulary: "Słownik"
         case .room: "Wspólny pokój"
-        case .remote: "Zdalny mikrofon"
+        case .account: "Konto"
+        case .advanced: "Zaawansowane"
         }
     }
 
@@ -286,7 +303,8 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .audio: "Przyciszanie tła, izolacja mikrofonu i Discord."
         case .vocabulary: "Nazwy własne, których silnik ma nie przekręcać."
         case .room: "Wspólna sesja dyktowania z innym komputerem."
-        case .remote: "Dyktowanie z telefonu przez relay."
+        case .account: "Historia i słownik wspólne dla Maca i telefonu."
+        case .advanced: "Silnik, pamięć, izolacja mikrofonu i Laboratorium."
         }
     }
 
@@ -297,7 +315,8 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .audio: "speaker.wave.2"
         case .vocabulary: "character.book.closed"
         case .room: "person.2"
-        case .remote: "iphone"
+        case .account: "person.crop.circle"
+        case .advanced: "slider.horizontal.3"
         }
     }
 }
@@ -313,20 +332,17 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
 /// pokazuje poziomy pasek kategorii, bo boczne menu ma już okno główne.
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
-    @ObservedObject var remoteMic: RemoteMicClient
     var embedded: Bool = false
 
-    @State private var adminSecretInput = ""
     // Logowanie kontem — ta sama para (email+hasło) co w apce na telefonie;
-    // zwrócony stały token konta ląduje w Keychainie jak token z QR/parowania.
+    // zwrócony stały token konta ląduje w Keychainie.
     @State private var accountEmail = ""
     @State private var accountPassword = ""
     @State private var accountStatus: String?
     @State private var isLoggingIn = false
-    /// Publiczny relay na serwerze Wojtka — domyślny dom logowania kontem.
-    static let defaultAccountHost = "wss://o35lo8pceb0fmc10ziul6llo.161.97.135.88.sslip.io"
-    @State private var pairingStatus: String?
-    @State private var isPairing = false
+    /// Serwer kont Programo — domyślny dom logowania. Własny serwer
+    /// (`relay/README.md`, jeden kontener) wpisuje się w Zaawansowanych.
+    static let defaultAccountHost = "https://voiceflow-relay.159.195.206.7.sslip.io"
     @State private var category: SettingsCategory = .dictation
 
     var body: some View {
@@ -363,7 +379,8 @@ struct SettingsView: View {
         case .audio: audioSections
         case .vocabulary: vocabularySections
         case .room: RoomSettingsSection()
-        case .remote: remoteSections
+        case .account: accountSections
+        case .advanced: advancedSections
         }
     }
 
@@ -454,14 +471,6 @@ struct SettingsView: View {
             VFHint("Zmiana działa od razu, bez restartu aplikacji. Prawy ⌘ bywa tym samym klawiszem, którego prawa ręka używa do ⌘+Enter (np. wysyłka wiadomości w czatach) — stąd zalecany Fn.")
         }
 
-        VFSection(title: "Silnik rozpoznawania", subtitle: "Dotyczy wyłącznie polskiego.") {
-            VFChoiceList(
-                options: SpeechEngineChoice.allCases.map { (value: $0, label: $0.label) },
-                selection: $model.speechEngine
-            )
-            VFHint("Angielski zawsze idzie przez Apple. Zmiana wymaga restartu VoiceFlow, silnik tworzy się raz przy starcie. whisper.cpp działa w pełni lokalnie i offline — zalecane po awarii serwera Apple 2026-08-10.")
-        }
-
         VFSection(title: "Podgląd na żywo") {
             VFSettingToggle(
                 title: "Transkrypcja na żywo w pillu",
@@ -471,21 +480,12 @@ struct SettingsView: View {
             VFHint("Wyłączona: w trakcie mówienia pill pokazuje tylko falę dźwięku, a whisper liczy RAZ, po puszczeniu skrótu — zamiast dekodować co 300 ms przez całe dyktowanie. Mniej obciążenia, zero różnicy w tekście końcowym. Działa od następnej wypowiedzi, bez restartu.")
         }
 
-        VFSection(title: "Tryb nasłuchu", subtitle: "Sterowanie terminalami samym głosem, bez dotykania klawiatury.") {
-            VFSettingToggle(
-                title: "Nasłuchuj komend głosowych",
-                subtitle: "Powiedz „halo lampa”, podyktuj prompt, powiedz „koniec”.",
-                isOn: $model.ambientEnabled
-            )
-            VFHint("Mikrofon chodzi wtedy CIĄGLE, a whisper rozpoznaje mowę w tle (model small, na GPU). Okna terminali mają NAZWY KODOWE: lampa, zebra, kokos, radio, mewa, hotel, wagon, sosna — liczone od lewego górnego rogu ekranu. Liczebniki („terminal jeden”) też działają, ale polski ASR myli je w hałasie, więc nazwy kodowe są znacznie pewniejsze. Dyktowanie skrótem ma pierwszeństwo — na jego czas nasłuch milczy.")
-        }
-
         VFSection(title: "Model whisper.cpp") {
             VFChoiceList(
                 options: WhisperModelChoice.allCases.map { (value: $0, label: $0.displayName) },
                 selection: $model.whisperModel
             )
-            VFHint("Pomiar na nagraniu 4,3 s (ten Mac, bez GPU — Homebrew'owy whisper.cpp nie ma backendu Metal): base 1,2 s, large-v3-turbo 6,4 s, oba z tym samym, poprawnym tekstem. Większy model bierz na żargon, akcent i hałas. Pierwsze użycie pobiera model; zmiana wymaga restartu VoiceFlow.")
+            VFHint("Liczenie idzie na GPU (Metal). large-v3-turbo jest najdokładniejszy i z wiązką 1 domyka się w ułamku sekundy; base jest najlżejszy w pamięci. Pierwsze użycie pobiera model; zmiana wymaga restartu VoiceFlow.")
         }
 
         VFSection(title: "Język dyktowania") {
@@ -537,6 +537,107 @@ struct SettingsView: View {
             }
         }
 
+    }
+
+    // MARK: - Słownik
+
+    @ViewBuilder
+    private var vocabularySections: some View {
+        VFSection(title: "Słowa własne") {
+            VocabularyEditor(words: $model.customVocabulary)
+            VFHint("Nazwy własne, które silnik rozpoznawania mowy często myli (np. „Programo”, „Estalo”). Dla whisper.cpp trafiają wprost do promptu dekodera — działa od razu, bez restartu. Dla silnika Apple działają jak wbudowany słownik (poprawka wielkości liter) — wymaga restartu VoiceFlow.")
+        }
+    }
+
+    // MARK: - Konto
+
+    @ViewBuilder
+    private var accountSections: some View {
+        if let email = model.accountEmail, !email.isEmpty {
+            VFSection(title: "Zalogowano", subtitle: email) {
+                HStack(spacing: VF.Space.x12) {
+                    Button("Wyloguj") { logOut() }
+                        .buttonStyle(VFButtonStyle(prominent: false))
+                    if let accountStatus {
+                        Text(accountStatus)
+                            .font(VF.Font.body(11))
+                            .foregroundStyle(VF.Color.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                VFHint("Każde dyktowanie trafia do historii konta, a słownik jest wspólny dla wszystkich urządzeń na tym koncie. Nagranie i tekst w trakcie dyktowania nigdy nie opuszczają tego Maca — synchronizuje się wyłącznie gotowa historia.")
+            }
+        } else {
+            VFSection(title: "Konto", subtitle: "Ten sam e-mail i hasło co w aplikacji na telefonie.") {
+                VFTextField(placeholder: "E-mail", text: $accountEmail)
+                VFTextField(placeholder: "Hasło", text: $accountPassword, secure: true)
+                HStack(spacing: VF.Space.x12) {
+                    Button(isLoggingIn ? "Loguję…" : "Zaloguj") { logInWithAccount() }
+                        .buttonStyle(VFButtonStyle(prominent: true))
+                        .disabled(isLoggingIn || accountEmail.isEmpty || accountPassword.isEmpty)
+                    if let accountStatus {
+                        Text(accountStatus)
+                            .font(VF.Font.body(11))
+                            .foregroundStyle(VF.Color.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                VFHint("Konto jest opcjonalne. Bez niego VoiceFlow działa w całości lokalnie; z nim historia i słownik są wspólne dla Maca i telefonu. Konta zakłada administrator serwera — własny serwer stawia się jednym kontenerem (relay/README.md).")
+            }
+        }
+    }
+
+    // MARK: - Zaawansowane
+
+    @ViewBuilder
+    private var advancedSections: some View {
+        VFSection(title: "Silnik rozpoznawania", subtitle: "Dotyczy wyłącznie polskiego.") {
+            VFChoiceList(
+                options: SpeechEngineChoice.allCases.map { (value: $0, label: $0.label) },
+                selection: $model.speechEngine
+            )
+            VFHint("Angielski zawsze idzie przez Apple. Zmiana wymaga restartu VoiceFlow. whisper.cpp działa w pełni lokalnie i offline — zalecane po awarii serwera Apple 2026-08-10.")
+        }
+
+        VFSection(title: "Pamięć", subtitle: "Model whisper zajmuje od 0,4 do 1 GB, gdy jest załadowany.") {
+            VFChoiceList(
+                options: [
+                    (value: 0, label: "Trzymaj model w pamięci cały czas — zero opóźnienia, najwięcej RAM"),
+                    (value: 10, label: "Zwolnij po 10 minutach bez dyktowania (zalecane)"),
+                    (value: 30, label: "Zwolnij po 30 minutach"),
+                    (value: 2, label: "Zwolnij po 2 minutach — najmniej RAM"),
+                ],
+                selection: $model.modelIdleUnloadMinutes
+            )
+            VFHint("Po zwolnieniu następne wciśnięcie skrótu ładuje model w tle, gdy już mówisz — słowa nie giną, tylko wynik pojawia się o czas ładowania później (small: ułamek sekundy, large-v3-turbo: kilka sekund).")
+        }
+
+        VFSection(title: "Serwer konta") {
+            VFTextField(placeholder: Self.defaultAccountHost, text: $model.accountHost)
+            VFHint("Puste = serwer Programo. Własny: adres relaya z relay/README.md. Zmiana wymaga ponownego zalogowania.")
+        }
+
+        VFSection(title: "Laboratorium", subtitle: "Funkcje dla kilku osób, nie dla wszystkich.") {
+            VFSettingToggle(title: "Pokaż funkcje eksperymentalne", isOn: $model.labEnabled)
+            VFHint("Izolacja mikrofonu przez BlackHole, skrót i status Discorda oraz sterowanie terminalami głosem. Działają, ale wymagają dodatkowej konfiguracji i nie są częścią zwykłego dyktowania.")
+        }
+
+        if model.labEnabled {
+            labSections
+        }
+    }
+
+    @ViewBuilder
+    private var labSections: some View {
+        VFSection(title: "Tryb nasłuchu", subtitle: "Sterowanie terminalami samym głosem, bez dotykania klawiatury.") {
+            VFSettingToggle(
+                title: "Nasłuchuj komend głosowych",
+                subtitle: "Powiedz „halo lampa”, podyktuj prompt, powiedz „koniec”.",
+                isOn: $model.ambientEnabled
+            )
+            VFHint("Mikrofon chodzi wtedy CIĄGLE, a whisper rozpoznaje mowę w tle (model small, na GPU). Okna terminali mają NAZWY KODOWE: lampa, zebra, kokos, radio, mewa, hotel, wagon, sosna — liczone od lewego górnego rogu ekranu. Dyktowanie skrótem ma pierwszeństwo — na jego czas nasłuch milczy.")
+        }
+
         VFSection(title: "Izolacja mikrofonu", subtitle: "Discord i inne czaty.") {
             VFSettingToggle(
                 title: "Podczas dyktowania nikt na czacie mnie nie słyszy",
@@ -562,161 +663,34 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Słownik
-
-    @ViewBuilder
-    private var vocabularySections: some View {
-        VFSection(title: "Słowa własne") {
-            VocabularyEditor(words: $model.customVocabulary)
-            VFHint("Nazwy własne, które silnik rozpoznawania mowy często myli (np. „Programo”, „Estalo”). Dla whisper.cpp trafiają wprost do promptu dekodera — działa od razu, bez restartu. Dla silnika Apple działają jak wbudowany słownik (poprawka wielkości liter) — wymaga restartu VoiceFlow.")
-        }
-    }
-
-    // MARK: - Zdalny mikrofon
-
-    @ViewBuilder
-    private var remoteSections: some View {
-        VFSection(title: "Konto", subtitle: "Zaloguj tym samym kontem co telefon — historia i sesje spinają się same.") {
-            VFTextField(placeholder: "E-mail", text: $accountEmail)
-            VFTextField(placeholder: "Hasło", text: $accountPassword, secure: true)
-            HStack(spacing: VF.Space.x12) {
-                Button(isLoggingIn ? "Loguję…" : "Zaloguj i połącz") { logInWithAccount() }
-                    .buttonStyle(VFButtonStyle(prominent: true))
-                    .disabled(isLoggingIn || accountEmail.isEmpty || accountPassword.isEmpty)
-                if let accountStatus {
-                    Text(accountStatus)
-                        .font(VF.Font.body(11))
-                        .foregroundStyle(VF.Color.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-
-        VFSection(title: "Połączenie") {
-            VFSettingToggle(title: "Włącz zdalny mikrofon", isOn: $model.remoteMicEnabled)
-                .onChange(of: model.remoteMicEnabled) { _, _ in remoteMic.restart() }
-            VFTextField(
-                placeholder: "Adres relaya (np. wss://voiceflow-relay.programo.pl)",
-                text: $model.remoteMicHost
-            )
-            .onChange(of: model.remoteMicHost) { _, _ in remoteMic.restart() }
-            HStack(spacing: VF.Space.x8) {
-                Circle()
-                    .fill(connectionStatusColor)
-                    .frame(width: 7, height: 7)
-                Text(connectionStatusLabel)
-                    .font(VF.Font.body(12))
-                    .foregroundStyle(VF.Color.muted)
-            }
-        }
-
-        VFSection(title: "Parowanie", subtitle: "Jednorazowe — generuje token w relayu i zapisuje go w Keychain.") {
-            VFTextField(
-                placeholder: "ADMIN_SECRET relaya (nie zapisywany na dysku)",
-                text: $adminSecretInput,
-                secure: true
-            )
-            HStack(spacing: VF.Space.x12) {
-                Button(isPairing ? "Parowanie…" : "Sparuj") { pair() }
-                    .buttonStyle(VFButtonStyle(prominent: true))
-                    .disabled(isPairing || model.remoteMicHost.isEmpty || adminSecretInput.isEmpty)
-                if let pairingStatus {
-                    Text(pairingStatus)
-                        .font(VF.Font.body(11))
-                        .foregroundStyle(VF.Color.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            VFHint("Telefon łączy się przez ten sam relay tym samym tokenem. Trzymasz przycisk na telefonie i mówisz — tekst trafia do okna, które ma akurat focus na tym Macu, dokładnie jak przy dyktowaniu lokalnym skrótem.")
-        }
-    }
-
-    private var connectionStatusLabel: String {
-        switch remoteMic.connectionState {
-        case .disabled: "wyłączony"
-        case .connecting: "łączenie…"
-        case .connected: "połączono"
-        case .disconnected: "rozłączony"
-        }
-    }
-
-    /// Czerwień jest w tym interfejsie zarezerwowana dla nagrywania, więc stan
-    /// połączenia rozróżniamy jasnością kropki, nie kolorem.
-    private var connectionStatusColor: Color {
-        switch remoteMic.connectionState {
-        case .connected: VF.Color.text
-        case .connecting: VF.Color.muted
-        case .disconnected, .disabled: VF.Color.faint
-        }
-    }
-
-    /// `POST /login` → stały token konta → Keychain + restart klienta.
-    /// Ta sama semantyka co logowanie w apce iOS; Mac i telefon na jednym
-    /// koncie łączą się przez ten sam relay bez żadnego QR.
+    /// `POST /login` → stały token konta → Keychain. Ta sama semantyka co
+    /// logowanie w apce iOS.
     private func logInWithAccount() {
         isLoggingIn = true
         accountStatus = nil
-        let host = model.remoteMicHost.isEmpty ? Self.defaultAccountHost : model.remoteMicHost
-        let httpBase = host
-            .replacingOccurrences(of: "wss://", with: "https://")
-            .replacingOccurrences(of: "ws://", with: "http://")
-        guard let url = URL(string: "\(httpBase)/login") else {
-            accountStatus = "Nieprawidłowy adres relaya."
-            isLoggingIn = false
-            return
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "email": accountEmail.trimmingCharacters(in: .whitespaces),
-            "password": accountPassword,
-        ])
+        let host = model.accountHost.isEmpty ? Self.defaultAccountHost : model.accountHost
+        let email = accountEmail.trimmingCharacters(in: .whitespaces)
+        let password = accountPassword
         Task { @MainActor in
             defer { isLoggingIn = false }
             do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-                guard status == 200,
-                      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let token = object["pairToken"] as? String, !token.isEmpty else {
-                    accountStatus = status == 401 ? "Zły e-mail albo hasło." : "Serwer zwrócił błąd \(status)."
-                    return
-                }
+                let token = try await AccountAPI.logIn(host: host, email: email, password: password)
                 KeychainPairingTokenStore().saveToken(token)
-                UserDefaults.standard.set(
-                    accountEmail.trimmingCharacters(in: .whitespaces),
-                    forKey: SettingsKeys.accountEmail
-                )
+                model.accountEmail = email
                 accountPassword = ""
-                if model.remoteMicHost.isEmpty { model.remoteMicHost = host }
-                model.remoteMicEnabled = true
-                remoteMic.restart()
-                accountStatus = "Zalogowano — połączenie przez konto aktywne."
-                DebugLog.write("RemoteMic", "zalogowano kontem \(accountEmail) — token konta w Keychainie")
+                accountStatus = nil
+                DebugLog.write("Account", "zalogowano kontem \(email) — token konta w Keychainie")
             } catch {
-                accountStatus = "Nie mogę połączyć się z serwerem: \(error.localizedDescription)"
+                accountStatus = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
         }
     }
 
-    private func pair() {
-        isPairing = true
-        pairingStatus = nil
-        let host = model.remoteMicHost
-        let secret = adminSecretInput
-        Task {
-            do {
-                let token = try await RemoteMicPairing.pair(host: host, adminSecret: secret)
-                KeychainPairingTokenStore().saveToken(token)
-                adminSecretInput = ""
-                pairingStatus = "Sparowano — token zapisany w Keychain."
-                remoteMic.restart()
-            } catch {
-                pairingStatus = error.localizedDescription
-            }
-            isPairing = false
-        }
+    private func logOut() {
+        KeychainPairingTokenStore().clearToken()
+        model.accountEmail = nil
+        accountStatus = nil
+        DebugLog.write("Account", "wylogowano — token usunięty z Keychaina")
     }
 
     private var insertionModeHint: String {

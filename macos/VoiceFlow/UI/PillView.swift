@@ -39,7 +39,9 @@ final class PillViewModel: ObservableObject {
 struct PillView: View {
     @ObservedObject var model: PillViewModel
     @State private var appeared = false
-    @State private var levelHistory: [Float] = Array(repeating: 0, count: 24)
+    @State private var levelHistory: [Float] = Array(repeating: 0, count: PillWaveform.barCount)
+    /// Poziom po wygładzeniu atak/opadanie (patrz `pushLevel`) — z tego rosną słupki.
+    @State private var smoothedLevel: Float = 0
     @State private var justCopied = false
     @Environment(\.colorScheme) private var colorScheme
 
@@ -92,19 +94,27 @@ struct PillView: View {
         case .arming:
             statusRow(icon: "mic.fill", label: "Uzbrajam mikrofon…", tinted: false)
 
-        case .listening:
+        case .listening, .transcribing:
+            // Fala żyje przez CAŁE mówienie, także gdy niżej pojawia się już
+            // tekst — wcześniej gasła w chwili pierwszego słowa i zostawała
+            // statyczna ikona, a pill wyglądał, jakby przestał słuchać.
             HStack(spacing: 10) {
                 Image(systemName: "mic.fill")
                     .foregroundStyle(accentColor)
-                WaveformView(levels: levelHistory, pulsing: false, tint: accentColor)
-                    .frame(width: 120, height: 20)
+                    .symbolEffect(.pulse, options: .repeating, isActive: !reduceMotion && smoothedLevel < 0.01)
+                PillWaveform(levels: levelHistory, tint: accentColor, reduceMotion: reduceMotion)
+                    .frame(width: 132, height: 22)
             }
 
-        case .transcribing:
-            statusRow(icon: "waveform", label: "Słucham…", tinted: true)
-
         case .finalizing:
-            statusRow(icon: "checkmark", label: "Domykam…", tinted: true)
+            HStack(spacing: 10) {
+                Image(systemName: "waveform")
+                    .foregroundStyle(accentColor)
+                    .symbolEffect(.variableColor.iterative, options: .repeating, isActive: !reduceMotion)
+                Text("Domykam…")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
 
         case .result:
             statusRow(icon: "checkmark.circle.fill", label: "Gotowe", tinted: true)
@@ -203,9 +213,20 @@ struct PillView: View {
         RoundedRectangle(cornerRadius: 20, style: .continuous).fill(.regularMaterial)
     }
 
+    /// Wygładzanie w stylu miernika: szybki atak (sylaba od razu podbija
+    /// słupek), wolne opadanie (nie migocze między głoskami). Surowy RMS z
+    /// bufora 1024 próbek przychodzi ~47 razy na sekundę i bez tego pasek
+    /// wyglądał jak szum, nie jak mowa.
     private func pushLevel(_ level: Float) {
+        let attack: Float = 0.55
+        let release: Float = 0.12
+        if level > smoothedLevel {
+            smoothedLevel += (level - smoothedLevel) * attack
+        } else {
+            smoothedLevel += (level - smoothedLevel) * release
+        }
         levelHistory.removeFirst()
-        levelHistory.append(level)
+        levelHistory.append(smoothedLevel)
     }
 
     private func replayArmingAnimation() {
@@ -216,58 +237,61 @@ struct PillView: View {
     }
 }
 
-/// Waveform sterowany realnym poziomem audio — historia ostatnich N próbek
-/// renderowana jako słupki. Używany TYLKO w stanie `.listening`, zanim
-/// pojawi się jakikolwiek tekst — nigdy obok tekstu, więc nie ma czego nachodzić.
-private struct WaveformView: View {
+/// Fala dźwięku sterowana realnym poziomem: ostatnie `barCount` wygładzonych
+/// próbek RMS jako słupki rosnące SYMETRYCZNIE od osi poziomej.
+///
+/// Dwie rzeczy, które ta wersja naprawia (zgłoszenie 2026-09-14):
+/// 1. „Przy ciszy kreska idzie do góry” — poprzedni `HStack` siedział w
+///    `GeometryReader`, który kładzie zawartość w LEWYM GÓRNYM rogu; przy
+///    ciszy słupki miały 2 px, cały pasek 2 px wysokości i wisiał u góry ramki.
+///    Teraz każdy słupek ma pełną wysokość ramki i rysuje kapsułę wokół
+///    środka — oś jest zawsze na środku, niezależnie od poziomu.
+/// 2. „Mało dynamiczne” — słupki dostają sprężynę na zmianę wysokości, a przy
+///    ciszy zamiast płaskiej kreski widać wolny „oddech” (sinusoida o małej
+///    amplitudzie), żeby było widać, że mikrofon żyje.
+struct PillWaveform: View {
+    static let barCount = 28
+
     let levels: [Float]
-    let pulsing: Bool
     let tint: Color
-
-    @State private var pulsePhase: CGFloat = 0
-
-    private var reduceMotion: Bool {
-        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-    }
+    let reduceMotion: Bool
 
     var body: some View {
-        GeometryReader { geo in
-            let barCount = levels.count
-            let spacing: CGFloat = 2
-            let barWidth = max(1.5, (geo.size.width - CGFloat(barCount - 1) * spacing) / CGFloat(barCount))
-
-            HStack(alignment: .center, spacing: spacing) {
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
+            let phase = timeline.date.timeIntervalSinceReferenceDate
+            HStack(alignment: .center, spacing: 2) {
                 ForEach(Array(levels.enumerated()), id: \.offset) { index, level in
                     Capsule()
-                        .fill(tint.opacity(pulsing ? 0.55 : barOpacity(index: index, count: barCount)))
-                        .frame(width: barWidth, height: barHeight(level: level, index: index, height: geo.size.height))
+                        .fill(tint.opacity(opacity(index: index)))
+                        .frame(width: barWidth, height: barHeight(level: level, index: index, phase: phase))
+                        .frame(maxHeight: .infinity, alignment: .center)
+                        .animation(
+                            reduceMotion ? nil : .interpolatingSpring(stiffness: 420, damping: 22),
+                            value: level
+                        )
                 }
             }
-        }
-        .onAppear {
-            guard pulsing, !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
-                pulsePhase = 1
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
     }
 
-    private func barOpacity(index: Int, count: Int) -> Double {
-        let fraction = Double(index) / Double(max(count - 1, 1))
-        return 0.35 + 0.65 * fraction
+    private var barWidth: CGFloat { 2.6 }
+    private var maxHeight: CGFloat { 22 }
+
+    private func opacity(index: Int) -> Double {
+        // Najnowsze próbki po prawej — najjaśniejsze; ogon po lewej gaśnie.
+        let fraction = Double(index) / Double(max(levels.count - 1, 1))
+        return 0.3 + 0.7 * fraction
     }
 
-    private func barHeight(level: Float, index: Int, height: CGFloat) -> CGFloat {
-        if pulsing {
-            let base: CGFloat = height * 0.35
-            let wobble = sin((CGFloat(index) * 0.7) + pulsePhase * .pi * 2) * height * 0.15
-            return max(3, base + wobble)
-        }
+    private func barHeight(level: Float, index: Int, phase: TimeInterval) -> CGFloat {
         // Surowy RMS mowy siedzi w paśmie ~0,02–0,15 — liniowo dawało słupki
-        // po 3 px, czyli równą kreskę zamiast wykresu („nie widać pasków").
-        // Wzmocnienie ×6 rozciąga pasmo mowy na pełną skalę, a wykładnik 0,7
-        // spłaszcza szczyty, żeby głośne sylaby nie przyklejały się do sufitu.
+        // po 3 px. Wzmocnienie ×6 rozciąga pasmo mowy na pełną skalę, wykładnik
+        // 0,7 spłaszcza szczyty, żeby głośne sylaby nie przyklejały się do sufitu.
         let boosted = min(1, pow(CGFloat(level) * 6, 0.7))
-        return max(2, boosted * height)
+        let fromAudio = boosted * maxHeight
+        // Oddech przy ciszy: fala 0,8 Hz biegnąca wzdłuż paska, 2–6 px.
+        let breath = reduceMotion ? 2 : 4 + 2 * sin(phase * 2 * .pi * 0.8 + Double(index) * 0.35)
+        return max(CGFloat(breath), fromAudio)
     }
 }

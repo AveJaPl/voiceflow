@@ -1,8 +1,7 @@
 import AppKit
 import CoreGraphics
 
-/// Migawka okien pulpitu dla telefonu — `WindowsFrame` z kontraktu
-/// (`shared/wire/ControlFrames.swift`), plan §3.1.
+/// Migawka okien pulpitu dla trybu nasłuchu — `WindowsFrame` z `WindowModel.swift`.
 ///
 /// Źródłem jest `CGWindowListCopyWindowInfo`, nie AX: tylko CGWindowList zna
 /// kolejność nakładania (`z`) i działa bez chodzenia po drzewie AX każdej

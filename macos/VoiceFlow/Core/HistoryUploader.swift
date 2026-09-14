@@ -24,12 +24,10 @@ final class HistoryUploader {
     }
 
     private var endpoint: URL? {
-        let host = defaults.string(forKey: SettingsKeys.remoteMicHost) ?? ""
-        guard !host.isEmpty else { return nil }
-        let httpBase = host
-            .replacingOccurrences(of: "wss://", with: "https://")
-            .replacingOccurrences(of: "ws://", with: "http://")
-        return URL(string: "\(httpBase)/history")
+        let stored = defaults.string(forKey: SettingsKeys.accountHost) ?? ""
+        let host = stored.isEmpty ? SettingsView.defaultAccountHost : stored
+        guard let base = try? AccountAPI.httpBase(host) else { return nil }
+        return URL(string: "\(base)/history")
     }
 
     /// Jednorazowy import CAŁEJ lokalnej historii na konto — żeby chmura miała

@@ -147,6 +147,17 @@ final class PillWindowController: NSObject {
         panel.orderOut(nil)
     }
 
+    /// Numer okna dla `screencapture -l` — do zrzutów pilla w trybie demo.
+    var windowNumber: Int { panel.windowNumber }
+
+    /// Zrzut treści pilla PROSTO Z WIDOKU (bez zgody na nagrywanie ekranu,
+    /// której proces w terminalu zwykle nie ma). Tryb demo pisze nim klatki.
+    func snapshotPNG() -> Data? {
+        guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return nil }
+        hosting.cacheDisplay(in: hosting.bounds, to: rep)
+        return rep.representation(using: .png, properties: [:])
+    }
+
     /// Przesuwa pill nad wskazane okno (współrzędne z `CGWindowList`, czyli
     /// z zerem w LEWYM GÓRNYM rogu ekranu głównego — NSWindow liczy od dołu,
     /// stąd odbicie). Tryb nasłuchu używa tego, żeby było widać gołym okiem,

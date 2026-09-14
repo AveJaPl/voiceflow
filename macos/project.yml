@@ -22,14 +22,6 @@ targets:
     platform: macOS
     sources:
       - path: VoiceFlow
-      # Kontrakt ramek telefon<->Mac — JEDEN plik źródłowy dla obu platform
-      # (kompilowany też przez ios/project.yml). Nie kopiować do VoiceFlow/:
-      # kopia rozjeżdża się po cichu, patrz nagłówek tamtego pliku.
-      - path: ../shared/wire/ControlFrames.swift
-      # Adresy sieci lokalnej — telefon i Mac muszą liczyć „ta sama sieć”
-      # tym samym kodem, inaczej tryb ekranu wybierałby się inaczej po każdej
-      # ze stron.
-      - path: ../shared/wire/LocalNetwork.swift
       # Matematyka tablicy pokoju — również wspólna z iOS, z tego samego
       # powodu: dwie kopie liczyłyby udziały inaczej i nikt by tego nie zauważył.
       - path: ../shared/board/RoomBoard.swift

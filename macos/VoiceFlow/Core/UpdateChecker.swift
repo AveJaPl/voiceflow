@@ -110,6 +110,7 @@ final class UpdateChecker {
         guard FileManager.default.fileExists(atPath: newApp.path) else {
             throw NSError(domain: "Update", code: 2, userInfo: [NSLocalizedDescriptionKey: "w archiwum nie ma VoiceFlow.app"])
         }
+        try Self.verifySignature(of: newApp)
 
         let destination = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Applications/VoiceFlow.app")
@@ -118,6 +119,43 @@ final class UpdateChecker {
         installedPendingRestart = release.version
         DebugLog.write("Update", "wersja \(release.version) zainstalowana w \(destination.path) — czekam na moment na restart")
         restartWhenIdle()
+    }
+
+    /// Zespół, którego podpis akceptujemy. Kanał aktualizacji to publiczne
+    /// GitHub Releases — bez tej bramki wystarczyłoby przejąć konto albo
+    /// podmienić asset, żeby każdy Mac z apką pobrał i uruchomił cokolwiek.
+    /// HTTPS chroni transport, ten test chroni treść.
+    static let expectedTeamIdentifier = "H7DS3ZG67S"
+
+    /// `codesign --verify --deep --strict` + TeamIdentifier z `codesign -dv`.
+    /// Celowo NIE `spctl` — ocena Gatekeepera wymaga sieci i potrafi odmówić
+    /// z powodów niezwiązanych z podpisem; poprawność podpisu i tożsamość
+    /// zespołu są tym, co naprawdę chcemy wiedzieć.
+    static func verifySignature(of app: URL) throws {
+        let verify = Process()
+        verify.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        verify.arguments = ["--verify", "--deep", "--strict", app.path]
+        try verify.run()
+        verify.waitUntilExit()
+        guard verify.terminationStatus == 0 else {
+            throw NSError(domain: "Update", code: 3, userInfo: [NSLocalizedDescriptionKey: "podpis pobranej apki nie przechodzi weryfikacji (codesign \(verify.terminationStatus))"])
+        }
+
+        let info = Process()
+        info.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        info.arguments = ["-dv", "--verbose=2", app.path]
+        let pipe = Pipe()
+        info.standardError = pipe
+        info.standardOutput = pipe
+        try info.run()
+        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        info.waitUntilExit()
+        let team = output.split(separator: "\n")
+            .first { $0.hasPrefix("TeamIdentifier=") }
+            .map { String($0.dropFirst("TeamIdentifier=".count)) }
+        guard team == expectedTeamIdentifier else {
+            throw NSError(domain: "Update", code: 4, userInfo: [NSLocalizedDescriptionKey: "pobrana apka jest podpisana przez inny zespół (\(team ?? "brak")), nie \(expectedTeamIdentifier)"])
+        }
     }
 
     /// Restart w pierwszej bezczynnej chwili — podmiana apki W TRAKCIE

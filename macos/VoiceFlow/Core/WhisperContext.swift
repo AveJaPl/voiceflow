@@ -25,51 +25,34 @@ final class WhisperContext {
         self.ctx = ctx
     }
 
-    /// Ładuje backendy obliczeniowe ggml — **w tym Metal, czyli GPU**.
+    /// Backendy ggml (Metal = GPU, BLAS, CPU) są wkompilowane statycznie w
+    /// `third_party/whisper-macos/lib/libwhisper.a` i rejestrują się same przy
+    /// starcie procesu — nie ma już nic do ładowania z dysku.
     ///
-    /// To jest różnica między „liczy się kilka sekund" a „liczy się ułamek sekundy",
-    /// i przez długi czas w ogóle jej tu nie było.
-    ///
-    /// W ggml 0.15 backendy nie siedzą w `libggml`, tylko są osobnymi bibliotekami
-    /// ładowanymi w czasie działania (`libggml-metal.so`, `libggml-blas.so`,
-    /// `libggml-cpu-apple_m2_m3.so`). Gołe `ggml_backend_load_all()` szuka ich
-    /// **obok własnego pliku wykonywalnego**: `whisper-cli` leży w
-    /// `/opt/homebrew/bin`, więc znajduje wszystko i startuje na Metalu, ale nasz
-    /// plik wykonywalny leży w `VoiceFlow.app/Contents/MacOS` i nie znajduje NIC.
-    /// Aplikacja liczyła więc nie tylko bez GPU, ale nawet bez zoptymalizowanego
-    /// backendu CPU dla Apple Silicon — na ścieżce ogólnej.
-    ///
-    /// Objaw był całkowicie niemy: żadnego błędu, żadnego ostrzeżenia, po prostu
-    /// wielokrotnie dłuższe liczenie.
-    private static func loadBackends() {
-        for directory in backendSearchPaths() where FileManager.default.fileExists(atPath: directory) {
-            directory.withCString { ggml_backend_load_all_from_path($0) }
-            DebugLog.write("Whisper", "backendy ggml załadowane z \(directory)")
-            return
+    /// Historia, żeby nikt tego nie cofnął: z biblioteką z Homebrew backendy
+    /// były osobnymi `.so` w `/opt/homebrew/opt/ggml/libexec`, a apka poza
+    /// `/opt/homebrew/bin` nie znajdowała ich sama i liczyła po CPU bez żadnego
+    /// błędu (kilka sekund zamiast ułamka). Log niżej jest jedynym miejscem,
+    /// gdzie widać, czy GPU jest — sprawdzaj go po każdej zmianie skryptu budowy.
+    private static func logBackends() {
+        let count = ggml_backend_reg_count()
+        var names: [String] = []
+        for index in 0..<count {
+            if let reg = ggml_backend_reg_get(index), let name = ggml_backend_reg_name(reg) {
+                names.append(String(cString: name))
+            }
         }
-        // Ostatnia deska ratunku — zachowanie sprzed tej zmiany (samo CPU).
-        DebugLog.write("Whisper", "nie znaleziono katalogu backendów ggml — liczenie pójdzie po CPU")
-        ggml_backend_load_all()
-    }
-
-    /// Najpierw kopia w pakiecie aplikacji (jeśli kiedyś dołączymy backendy do
-    /// dystrybucji), potem Homebrew. Kolejność ma znaczenie: pakiet jest naszą
-    /// wersją, Homebrew może się zaktualizować pod nami.
-    private static func backendSearchPaths() -> [String] {
-        var paths: [String] = []
-        if let bundled = Bundle.main.resourceURL?.appendingPathComponent("ggml-backends").path {
-            paths.append(bundled)
+        DebugLog.write("Whisper", "backendy ggml (statyczne): \(names.joined(separator: ", "))")
+        if !names.contains("Metal") {
+            DebugLog.write("Whisper", "UWAGA: brak backendu Metal — liczenie pójdzie po CPU")
         }
-        paths.append("/opt/homebrew/opt/ggml/libexec")
-        paths.append("/usr/local/opt/ggml/libexec")
-        return paths
     }
 
     /// Wołane RAZ, w `WhisperSpeechEngine.prewarm()`, poza głównym wątkiem —
     /// ładowanie modelu `base` (~148 MB) trwa setki ms (patrz `etap0e-wyniki.md`
     /// §3, kolumna "model load").
     static func load(modelPath: String) throws -> WhisperContext {
-        loadBackends()
+        logBackends()
         var params = whisper_context_default_params()
         // Flash attention na Metalu to czysty zysk czasu bez wpływu na wynik —
         // whisper.cpp sam wycofuje się na zwykłą ścieżkę, jeśli backend jej nie

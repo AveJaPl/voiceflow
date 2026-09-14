@@ -191,6 +191,30 @@ final class WhisperSpeechEngineTests: XCTestCase {
         XCTAssertTrue(lower.contains("tydzień") || lower.contains("tydzien"), "brak \"tydzień\" w: \(finalText)")
     }
 
+    /// Model zwolniony po bezczynności musi wrócić SAM przy następnym skrócie
+    /// i nie zgubić ani słowa: audio buforuje się w trakcie ładowania, a
+    /// `endUtterance` czeka na kontekst zamiast oddać `nil`.
+    func testReloadsModelAfterIdleUnloadWithoutLosingWords() async throws {
+        let engine = WhisperSpeechEngine(language: "pl", defaults: Self.testDefaults())
+        try await engine.prewarm()
+        XCTAssertTrue(engine.isModelLoaded)
+
+        engine.unloadModelNow()
+        XCTAssertFalse(engine.isModelLoaded, "po zwolnieniu kontekst ma zniknąć z pamięci")
+
+        let (chunks, _) = try Self.loadFixtureChunks()
+        engine.beginUtterance()
+        for piece in chunks { engine.feed(piece) }
+        let finalText = await engine.endUtterance()
+
+        XCTAssertTrue(engine.isModelLoaded, "skrót ma załadować model z powrotem")
+        XCTAssertEqual(
+            Self.normalized(finalText ?? ""),
+            "dzień dobry, chciałbym dzisiaj porozmawiać o planach na przyszły tydzień.",
+            "po przeładowaniu modelu wynik ma być ten sam co bez zwalniania: \(finalText ?? "nil")"
+        )
+    }
+
     /// Kryterium #4: pełny cykl przez `SessionController` (jak realne
     /// dyktowanie), z `AudioCapture` karmionym plikiem zamiast mikrofonu
     /// (`AudioCapture.startOverride`/`stopOverride`, patrz jego doc-comment).

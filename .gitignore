@@ -16,3 +16,7 @@ tmp/
 
 # zależności Node (usługa pokoi, relay)
 node_modules/
+
+# whisper.cpp zbudowany statycznie dla Maca (tools/build-whisper-macos.sh)
+third_party/build/
+third_party/whisper-macos/

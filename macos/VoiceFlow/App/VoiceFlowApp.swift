@@ -22,6 +22,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var debugWindowController: RawDebugWindowController?
     private var sessionController: SessionController?
+    /// Ten sam obiekt co `engine` w `SessionController`, trzymany osobno tylko
+    /// po to, żeby zwolnić model przed wyjściem — patrz `applicationWillTerminate`.
+    private var whisperEngine: WhisperSpeechEngine?
     private var hotkeyMonitor: HotkeyMonitor?
     private var dictationLatch: DictationLatch?
     private var updateChecker: UpdateChecker?
@@ -61,6 +64,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Pełny narastający tekst tej sesji dyktowania — pokazywany w karcie
     /// `.result` po zakończeniu, żeby dało się go skopiować w całości.
     private var lastFullText: String = ""
+
+    /// ggml-metal ma statyczny destruktor, który przy wyjściu z procesu robi
+    /// `GGML_ASSERT([rsets->data count] == 0)` — jeśli jakikolwiek bufor Metalu
+    /// wciąż żyje, apka kończy się `abort()` i macOS pisze raport awarii przy
+    /// KAŻDYM zamknięciu (cztery takie raporty w DiagnosticReports z września).
+    /// Zwalniamy więc model jawnie, a potem wychodzimy `_exit`, żeby żaden
+    /// destruktor biblioteki nie miał już nic do powiedzenia. Logi są
+    /// zapisywane synchronicznie, UserDefaults też — nic tu nie ginie.
+    func applicationWillTerminate(_ notification: Notification) {
+        whisperEngine?.unloadModelNow()
+        DebugLog.write("App", "zamykanie: model zwolniony, wychodzę")
+        _exit(0)
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         DebugLog.write("App", "=== start VoiceFlow, pid \(ProcessInfo.processInfo.processIdentifier) ===")
@@ -219,6 +235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let storedLanguage = UserDefaults.standard.string(forKey: SettingsKeys.language)
                 .flatMap(DictationLanguage.init(rawValue:)) ?? .polish
             let engine = try makeSpeechEngine(for: storedLanguage)
+            whisperEngine = engine as? WhisperSpeechEngine
             // Słownik użytkownika (§Zadanie 1 audytu) scalony z domyślnym RAZ,
             // przy starcie — Formatter jest tworzony jeden raz tutaj, tak samo
             // jak silnik ASR wyżej, więc zmiana w Ustawieniach wymaga restartu

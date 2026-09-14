@@ -21,6 +21,8 @@ enum SettingsKeys {
     /// Model whisper.cpp — patrz `WhisperModelChoice` po pomiary, na których
     /// oparto domyślny wybór.
     static let whisperModel = "voiceflow.whisperModel"
+    /// Po ilu minutach bez dyktowania whisper zwalnia model z pamięci (0 = nigdy).
+    static let modelIdleUnloadMinutes = "voiceflow.modelIdleUnloadMinutes"
     static let micIsolationEnabled = "voiceflow.micIsolationEnabled"
     static let pillPositionX = "voiceflow.pillPositionX"
     static let pillPositionY = "voiceflow.pillPositionY"

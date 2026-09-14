@@ -45,6 +45,28 @@ final class WhisperSpeechEngine: SpeechEngine {
     private var continuation: AsyncStream<TranscriptUpdate>.Continuation?
     let updates: AsyncStream<TranscriptUpdate>
 
+    // MARK: - Zwalnianie modelu po bezczynności
+    //
+    // Zmierzone 2026-09-14 (`footprint`): proces z modelem `small-q5_1` ma
+    // 527 MB, z czego 379 MB to sam model — trzymany od startu do zamknięcia
+    // apki, także przez godziny bez jednego dyktowania. Z `large-v3-turbo`
+    // będzie ~1 GB. Po `modelIdleUnloadMinutes` minut od ostatniej wypowiedzi
+    // kontekst jest zwalniany (RSS wraca do ~60 MB), a następne wciśnięcie
+    // skrótu ładuje go z powrotem W TLE, podczas gdy audio już się buforuje —
+    // `endUtterance` czeka na załadowanie, więc użytkownik płaci co najwyżej
+    // czasem ładowania (small 0,4 s; turbo kilka sekund przy obciążonej
+    // maszynie), nigdy utratą słów.
+    //
+    // TA SAMA wartość co `SettingsKeys.modelIdleUnloadMinutes` (Core nie zależy
+    // od UI). 0 = nigdy nie zwalniaj.
+    private static let idleUnloadMinutesKey = "voiceflow.modelIdleUnloadMinutes"
+    static let defaultIdleUnloadMinutes = 10
+    private var idleUnloadTimer: DispatchSourceTimer?
+    /// Jedno wspólne ładowanie: `beginUtterance` je zaczyna, `endUtterance`
+    /// na nie czeka, drugi `beginUtterance` w międzyczasie nie zaczyna drugiego.
+    /// Czytane/zmieniane WYŁĄCZNIE na `queue`.
+    private var loadingTask: Task<WhisperContext, Error>?
+
     private let targetFormat = AVAudioFormat(
         commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false
     )!
@@ -140,6 +162,36 @@ final class WhisperSpeechEngine: SpeechEngine {
     // MARK: - SpeechEngine
 
     func prewarm() async throws {
+        _ = try await ensureLoaded()
+    }
+
+    /// Zwraca załadowany kontekst — z pamięci, z trwającego ładowania albo
+    /// zaczynając nowe. Bezpieczne do wołania z wielu miejsc naraz.
+    @discardableResult
+    private func ensureLoaded() async throws -> WhisperContext {
+        let (existing, inFlight): (WhisperContext?, Task<WhisperContext, Error>?) = queue.sync {
+            (context, loadingTask)
+        }
+        if let existing { return existing }
+        if let inFlight { return try await inFlight.value }
+
+        let task = Task.detached(priority: .userInitiated) { [self] in
+            try await loadModel()
+        }
+        queue.sync { loadingTask = task }
+        do {
+            let loaded = try await task.value
+            queue.sync { loadingTask = nil }
+            return loaded
+        } catch {
+            queue.sync { loadingTask = nil }
+            throw error
+        }
+    }
+
+    /// Pełne ładowanie: model z dysku (pobranie, jeśli trzeba), VAD, warmup.
+    /// Ustawia `context` na `queue` i zwraca go.
+    private func loadModel() async throws -> WhisperContext {
         let choice = WhisperModelChoice.current(defaults)
         let modelURL = try await WhisperModelProvisioner.ensureModelAvailable(choice)
         DebugLog.write("WhisperEngine", "model: \(choice.rawValue), beam \(choice.beamSize)")
@@ -148,13 +200,18 @@ final class WhisperSpeechEngine: SpeechEngine {
         let rssBefore = ProcessMemory.residentBytes()
         DebugLog.write("WhisperEngine", "RSS przed załadowaniem modelu: \(rssBefore / 1_000_000) MB")
 
+        let loadStarted = Date()
         let loaded = try await Task.detached(priority: .userInitiated) {
             try WhisperContext.load(modelPath: modelURL.path)
         }.value
 
         let rssAfter = ProcessMemory.residentBytes()
         let deltaMB = (Int64(rssAfter) - Int64(rssBefore)) / 1_000_000
-        DebugLog.write("WhisperEngine", "RSS po załadowaniu modelu: \(rssAfter / 1_000_000) MB (Δ\(deltaMB) MB)")
+        DebugLog.write(
+            "WhisperEngine",
+            String(format: "RSS po załadowaniu modelu: %d MB (Δ%d MB, %.2f s)",
+                   rssAfter / 1_000_000, deltaMB, Date().timeIntervalSince(loadStarted))
+        )
         log.info("WhisperSpeechEngine prewarmed, model=\(modelURL.lastPathComponent, privacy: .public)")
 
         // Filtr ciszy dla przebiegu końcowego — porażka pobierania to wolniejsze
@@ -181,11 +238,66 @@ final class WhisperSpeechEngine: SpeechEngine {
             self.context = loaded
             self.vadModelPath = vadPath
         }
+        scheduleIdleUnload()
+        return loaded
+    }
+
+    /// Czy model jest w tej chwili w pamięci — do testów i diagnostyki.
+    var isModelLoaded: Bool { queue.sync { context != nil } }
+
+    /// Zwalnia model natychmiast, tak jak zrobiłby to timer bezczynności.
+    /// Do testów (timer liczy minuty) i do przycisku w Zaawansowanych.
+    func unloadModelNow() {
+        queue.sync {
+            idleUnloadTimer?.cancel()
+            idleUnloadTimer = nil
+            unloadModelIfIdle()
+        }
+    }
+
+    /// Po każdej wypowiedzi: (re)startuje odliczanie do zwolnienia modelu.
+    private func scheduleIdleUnload() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            idleUnloadTimer?.cancel()
+            idleUnloadTimer = nil
+            let minutes = defaults.object(forKey: Self.idleUnloadMinutesKey) == nil
+                ? Self.defaultIdleUnloadMinutes
+                : defaults.integer(forKey: Self.idleUnloadMinutesKey)
+            guard minutes > 0 else { return }
+            let timer = DispatchSource.makeTimerSource(queue: queue)
+            timer.schedule(deadline: .now() + .seconds(minutes * 60))
+            timer.setEventHandler { [weak self] in self?.unloadModelIfIdle() }
+            timer.resume()
+            idleUnloadTimer = timer
+        }
+    }
+
+    /// WYŁĄCZNIE na `queue`. Nie zwalnia w trakcie mówienia — timer jest wtedy
+    /// i tak skasowany przez `beginUtterance`, ale guard jest tani.
+    private func unloadModelIfIdle() {
+        guard !isFeeding, context != nil else { return }
+        let before = ProcessMemory.residentBytes()
+        context = nil
+        // `WhisperContext.deinit` woła `whisper_free`; Metal oddaje bufory
+        // asynchronicznie, więc RSS spada w pełni dopiero po chwili.
+        DebugLog.write(
+            "WhisperEngine",
+            "model zwolniony po bezczynności (RSS \(before / 1_000_000) MB → \(ProcessMemory.residentBytes() / 1_000_000) MB)"
+        )
     }
 
     func beginUtterance() {
         queue.async { [weak self] in
             guard let self else { return }
+            idleUnloadTimer?.cancel()
+            idleUnloadTimer = nil
+            if context == nil, loadingTask == nil {
+                // Model zwolniony po bezczynności — ładujemy W TLE, audio
+                // buforuje się od razu, `endUtterance` poczeka na kontekst.
+                DebugLog.write("WhisperEngine", "skrót wciśnięty bez modelu w pamięci — ładuję w tle")
+                Task { [weak self] in try? await self?.ensureLoaded() }
+            }
             // Każde wciśnięcie skrótu zaczyna transkrypt OD ZERA. Trwały jest
             // model (to on kosztuje 886 ms i po to jest `prewarm`), a nie
             // narastający tekst — wcześniej `committedText` rósł przez cały czas
@@ -238,7 +350,18 @@ final class WhisperSpeechEngine: SpeechEngine {
     /// `await` po stronie wołającego jest CAŁYM sensem tej zmiany: `SessionController`
     /// czytał wcześniej tekst zanim silnik zdążył cokolwiek policzyć.
     func endUtterance() async -> String? {
-        await withCheckedContinuation { continuation in
+        // Model może być w trakcie ładowania (patrz `beginUtterance`) — audio
+        // jest już w `utteranceSamples`, brakuje tylko kontekstu do policzenia.
+        // Nieudane ładowanie = przebieg końcowy bez wyniku (`nil`), tekst ze
+        // strumienia i tak jest pusty, więc użytkownik zobaczy błąd sesji,
+        // nie ciszę bez wyjaśnienia.
+        if queue.sync(execute: { context == nil }) {
+            do { try await ensureLoaded() } catch {
+                DebugLog.write("WhisperEngine", "ładowanie modelu w trakcie wypowiedzi nie powiodło się: \(error.localizedDescription)")
+            }
+        }
+        defer { scheduleIdleUnload() }
+        return await withCheckedContinuation { continuation in
             queue.async { [weak self] in
                 guard let self else { return continuation.resume(returning: nil) }
                 isFeeding = false
@@ -289,6 +412,7 @@ final class WhisperSpeechEngine: SpeechEngine {
             isFeeding = false
             resetTranscript()
         }
+        scheduleIdleUnload()
     }
 
     func feed(_ buffer: AVAudioPCMBuffer) {

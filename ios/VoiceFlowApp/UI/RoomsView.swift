@@ -205,7 +205,9 @@ struct RoomsView: View {
                         .font(VFFont.body(13.5))
                         .foregroundStyle(VFColor.text)
                 }
-                .tint(VFColor.text)
+                // Szary tor: z białym torem włączony przełącznik miał białą gałkę
+                // na białym tle i wyglądał jak wyłączony (zrzut z symulatora 2026-09-14).
+                .tint(VFColor.muted)
                 .disabled(model.snapshot.mode == nil)
                 Text(model.snapshot.blocksOthersWhileSpeaking
                      ? "Jeden mikrofon na pokój — dla ludzi w jednym pomieszczeniu."

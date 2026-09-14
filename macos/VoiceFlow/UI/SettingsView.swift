@@ -239,6 +239,14 @@ final class SettingsModel: ObservableObject {
     }
 
     private let defaults: UserDefaults
+    private var remoteVocabularyObserver: NSObjectProtocol?
+
+    /// Po zdalnej zmianie słownika (`AccountSync.pull`) lista w Ustawieniach
+    /// ma pokazać to, co przyszło z konta, a nie starą kopię.
+    func reloadVocabularyFromDefaults() {
+        let words = defaults.stringArray(forKey: SettingsKeys.customVocabulary) ?? []
+        if words != customVocabulary { customVocabulary = words }
+    }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -292,6 +300,9 @@ final class SettingsModel: ObservableObject {
         self.modelIdleUnloadMinutes = defaults.object(forKey: SettingsKeys.modelIdleUnloadMinutes) == nil
             ? WhisperSpeechEngine.defaultIdleUnloadMinutes
             : defaults.integer(forKey: SettingsKeys.modelIdleUnloadMinutes)
+        remoteVocabularyObserver = NotificationCenter.default.addObserver(
+            forName: AccountSync.vocabularyDidChangeRemotely, object: nil, queue: .main
+        ) { [weak self] _ in self?.reloadVocabularyFromDefaults() }
     }
 }
 
@@ -712,6 +723,8 @@ struct SettingsView: View {
                 model.accountEmail = email
                 accountPassword = ""
                 accountStatus = nil
+                await AccountSync().pull()
+                model.reloadVocabularyFromDefaults()
                 DebugLog.write("Account", "zalogowano kontem \(email) — token konta w Keychainie")
             } catch {
                 accountStatus = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

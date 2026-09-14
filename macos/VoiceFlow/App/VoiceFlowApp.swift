@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var dictationLatch: DictationLatch?
     private var updateChecker: UpdateChecker?
     private let historyUploader = HistoryUploader()
+    private let accountSync = AccountSync()
     private let ambient = AmbientListener()
     /// Migawki okien dla trybu nasłuchu — własna instancja, żeby nasłuch nie
     /// podbijał generacji, na której opiera się telefon.
@@ -107,6 +108,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Jednorazowo: cała dotychczasowa lokalna historia na konto (dedup po
         // stronie klienta, flaga po komplecie).
         historyUploader.backfillIfNeeded(notes: notesStore.notes)
+        // Słownik wspólny dla urządzeń konta — patrz `AccountSync`.
+        accountSync.start(settings: settingsModel)
 
         setupAmbientListening()
 

@@ -1,10 +1,18 @@
-# Szept — relay (telefon ↔ Mac)
+# VoiceFlow — serwer kont (relay)
 
-WebSocket relay dla zdalnego mikrofonu (`docs/plans/remote-mic-relay.md`). Łączy
-DOKŁADNIE JEDNĄ sparowaną parę urządzeń: "mac" (trwały odbiorca) i "phone"
-(nadawca audio). Każda ramka od phone leci 1:1 do mac — **czysty pass-through,
-zero buforowania, zero dekodowania, zero zapisu audio na dysk.** Jedyne, co
-relay trzyma na dysku, to token parowania (nie treść audio).
+Opcjonalny serwer konta: logowanie, historia dyktowań i słownik wspólne dla
+Maca i telefonu. **Nic z dyktowania nie przechodzi przez ten serwer** — audio
+i tekst liczą się na urządzeniu, tu trafia wyłącznie gotowa historia i lista
+słów własnych, i to tylko wtedy, gdy użytkownik zaloguje się kontem.
+
+Nazwa „relay" i endpointy `/ws`, `/pair` zostały z pierwszej roli tej usługi
+(przekaźnik audio telefon → Mac, wycięty 2026-09-14 razem z zakładką „Mac"
+w apce iOS). WebSocket nadal działa dla starych klientów, ale nowe apki go
+nie otwierają.
+
+Własny serwer: `docker compose up -d` w tym katalogu (patrz `compose.yml`),
+potem adres w apce: Ustawienia → Zaawansowane → Serwer konta. Konta zakłada
+administrator (`POST /register` za `ADMIN_SECRET`) — nie ma otwartej rejestracji.
 
 ## Uruchomienie lokalne
 
@@ -44,6 +52,14 @@ przypadkiem wdrożyć z otwartym `/pair` (patrz sekcja Bezpieczeństwo w planie,
   Zwraca `{"entries":[{"id","createdAt","text","durationSeconds","target","source"}]}`.
 - `DELETE /history/:id` — `204`. Wpis innego konta i nieistniejący dają tak samo
   `404` (nie zdradzamy istnienia cudzych wpisów).
+- `PUT /vocabulary` — `{"vocabulary": ["Programo", "Estalo"]}` (do 2000 słów, każde do
+  200 znaków), auth tokenem konta → `200 {"vocabulary": [...], "updatedAt": ISO}`.
+  Jeden dokument na konto, ostatni zapis wygrywa. `GET /vocabulary` oddaje to samo,
+  `404` gdy konto nigdy nic nie wysłało. To jest słownik użytkownika (nazwy własne),
+  synchronizowany między Makiem a telefonem.
+- `PUT /settings` / `GET /settings` — to samo dla dowolnego obiektu JSON ustawień
+  (`{"settings": {...}}`). Zarezerwowane dla przyszłej synchronizacji ustawień; apki
+  na dziś go nie używają.
 - `GET /sessions?limit=50` — ostatnie wpisy logu sesji (`limit` 1–500, domyślnie
   50), wymaga `Authorization: Bearer <ADMIN_SECRET>`.
 - `wss://.../ws?role=mac&token=<token>` — trwałe połączenie Maca.

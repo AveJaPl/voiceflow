@@ -49,7 +49,39 @@ export class AccountStore {
       );
       CREATE INDEX IF NOT EXISTS idx_history_account_created
         ON history(account_id, created_at DESC);
+      CREATE TABLE IF NOT EXISTS account_documents (
+        account_id INTEGER NOT NULL REFERENCES accounts(id),
+        kind TEXT NOT NULL,
+        body TEXT NOT NULL,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (account_id, kind)
+      );
     `);
+  }
+
+  /**
+   * Dokumenty konta synchronizowane między urządzeniami: `vocabulary`
+   * (lista słów własnych) i `settings` (JSON ustawień). Jeden wiersz na
+   * rodzaj, ostatni zapis wygrywa — to są małe, rzadko zmieniane rzeczy,
+   * scalanie nie jest tego warte. `updatedAt` pozwala klientowi nie nadpisać
+   * nowszej wersji z drugiego urządzenia starą kopią.
+   */
+  getDocument({ accountId, kind }) {
+    const row = this.db
+      .prepare('SELECT body, updated_at FROM account_documents WHERE account_id = ? AND kind = ?')
+      .get(accountId, kind);
+    return row ? { body: JSON.parse(row.body), updatedAt: row.updated_at } : null;
+  }
+
+  putDocument({ accountId, kind, body }) {
+    const updatedAt = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO account_documents (account_id, kind, body, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(account_id, kind) DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at`
+      )
+      .run(accountId, kind, JSON.stringify(body), updatedAt);
+    return { updatedAt };
   }
 
   /** Tworzy konto ze stałym tokenem parowania. Rzuca Error('email_taken') przy duplikacie. */

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>voiceflow — lokalne dyktowanie głosem, darmowe i open source</title>
-<meta name="description" content="Naciskasz skrót, mówisz — tekst pojawia się w aktywnym oknie. Whisper na Twoim GPU: bez chmury, bez abonamentu, żadne nagranie nie opuszcza komputera. Linux i Windows.">
+<meta name="description" content="Naciskasz skrót, mówisz — tekst pojawia się w aktywnym oknie. Whisper na Twoim GPU: bez chmury, bez abonamentu, żadne nagranie nie opuszcza komputera. Linux, macOS, Windows i iPhone.">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
 <link rel="canonical" href="https://voiceflow.pbdevs.com/pl/">
 <link rel="alternate" hreflang="en" href="https://voiceflow.pbdevs.com/en/">
@@ -448,7 +448,7 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
         </a>
         <a class="btn" href="https://github.com/AveJaPl/voiceflow" data-umami-event="github-hero">Zobacz kod źródłowy</a>
       </div>
-      <p class="hero-note">Linux · GNOME na Waylandzie — natywnie. Windows 10/11 — beta. Kolejne w drodze.</p>
+      <p class="hero-note">Linux · GNOME na Waylandzie — natywnie. macOS — DMG. Windows 10/11 — beta. iPhone — App Store, w recenzji.</p>
     </div>
   </div>
 </header>
@@ -618,15 +618,16 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
         </a>
       </div>
       <div class="install-card reveal">
-        <h3><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg>macOS <span class="os-tag">alfa · ze źródeł</span></h3>
-        <p>Natywna aplikacja w pasku menu, a nie przebrany demon z Linuksa. Przytrzymaj
-        <strong>prawy&nbsp;⌥</strong>, mów, puść — tekst ląduje w oknie, które ma fokus.
-        Whisper liczy lokalnie, nic nie wychodzi na zewnątrz.</p>
-        <p class="install-note">Instalatora nie ma i nie jest to lenistwo: macOS wiąże potrzebną tu
-        zgodę na Dostępność z podpisem kodu, a Twój podpis możesz dać tylko Ty.</p>
-        <div class="cmd-row"><div class="cmd" id="cmd-mac">brew install whisper-cpp xcodegen &amp;&amp; git clone https://github.com/AveJaPl/voiceflow.git &amp;&amp; cd voiceflow/macos &amp;&amp; xcodegen generate &amp;&amp; open VoiceFlow.xcodeproj</div></div>
-        <p class="install-note">Potem wybierz swój zespół w <em>Signing &amp; Capabilities</em> i wciśnij ⌘R.
-        <strong>Wymaga macOS&nbsp;26.</strong> Pełne kroki i dwa ustawienia, które blokują pierwszy build:
+        <h3><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/></svg>macOS <span class="os-tag">Apple Silicon · macOS 26</span></h3>
+        <p>Natywna aplikacja w pasku menu. Przytrzymaj <strong>Fn</strong>, mów, puść — tekst ląduje
+        w oknie, które ma fokus. Whisper (large-v3-turbo) liczy na GPU Maca, model pobiera się przy
+        pierwszym uruchomieniu, nic nie wychodzi na zewnątrz. Aktualizacje instalują się same.</p>
+        <a class="btn bat-link" href="https://github.com/AveJaPl/voiceflow/releases/latest/download/VoiceFlow-mac.dmg" data-umami-event="download-dmg">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M12 3v12m0 0 4-4m-4 4-4-4" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 21h16" stroke-linecap="round"/></svg>
+          VoiceFlow-mac.dmg
+        </a>
+        <p class="install-note">Podpisane i notaryzowane przez Apple — otwierasz, przeciągasz do Aplikacji,
+        przy pierwszym starcie dajesz zgodę na Dostępność i mikrofon. Ze źródeł:
         <a href="https://github.com/AveJaPl/voiceflow/blob/main/macos/README.md">macos/README.md</a>.</p>
       </div>
     </div>
@@ -634,7 +635,22 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
       <a href="https://github.com/AveJaPl/voiceflow#readme">README</a> ·
       <a href="https://github.com/AveJaPl/voiceflow/blob/main/docs/WINDOWS.md">notatki Windows</a> ·
       <a href="https://github.com/AveJaPl/voiceflow/releases">wszystkie wydania</a></p>
-    <div class="soon-row reveal"><span class="soon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2" stroke-linecap="round"/></svg><a href="https://github.com/AveJaPl/voiceflow/tree/main/android">Android</a><i>wczesna alfa · ze źródeł</i></span><span class="soon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2" stroke-linecap="round"/></svg><a href="https://github.com/AveJaPl/voiceflow/tree/main/ios">iOS</a><i>w budowie</i></span></div>
+    <div class="soon-row reveal"><span class="soon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2" stroke-linecap="round"/></svg><a href="https://github.com/AveJaPl/voiceflow/tree/main/ios">iPhone</a><i>App Store · w recenzji</i></span><span class="soon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2" stroke-linecap="round"/></svg><a href="https://github.com/AveJaPl/voiceflow/tree/main/android">Android</a><i>wczesna alfa · ze źródeł</i></span></div>
+  </div>
+</section>
+
+<section id="server">
+  <div class="wrap">
+    <div class="chapter reveal"><span class="num">/06b</span><h2>Własny serwer. Jeśli chcesz.</h2></div>
+    <p class="lead reveal">Domyślnie każde urządzenie liczy u siebie i to jest najszybsza droga. Serwer ma sens,
+    gdy sprzęt jest za słaby albo gdy jeden mocny komputer ma liczyć dla kilku osób — stawia się go jedną komendą,
+    a w aplikacji wpisujesz jego adres w Zaawansowanych. Mac z VoiceFlow może też sam udostępnić swój silnik
+    telefonowi w tej samej sieci Wi-Fi — bez Dockera, jednym przełącznikiem.</p>
+    <div class="cmd-row reveal"><div class="cmd" id="cmd-server">git clone https://github.com/AveJaPl/voiceflow.git &amp;&amp; cd voiceflow/server &amp;&amp; docker compose up -d</div></div>
+    <p class="install-note reveal">Kontrakt zgodny z OpenAI (<code>POST /v1/audio/transcriptions</code>), więc pod to samo pole
+    podłączysz też inne serwery whispera albo płatne API. Konto do synchronizacji historii między urządzeniami też jest
+    własne: <a href="https://github.com/AveJaPl/voiceflow/tree/main/relay">relay/</a>. Szczegóły:
+    <a href="https://github.com/AveJaPl/voiceflow/tree/main/server">server/README.md</a>.</p>
   </div>
 </section>
 
@@ -647,8 +663,8 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
         <div class="platform"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4" stroke-linecap="round"/></svg><span class="p-name">Windows 10 / 11</span><span class="p-desc">Ten sam rdzeń, warstwa Win32: globalny skrót, schowek, przyciszanie.</span><span class="p-status beta">beta</span></div>
         <div class="platform"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2" stroke-linecap="round"/></svg><a class="p-name" href="https://github.com/AveJaPl/voiceflow/issues/6">Android</a><span class="p-desc">Klawiatura głosowa (IME) z Whisperem na urządzeniu — dyktuj w każdej aplikacji.</span><span class="p-status beta">w budowie</span></div>
         <div class="platform"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg><a class="p-name" href="https://github.com/AveJaPl/voiceflow/issues/1">KDE · Hyprland · Sway</a><span class="p-desc">Najłatwiejszy port — te kompozytory mają protokoły, których brakuje GNOME.</span><span class="p-status">w planach</span></div>
-        <div class="platform"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10H4V5Z"/><path d="M2 19h20" stroke-linecap="round"/></svg><a class="p-name" href="https://github.com/AveJaPl/voiceflow/blob/main/macos/README.md">macOS</a><span class="p-desc">Natywna aplikacja SwiftUI w pasku menu: przytrzymaj i mów, whisper.cpp lokalnie, to samo okno i format historii co na Linuksie.</span><span class="p-status beta">alfa · ze źródeł</span></div>
-        <div class="platform"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2" stroke-linecap="round"/></svg><a class="p-name" href="https://github.com/AveJaPl/voiceflow/issues/7">iOS</a><span class="p-desc">Rozszerzenie klawiatury, rodzeństwo aplikacji na Androida.</span><span class="p-status beta">w budowie</span></div>
+        <div class="platform"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10H4V5Z"/><path d="M2 19h20" stroke-linecap="round"/></svg><a class="p-name" href="https://github.com/AveJaPl/voiceflow/releases/latest/download/VoiceFlow-mac.dmg">macOS</a><span class="p-desc">Natywna aplikacja SwiftUI w pasku menu: przytrzymaj i mów, whisper na GPU, model zwalniany z pamięci po bezczynności, samo-aktualizacja.</span><span class="p-status beta">DMG</span></div>
+        <div class="platform"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2" stroke-linecap="round"/></svg><a class="p-name" href="https://github.com/AveJaPl/voiceflow/tree/main/ios">iOS</a><span class="p-desc">Klawiatura głosowa: stuknij mikrofon, mów, wróć — tekst wstawia się sam. Whisper large-v3-turbo na Neural Engine (iPhone 15 Pro i nowsze).</span><span class="p-status beta">App Store · w recenzji</span></div>
       </div>
       <div class="reveal">
         <div class="aside-img" id="handImg"><img src="/assets/statue-hand-4.webp" alt="" loading="lazy"></div>

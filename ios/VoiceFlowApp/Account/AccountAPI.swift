@@ -27,6 +27,21 @@ enum AccountAPI {
         }
     }
 
+    // MARK: - Słownik konta
+
+    /// `GET /vocabulary` → słowa własne z konta (ustawiane na Macu). Telefon
+    /// tylko czyta: whisper dostaje je jako prompt (`DictationEngine`).
+    /// Zapis do `UserDefaults` pod TYM SAMYM kluczem co na Macu.
+    static func pullVocabulary(credentials: RemoteCredentials) async {
+        guard let url = try? endpoint(host: credentials.host, path: "/vocabulary") else { return }
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(credentials.token)", forHTTPHeaderField: "Authorization")
+        guard let (data, status) = try? await send(request), status == 200,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let words = object["vocabulary"] as? [String] else { return }
+        UserDefaults.standard.set(words, forKey: "voiceflow.customVocabulary")
+    }
+
     // MARK: - Logowanie
 
     /// Zwraca `pairToken`, czyli dokładnie to, co dawał kod QR.

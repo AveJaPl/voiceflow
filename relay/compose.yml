@@ -1,0 +1,24 @@
+# Własny serwer kont VoiceFlow (historia + słownik między urządzeniami).
+#
+#   cd relay
+#   ADMIN_SECRET=$(openssl rand -base64 32) docker compose up -d
+#   curl -X POST http://localhost:8091/register -H "Authorization: Bearer $ADMIN_SECRET" \
+#        -H "Content-Type: application/json" -d '{"email":"ja@przyklad.pl","password":"..."}'
+#
+# Za odwrotnym proxy z TLS (Caddy, Traefik, Coolify) — apki łączą się po HTTPS.
+services:
+  relay:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8091:8091"
+    environment:
+      PORT: 8091
+      ADMIN_SECRET: ${ADMIN_SECRET:?ustaw ADMIN_SECRET}
+      DB_PATH: /app/data/relay.db
+      PAIRING_STORE_PATH: /app/data/pairing.json
+    volumes:
+      - relay-data:/app/data
+
+volumes:
+  relay-data:

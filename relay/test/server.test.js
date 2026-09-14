@@ -530,3 +530,66 @@ test('GET /sessions wymaga sekretu admina i zwraca ostatnie wpisy', async () => 
     mac.close();
   });
 });
+
+// --- Synchronizacja słownika i ustawień -------------------------------------
+
+function putJson(url, body, headers = {}) {
+  return fetch(url, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  });
+}
+
+test('GET /vocabulary bez dokumentu daje 404, PUT zapisuje, GET oddaje z updatedAt', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const token = await registerAccount(baseUrl);
+    const auth = { authorization: `Bearer ${token}` };
+
+    const empty = await fetch(`${baseUrl}/vocabulary`, { headers: auth });
+    assert.equal(empty.status, 404);
+
+    const put = await putJson(`${baseUrl}/vocabulary`, { vocabulary: ['Programo', 'Estalo'] }, auth);
+    assert.equal(put.status, 200);
+    const saved = await put.json();
+    assert.deepEqual(saved.vocabulary, ['Programo', 'Estalo']);
+    assert.ok(Date.parse(saved.updatedAt));
+
+    const get = await fetch(`${baseUrl}/vocabulary`, { headers: auth });
+    assert.equal(get.status, 200);
+    const body = await get.json();
+    assert.deepEqual(body.vocabulary, ['Programo', 'Estalo']);
+    assert.equal(body.updatedAt, saved.updatedAt);
+  });
+});
+
+test('PUT /settings przyjmuje obiekt, odrzuca tablicę i wymaga konta', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const token = await registerAccount(baseUrl);
+    const auth = { authorization: `Bearer ${token}` };
+
+    const bad = await putJson(`${baseUrl}/settings`, { settings: ['nie', 'obiekt'] }, auth);
+    assert.equal(bad.status, 400);
+
+    const ok = await putJson(`${baseUrl}/settings`, { settings: { livePreview: false, model: 'large-v3-turbo-q5_0' } }, auth);
+    assert.equal(ok.status, 200);
+
+    const anonymous = await fetch(`${baseUrl}/settings`);
+    assert.equal(anonymous.status, 401);
+
+    const other = await registerAccount(baseUrl, 'bartek@programo.pl');
+    const foreign = await fetch(`${baseUrl}/settings`, { headers: { authorization: `Bearer ${other}` } });
+    assert.equal(foreign.status, 404, 'dokument drugiego konta jest niewidoczny');
+  });
+});
+
+test('PUT /vocabulary nadpisuje poprzednią wersję zamiast dokładać', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const token = await registerAccount(baseUrl);
+    const auth = { authorization: `Bearer ${token}` };
+    await putJson(`${baseUrl}/vocabulary`, { vocabulary: ['a', 'b'] }, auth);
+    await putJson(`${baseUrl}/vocabulary`, { vocabulary: ['c'] }, auth);
+    const body = await (await fetch(`${baseUrl}/vocabulary`, { headers: auth })).json();
+    assert.deepEqual(body.vocabulary, ['c']);
+  });
+});

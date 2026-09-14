@@ -78,7 +78,7 @@ echo "[release-mac] składam artefakty"
 ZIP="$OUT/VoiceFlow-mac.zip"
 ditto -ck --keepParent "$APP" "$ZIP"
 
-DMG="$OUT/VoiceFlow-${VERSION}.dmg"
+DMG="$OUT/VoiceFlow-mac.dmg"
 STAGE="$OUT/dmg-stage"
 rm -rf "$STAGE" && mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"

@@ -214,6 +214,42 @@ export function createRelayServer({ adminSecret, pairingStore, accountStore, rel
       return;
     }
 
+    // Synchronizacja słownika i ustawień między urządzeniami konta.
+    // GET zwraca `{ "vocabulary": [...], "updatedAt" }` (albo `settings: {...}`),
+    // PUT przyjmuje to samo ciało bez `updatedAt`. Brak dokumentu = 404,
+    // klient traktuje to jako „jeszcze niczego nie wysłano”.
+    const document = url.pathname.match(/^\/(vocabulary|settings)$/);
+    if (document && (req.method === 'GET' || req.method === 'PUT')) {
+      const account = accountFromBearer(req, accountStore);
+      if (!account) {
+        sendJson(res, 401, { error: 'unauthorized' });
+        return;
+      }
+      const kind = document[1];
+      if (req.method === 'GET') {
+        const stored = accountStore.getDocument({ accountId: account.id, kind });
+        if (!stored) {
+          sendJson(res, 404, { error: 'not_found' });
+          return;
+        }
+        sendJson(res, 200, { [kind]: stored.body, updatedAt: stored.updatedAt });
+        return;
+      }
+      const body = await readJsonBody(req);
+      const payload = body?.[kind];
+      const valid =
+        kind === 'vocabulary'
+          ? Array.isArray(payload) && payload.every((word) => typeof word === 'string' && word.length <= 200) && payload.length <= 2000
+          : payload !== null && typeof payload === 'object' && !Array.isArray(payload);
+      if (!valid) {
+        sendJson(res, 400, { error: 'invalid_' + kind });
+        return;
+      }
+      const { updatedAt } = accountStore.putDocument({ accountId: account.id, kind, body: payload });
+      sendJson(res, 200, { [kind]: payload, updatedAt });
+      return;
+    }
+
     sendJson(res, 404, { error: 'not_found' });
   });
 

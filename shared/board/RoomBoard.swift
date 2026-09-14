@@ -104,8 +104,16 @@ struct RoomSnapshot: Equatable {
     let sessionName: String?
     let sessionStartedAt: String?
     let rows: [BoardRow]
+    /// Tryb pokoju z serwera: `together` (jeden mikrofon na wszystkich — czyjeś
+    /// mówienie blokuje resztę) albo `remote` (każdy mówi kiedy chce, pokój jest
+    /// tylko wspólną tablicą). `nil` = serwer nie podał (stara wersja usługi).
+    let mode: String?
 
-    static let empty = RoomSnapshot(sessionName: nil, sessionStartedAt: nil, rows: [])
+    static let empty = RoomSnapshot(sessionName: nil, sessionStartedAt: nil, rows: [], mode: nil)
+
+    /// Czy w tym pokoju czyjeś mówienie blokuje innym skrót. Domyślnie tak —
+    /// tak działa serwer, gdy trybu nie zna.
+    var blocksOthersWhileSpeaking: Bool { mode != "remote" }
 }
 
 enum RoomBoardClient {
@@ -151,11 +159,34 @@ enum RoomBoardClient {
         // przeszedł na camelCase: zegar sesji nie ma prawa stanąć przez to,
         // że ktoś przemianował jedno pole.
         let startedAt = (session?["started_at"] as? String) ?? (session?["startedAt"] as? String)
+        let room = object["room"] as? [String: Any]
         return RoomSnapshot(
             sessionName: session?["name"] as? String,
             sessionStartedAt: startedAt,
-            rows: RoomBoard.rows(from: ranking)
+            rows: RoomBoard.rows(from: ranking),
+            mode: room?["mode"] as? String
         )
+    }
+
+    /// Przełącza tryb pokoju — `POST /api/rooms/:kod/mode`. `blocking: true`
+    /// = `together` (czyjeś mówienie blokuje innych), `false` = `remote`.
+    /// Serwer rozsyła zmianę do wszystkich połączonych aplikacji od razu, więc
+    /// Linux, Mac i telefon w tym samym pokoju przestają (lub zaczynają) się
+    /// blokować bez ponownego łączenia.
+    static func setBlocking(server: String, code: String, blocking: Bool, token: String) async throws {
+        let base = try httpBase(server)
+        guard let url = URL(string: "\(base)/api/rooms/\(code)/mode") else {
+            throw BoardError.badServer
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["mode": blocking ? "together" : "remote"])
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw BoardError.badServer
+        }
     }
 
     /// Otwiera NOWĄ nazwaną sesję — `POST /api/rooms/:kod/session`.

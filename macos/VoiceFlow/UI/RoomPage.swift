@@ -151,6 +151,18 @@ final class RoomPageModel: ObservableObject {
         }
     }
 
+    /// Przełącznik „czyjeś mówienie blokuje innych”. Zmiana idzie na serwer,
+    /// nie do lokalnych ustawień — pokój ma jeden tryb dla wszystkich, inaczej
+    /// jedna osoba widziałaby blokadę, a druga nie.
+    func setBlocking(_ blocking: Bool) async {
+        await run {
+            try await RoomBoardClient.setBlocking(
+                server: self.config.server, code: self.config.code,
+                blocking: blocking, token: self.config.token
+            )
+        }
+    }
+
     func leaveRoom() {
         RoomJoiner.leave(defaults: defaults)
         discovery.stopAdvertising()
@@ -266,6 +278,23 @@ struct RoomPage: View {
                 } else {
                     ForEach(model.snapshot.rows) { row in boardRow(row) }
                 }
+            }
+
+            section("Mikrofon") {
+                Toggle(isOn: Binding(
+                    get: { model.snapshot.blocksOthersWhileSpeaking },
+                    set: { value in Task { await model.setBlocking(value) } }
+                )) {
+                    Text("Gdy ktoś mówi, blokuj dyktowanie pozostałym")
+                        .font(.system(size: 13))
+                }
+                .toggleStyle(.switch)
+                .disabled(model.busy || model.snapshot.mode == nil)
+                Text(model.snapshot.blocksOthersWhileSpeaking
+                     ? "Jeden mikrofon na pokój: skrót drugiej osoby nie ruszy, dopóki pierwsza nie skończy. Dla ludzi w jednym pomieszczeniu."
+                     : "Każdy dyktuje, kiedy chce — pokój jest tylko wspólną tablicą. Dla osób w różnych miejscach.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
 
             section("Nowa sesja") {

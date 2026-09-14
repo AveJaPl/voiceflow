@@ -1,6 +1,12 @@
 # VoiceFlow na Apple: wydanie publiczne, jeden silnik, mniej opcji
 
-Data: 2026-09-14 · Status: **plan do decyzji** · Zakres: macOS + iOS + relay + landing.
+Data: 2026-09-14 · Status: **wdrożone na gałęzi `apple/2.0`** (etapy 0–5, bez pomiaru na VM) · Zakres: macOS + iOS + relay + landing.
+
+Decyzje Wojtka 2026-09-14: wszystkie etapy; iOS = Klawiatura / Historia / Pokoje /
+Ustawienia (Mac wypada, Pokoje zostają); w pokoju przełącznik „czyjeś mówienie
+blokuje innych”. Stan po wdrożeniu i to, co czeka na działanie właściciela konta
+Apple (certyfikat Developer ID, rekord aplikacji w App Store Connect), jest w
+ostatnim commicie gałęzi i w raporcie sesji.
 Linux/Windows/Android (Filip, Bonczur) poza zakresem, poza punktami styku (API
 serwera, format historii).
 

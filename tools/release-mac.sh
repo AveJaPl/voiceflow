@@ -54,7 +54,12 @@ xcodebuild -project macos/VoiceFlow.xcodeproj -scheme VoiceFlow -configuration R
     CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
     DEVELOPMENT_TEAM="$TEAM_ID" \
     OTHER_CODE_SIGN_FLAGS="--timestamp" \
+    CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
     build 2>&1 | grep -E "error:|BUILD" | tail -3
+# `CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO`: zwykły `xcodebuild build` (nie
+# archive) dokłada `com.apple.security.get-task-allow`, a notaryzacja to odrzuca
+# („The executable requests the com.apple.security.get-task-allow entitlement”,
+# 2026-09-14).
 
 APP="$ROOT/macos/build/DerivedData-release/Build/Products/Release/VoiceFlow.app"
 [[ -d "$APP" ]] || { echo "[release-mac] brak $APP" >&2; exit 1; }

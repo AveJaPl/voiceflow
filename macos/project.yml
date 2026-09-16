@@ -46,8 +46,8 @@ targets:
         NSMicrophoneUsageDescription: "VoiceFlow potrzebuje mikrofonu, żeby transkrybować dyktowanie na żywo."
         NSSpeechRecognitionUsageDescription: "VoiceFlow potrzebuje rozpoznawania mowy Apple do transkrypcji polskiej i angielskiej."
         NSAppleEventsUsageDescription: "VoiceFlow wysyła zdarzenia klawiatury i schowka, żeby wstawić przetranskrybowany tekst w aktywnej aplikacji."
-        CFBundleShortVersionString: "0.6.0"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
     entitlements:
       path: VoiceFlow/VoiceFlow.entitlements
       properties:
@@ -59,7 +59,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.avejapl.voiceflow
         PRODUCT_NAME: VoiceFlow
         GENERATE_INFOPLIST_FILE: NO
-        MARKETING_VERSION: "0.7.0"
+        MARKETING_VERSION: "0.7.1"
         CURRENT_PROJECT_VERSION: "1"
         # Wymagane do notaryzacji (Developer ID). Debug dostaje
         # get-task-allow od Xcode automatycznie, więc debugowanie działa.

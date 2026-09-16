@@ -32,6 +32,12 @@ struct KeyboardHandoffView: View {
                 }
             }
         }
+        .overlay(alignment: .topTrailing) {
+            if !isDone, let onClose {
+                Button("Zamknij", action: onClose)
+                    .padding()
+            }
+        }
     }
 }
 

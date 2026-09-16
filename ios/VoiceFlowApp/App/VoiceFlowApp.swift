@@ -55,7 +55,7 @@ struct RootView: View {
             KeyboardHandoffView { launchedForDictation = false }
                 .id(dictationSessionID)
         }
-        .onAppear { models.prepare() }
+        .onAppear { if !LaunchOverrides.skipModelPreparation { models.prepare() } }
         .onOpenURL { url in
             guard url.scheme == "voiceflow", url.host == "dictate" else { return }
             onboardingDone = true

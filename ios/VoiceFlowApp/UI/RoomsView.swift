@@ -23,6 +23,7 @@ final class RoomsModel: ObservableObject {
     private let defaults: UserDefaults
     private var timer: Timer?
     private var secondsSinceRefresh = 0
+    private var refreshID = UUID()
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -34,6 +35,7 @@ final class RoomsModel: ObservableObject {
     // MARK: - Cykl życia
 
     func onAppear() {
+        timer?.invalidate()
         // Zegar sesji musi iść co sekundę niezależnie od odpytywania serwera,
         // inaczej stoi w miejscu między odświeżeniami tablicy.
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -63,6 +65,7 @@ final class RoomsModel: ObservableObject {
     // MARK: - Dane
 
     func setCode(_ raw: String) {
+        refreshID = UUID()
         code = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         defaults.set(code, forKey: Self.codeKey)
         snapshot = .empty
@@ -87,6 +90,9 @@ final class RoomsModel: ObservableObject {
     }
 
     func refresh() async {
+        let id = UUID()
+        refreshID = id
+        let requestedCode = code
         guard hasRoom else {
             snapshot = .empty
             elapsed = "—"
@@ -94,7 +100,9 @@ final class RoomsModel: ObservableObject {
         }
         secondsSinceRefresh = 0
         do {
-            snapshot = try await RoomBoardClient.fetchRanking(server: Self.server, code: code)
+            let fetched = try await RoomBoardClient.fetchRanking(server: Self.server, code: requestedCode)
+            guard refreshID == id, code == requestedCode else { return }
+            snapshot = fetched
             if let startedAt = snapshot.sessionStartedAt {
                 elapsed = RoomBoard.sessionElapsed(startedAt: startedAt)
             } else {
@@ -102,6 +110,7 @@ final class RoomsModel: ObservableObject {
             }
             status = nil
         } catch {
+            guard refreshID == id, code == requestedCode else { return }
             // Stara tablica pokazana jako aktualna kłamie — mówimy wprost,
             // że nie wiemy, zamiast rysować nieświeże liczby bez ostrzeżenia.
             status = "Nie udało się odczytać tablicy pokoju."

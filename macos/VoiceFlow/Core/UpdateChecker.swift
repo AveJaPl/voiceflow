@@ -21,6 +21,7 @@ final class UpdateChecker {
     /// Zwraca `true`, gdy TERAZ nie wolno podmieniać apki (trwa dyktowanie).
     private let isBusy: () -> Bool
     private var timer: Timer?
+    private var checking = false
     /// Wersja pobrana i zainstalowana na dysku, czekająca na restart.
     private(set) var installedPendingRestart: String?
 
@@ -59,6 +60,7 @@ final class UpdateChecker {
         for release in releases {
             guard let tag = release["tag_name"] as? String, tag.hasPrefix(tagPrefix),
                   (release["draft"] as? Bool) != true,
+                  (release["prerelease"] as? Bool) != true,
                   let assets = release["assets"] as? [[String: Any]],
                   let asset = assets.first(where: { ($0["name"] as? String) == assetName }),
                   let urlString = asset["browser_download_url"] as? String,
@@ -69,6 +71,9 @@ final class UpdateChecker {
     }
 
     func checkAndInstall() async {
+        guard !checking, installedPendingRestart == nil else { return }
+        checking = true
+        defer { checking = false }
         do {
             let (data, _) = try await URLSession.shared.data(from: Self.releasesURL)
             guard let latest = Self.latestMacRelease(in: data) else {
@@ -92,9 +97,12 @@ final class UpdateChecker {
     private func downloadAndInstall(_ release: (version: String, assetURL: URL)) async throws {
         let (tmpZip, _) = try await URLSession.shared.download(from: release.assetURL)
         let unpackDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("voiceflow-update-\(release.version)", isDirectory: true)
-        _ = try? FileManager.default.removeItem(at: unpackDir)
+            .appendingPathComponent("voiceflow-update-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: unpackDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: unpackDir)
+            try? FileManager.default.removeItem(at: tmpZip)
+        }
 
         // `ditto -xk` zamiast ręcznego unzipa — zachowuje podpis i atrybuty
         // bundle'a, dokładnie to, czym pakuje `tools/release-mac.sh`.
@@ -111,14 +119,34 @@ final class UpdateChecker {
             throw NSError(domain: "Update", code: 2, userInfo: [NSLocalizedDescriptionKey: "w archiwum nie ma VoiceFlow.app"])
         }
         try Self.verifySignature(of: newApp)
-
-        let destination = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Applications/VoiceFlow.app")
-        _ = try? FileManager.default.removeItem(at: destination)
-        try FileManager.default.moveItem(at: newApp, to: destination)
+        try Self.verifyReleaseMetadata(at: newApp, version: release.version)
+        // Never replace or restart a running dictation, however long it lasts.
+        while isBusy() {
+            try await Task.sleep(for: .seconds(5))
+        }
+        let destination = Bundle.main.bundleURL
+        let backup = destination.deletingLastPathComponent()
+            .appendingPathComponent("VoiceFlow-backup-\(UUID().uuidString).app")
+        try FileManager.default.moveItem(at: destination, to: backup)
+        do {
+            try FileManager.default.moveItem(at: newApp, to: destination)
+        } catch {
+            try FileManager.default.moveItem(at: backup, to: destination)
+            throw error
+        }
+        // Keep the previous signed copy as a recovery option.
         installedPendingRestart = release.version
         DebugLog.write("Update", "wersja \(release.version) zainstalowana w \(destination.path) — czekam na moment na restart")
         restartWhenIdle()
+    }
+
+    static func verifyReleaseMetadata(at app: URL, version: String) throws {
+        let data = try Data(contentsOf: app.appendingPathComponent("Contents/Info.plist"))
+        let info = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        guard info?["CFBundleIdentifier"] as? String == "io.github.avejapl.voiceflow",
+              info?["CFBundleShortVersionString"] as? String == version else {
+            throw NSError(domain: "Update", code: 5, userInfo: [NSLocalizedDescriptionKey: "identyfikator lub wersja aplikacji nie zgadza się z wydaniem \(version)"])
+        }
     }
 
     /// Zespół, którego podpis akceptujemy. Kanał aktualizacji to publiczne
@@ -160,22 +188,21 @@ final class UpdateChecker {
 
     /// Restart w pierwszej bezczynnej chwili — podmiana apki W TRAKCIE
     /// dyktowania ucięłaby wypowiedź w połowie.
-    private func restartWhenIdle(attempt: Int = 0) {
+    private func restartWhenIdle() {
         guard installedPendingRestart != nil else { return }
-        if isBusy(), attempt < 120 {
+        if isBusy() {
             DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
-                self?.restartWhenIdle(attempt: attempt + 1)
+                self?.restartWhenIdle()
             }
             return
         }
         DebugLog.write("Update", "restartuję do nowej wersji")
-        let destination = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Applications/VoiceFlow.app")
+        let destination = Bundle.main.bundleURL
         // `open -n` nowej kopii dopiero PO wyjściu tej — odpalamy przez
         // /bin/sh z krótkim sleepem, żeby stary proces zdążył zniknąć.
         let relaunch = Process()
         relaunch.executableURL = URL(fileURLWithPath: "/bin/sh")
-        relaunch.arguments = ["-c", "sleep 1; /usr/bin/open \"\(destination.path)\""]
+        relaunch.arguments = ["-c", "sleep 1; /usr/bin/open \"$1\"", "voiceflow-relaunch", destination.path]
         try? relaunch.run()
         NSApp.terminate(nil)
     }

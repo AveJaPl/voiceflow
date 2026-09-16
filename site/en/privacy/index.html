@@ -24,27 +24,25 @@ a{color:var(--text);text-decoration:underline;text-underline-offset:3px}
 </head><body><main>
 <a class="back" href="/en/">← voiceflow</a>
 <h1>Privacy</h1>
-<p class="sub">Last updated: 9 August 2026 · The short version: we designed voiceflow so there is almost nothing to write on this page.</p>
+<p class="sub">Last updated: 16 September 2026</p>
 
-<h2>The application</h2>
-<p>voiceflow runs entirely on your machine. Your audio, transcriptions, history,
-vocabulary and configuration are stored locally and are never sent anywhere.
-The application makes exactly two kinds of network requests:</p>
-<ul>
-<li><b>Model download</b> — once, from Hugging Face, when you install or change the speech model;</li>
-<li><b>Update check</b> — an optional, anonymous request to the GitHub API at most once a day
-(disable with <code>updates.check: false</code> in the config).</li>
-</ul>
-<p>There is no telemetry, no analytics and no account. The source code is public, so you can verify all of this.</p>
+<h2>On-device dictation</h2>
+<p>VoiceFlow on Mac and iPhone recognizes speech locally using a downloaded Whisper model. While the iPhone model is unavailable, the app uses Apple speech recognition with on-device processing required. Recordings are not sent to the account service. Local history contains the recognized text.</p>
+
+<h2>Optional account and sync</h2>
+<p>After you sign in, the app sends dictation text, date, duration and device source to the configured account server. The Mac may also upload earlier local history. The account shares history and vocabulary between your devices. The server stores your email address, password hash, access token and synced data. Apple devices store the access token in Keychain.</p>
+<p>Signing out stops sync from that device; it does not delete data already stored on the server. Account history entries can be deleted in the app. Contact your server operator about other stored data. Never post transcripts or credentials in public GitHub issues.</p>
+
+<h2>Rooms and your own server</h2>
+<p>When you join a room, VoiceFlow sends the device name, presence events and dictation statistics. Anyone with the room code can view its ranking. The ranking does not contain recordings or dictation text.</p>
+<p>If you configure an external transcription server or local engine sharing on Mac, audio travels between the device and the selected server. That server's operator determines how it handles and retains the data.</p>
+
+<h2>Models and updates</h2>
+<p>The app downloads models from Hugging Face. The Mac checks the GitHub releases API at startup and every six hours, then downloads available updates. These providers receive ordinary connection information, including your IP address; the requests do not include transcripts.</p>
 
 <h2>This website</h2>
-<p>voiceflow.pbdevs.com uses a self-hosted instance of
-<a href="https://umami.is">Umami</a> to count visits. Umami is cookie-free and
-collects no personal data: no identifiers are stored, IP addresses are not
-retained, and nothing is shared with third parties. That is why you see no
-cookie banner — there is nothing to consent to. The site sets no cookies at all.</p>
+<p>This website uses a self-hosted <a href="https://umami.is">Umami</a> instance for visitor statistics and loads fonts from Google Fonts. Your browser connects to these services and sends the information needed for a connection, including your IP address. Website analytics do not receive dictation text from the app.</p>
 
 <h2>Contact</h2>
-<p>Questions? Open an issue at
-<a href="https://github.com/AveJaPl/voiceflow/issues">github.com/AveJaPl/voiceflow</a>.</p>
+<p>Report bugs and technical questions through <a href="https://github.com/AveJaPl/voiceflow/issues">GitHub</a>. Issues are public; do not include confidential data.</p>
 </main></body></html>

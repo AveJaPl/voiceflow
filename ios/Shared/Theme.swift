@@ -9,7 +9,7 @@ enum VFColor {
     static let surface = Color(hex: 0x16_1618).opacity(0.72)
     static let text = Color(hex: 0xF5_F5F7)
     static let muted = Color(hex: 0x9A_9AA2)
-    static let faint = Color(hex: 0x55_555C)
+    static let faint = Color(hex: 0x85_858D)
     static let border = Color(hex: 0x28_282C)
 }
 

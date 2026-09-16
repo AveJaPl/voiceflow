@@ -117,6 +117,7 @@ struct DictationCardView: View {
             hasAutoStarted = true
             engine.toggle(recordToHistory: recordsToHistory)
         }
+        .onDisappear { engine.cancel() }
         .onChange(of: engine.state) { oldValue, newValue in
             // Apple kończy `.listening → .idle`, whisper `.listening →
             // .transcribing → .idle` — obie ścieżki mają tekst gotowy w `.idle`.
@@ -161,15 +162,15 @@ private struct LevelBars: View {
                     .fill(VFColor.text.opacity(0.35 + 0.65 * Double(index) / 8))
                     .frame(width: 3, height: height(index: index))
                     .frame(maxHeight: .infinity, alignment: .center)
-                    .animation(.interpolatingSpring(stiffness: 420, damping: 22), value: level)
+                    .animation(.easeOut(duration: 0.16), value: level)
             }
         }
     }
 
     private func height(index: Int) -> CGFloat {
-        let boosted = min(1, pow(CGFloat(level) * 6, 0.7))
+        let boosted = min(1, pow(CGFloat(max(0, level)) * 2.5, 0.9))
         // Środkowe słupki najwyższe — sylwetka, nie płaska kreska.
         let shape = 1 - abs(CGFloat(index) - 4) / 6
-        return max(3, boosted * 16 * shape)
+        return max(3, boosted * 12 * shape)
     }
 }

@@ -34,6 +34,7 @@ final class WhisperModelStore: ObservableObject {
 
     private(set) var pipeline: WhisperKit?
     private var task: Task<Void, Never>?
+    private var loadID = UUID()
     private let defaults: UserDefaults
 
     static let selectedVariantKey = "voiceflow.ios.whisperModel"
@@ -82,9 +83,11 @@ final class WhisperModelStore: ObservableObject {
     func prepare() {
         guard task == nil, !isReady else { return }
         let model = selected
+        let id = UUID()
+        loadID = id
         task = Task { [weak self] in
-            await self?.download(andLoad: model)
-            self?.task = nil
+            await self?.download(andLoad: model, id: id)
+            if self?.loadID == id { self?.task = nil }
         }
     }
 
@@ -99,7 +102,8 @@ final class WhisperModelStore: ObservableObject {
         prepare()
     }
 
-    private func download(andLoad model: WhisperModelCatalog.Model) async {
+    private func download(andLoad model: WhisperModelCatalog.Model, id: UUID) async {
+        guard loadID == id, !Task.isCancelled else { return }
         let folder: URL
         if let existing = storedFolder(for: model) {
             folder = existing
@@ -112,19 +116,21 @@ final class WhisperModelStore: ObservableObject {
                     progressCallback: { [weak self] progress in
                         let fraction = progress.fractionCompleted
                         Task { @MainActor in
+                            guard self?.loadID == id else { return }
                             if case .downloading = self?.phase { self?.phase = .downloading(fraction: fraction) }
                         }
                     }
                 )
+                guard loadID == id, !Task.isCancelled else { return }
                 defaults.set(folder.path, forKey: Self.folderKeyPrefix + model.variant)
             } catch {
-                guard !Task.isCancelled else { return }
+                guard loadID == id, !Task.isCancelled else { return }
                 log.error("download failed: \(error.localizedDescription, privacy: .public)")
                 phase = .failed("Nie udało się pobrać modelu: \(error.localizedDescription)")
                 return
             }
         }
-        guard !Task.isCancelled else { return }
+        guard loadID == id, !Task.isCancelled else { return }
 
         phase = .loading
         do {
@@ -137,12 +143,12 @@ final class WhisperModelStore: ObservableObject {
                 download: false
             )
             let pipe = try await WhisperKit(config)
-            guard !Task.isCancelled else { return }
+            guard loadID == id, !Task.isCancelled else { return }
             pipeline = pipe
             phase = .ready
             log.info("model \(model.variant, privacy: .public) gotowy")
         } catch {
-            guard !Task.isCancelled else { return }
+            guard loadID == id, !Task.isCancelled else { return }
             log.error("load failed: \(error.localizedDescription, privacy: .public)")
             // Uszkodzone pobranie (przerwane w połowie) — następna próba
             // pobiera od nowa zamiast wiecznie walić głową w ten sam katalog.

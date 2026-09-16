@@ -76,7 +76,7 @@ header{position:relative;border-bottom:1px solid var(--border);overflow:hidden}
 .hero-img{position:absolute;inset:0;z-index:0;will-change:transform;pointer-events:none}
 .hero-img img{width:100%;height:86%;margin-top:2%;object-fit:contain;object-position:26% center;opacity:.6;filter:grayscale(1) brightness(.72)}
 .hero-img::after{content:"";position:absolute;inset:0;background:linear-gradient(0deg,var(--bg) 12%,transparent 46%)}
-.hero{position:relative;z-index:1;min-height:92vh;display:flex;align-items:center;justify-content:flex-end;padding:110px 0}
+.hero{position:relative;z-index:1;min-height:92vh;display:flex;align-items:center;justify-content:flex-end;padding-block:110px}
 .hero-copy{max-width:600px}
 .hero h1{font-family:var(--display);font-weight:800;font-size:clamp(3rem,6.4vw,5.6rem);line-height:.98;letter-spacing:-.035em;margin:26px 0 30px;text-transform:uppercase}
 .hero h1 .ghost{color:transparent;-webkit-text-stroke:1.5px var(--muted)}
@@ -397,7 +397,7 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
   .stat{border-top:1px solid var(--border)}
   .stat:nth-child(-n+2){border-top:none}
   .stat:nth-child(3){border-left:none}
-  .hero{min-height:74vh;justify-content:flex-start;padding:90px 0 60px}
+  .hero{min-height:74vh;justify-content:flex-start;padding-block:90px 60px}
   .hero-img{width:130%;opacity:.75}
   .platform{flex-wrap:wrap}
 }
@@ -448,7 +448,7 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
         </a>
         <a class="btn" href="https://github.com/AveJaPl/voiceflow" data-umami-event="github-hero">Zobacz kod źródłowy</a>
       </div>
-      <p class="hero-note">Linux · GNOME na Waylandzie — natywnie. macOS — DMG. Windows 10/11 — beta. iPhone — App Store, w recenzji.</p>
+      <p class="hero-note">Linux · GNOME na Waylandzie — natywnie. macOS — DMG. Windows 10/11 — beta. iPhone — testy przed publikacją.</p>
     </div>
   </div>
 </header>
@@ -457,7 +457,7 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
   <div class="stats reveal">
     <div class="stat"><b>0.04&nbsp;s</b><span>tyle trwa transkrypcja 4 sekund mowy na RTX&nbsp;3070</span></div>
     <div class="stat"><b>0&nbsp;zł</b><span>na zawsze — Twój GPU, Twój model, licencja MIT</span></div>
-    <div class="stat"><b>0&nbsp;bajtów</b><span>audio kiedykolwiek opuszcza Twój komputer</span></div>
+    <div class="stat"><b>0&nbsp;bajtów</b><span>audio wysyłanego przy lokalnym rozpoznawaniu</span></div>
     <div class="stat"><b><span data-count="96">96</span></b><span>testów bez sprzętu odpala się w CI przy każdym commicie</span></div>
   </div>
 </div>
@@ -531,7 +531,7 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
   <div class="wrap">
     <div class="chapter reveal"><span class="num">/03</span><h2>Na telefonie tak samo.</h2></div>
     <div class="phone-split reveal">
-      <div class="phone-points"><div><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M13 2 4.5 13.5H11L10 22l8.5-11.5H12L13 2Z" stroke-linejoin="round"/></svg><span><b>Szybsze</b><p>Mówisz około trzy razy szybciej, niż piszesz.</p></span></div><div><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M8 14h8" stroke-linecap="round"/></svg><span><b>Prostsze</b><p>Jeden klawisz mikrofonu zamiast klawiatury.</p></span></div><div><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M8 13c1 1.5 2.3 2.2 4 2.2s3-.7 4-2.2M9 9.5h.01M15 9.5h.01" stroke-linecap="round"/></svg><span><b>Rozumie Cię</b><p>Twój słownik nachyla model — nazwy trafiają bez przekręceń, intencja zostaje Twoja.</p></span></div><div><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></svg><span><b>Prywatne</b><p>Nagrania i tekst nie opuszczają telefonu — Whisper działa na nim.</p></span></div><div><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg><span><b>Wszędzie</b><p>To klawiatura systemowa — działa w każdej aplikacji.</p></span></div></div>
+      <div class="phone-points"><div><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M13 2 4.5 13.5H11L10 22l8.5-11.5H12L13 2Z" stroke-linejoin="round"/></svg><span><b>Szybsze</b><p>Mówisz około trzy razy szybciej, niż piszesz.</p></span></div><div><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M8 14h8" stroke-linecap="round"/></svg><span><b>Prostsze</b><p>Jeden klawisz mikrofonu zamiast klawiatury.</p></span></div><div><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M8 13c1 1.5 2.3 2.2 4 2.2s3-.7 4-2.2M9 9.5h.01M15 9.5h.01" stroke-linecap="round"/></svg><span><b>Rozumie Cię</b><p>Twój słownik nachyla model — nazwy trafiają bez przekręceń, intencja zostaje Twoja.</p></span></div><div><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></svg><span><b>Prywatne</b><p>Whisper działa na telefonie. Synchronizacja tekstu wymaga konta.</p></span></div><div><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg><span><b>Wszędzie</b><p>Klawiatura działa w aplikacjach, które dopuszczają klawiatury zewnętrzne.</p></span></div></div>
       <div class="iphone"><span class="sbtn pwr"></span><span class="sbtn vol1"></span><span class="sbtn vol2"></span><span class="sbtn mute"></span><div class="iphone-screen">
         <span class="island"></span><div class="ios-status"><span>21:37</span><span class="r"><svg width="14" height="10" viewBox="0 0 16 12" fill="currentColor" stroke="none"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="4.3" y="5" width="3" height="7" rx="1"/><rect x="8.6" y="2.5" width="3" height="9.5" rx="1"/><rect x="12.9" y="0" width="3" height="12" rx="1" opacity=".35"/></svg><svg width="14" height="11" viewBox="0 0 24 20" fill="none" stroke-width="2.2"><path d="M2 7a15 15 0 0 1 20 0M5.5 11a10 10 0 0 1 13 0M9 15a5 5 0 0 1 6 0" stroke-linecap="round"/><circle cx="12" cy="18" r="1.4" fill="currentColor" stroke="none"/></svg><span>87%</span><svg width="20" height="11" viewBox="0 0 26 13" fill="none" stroke-width="1.2"><rect x="1" y="1" width="21" height="11" rx="3.2"/><rect x="3" y="3" width="15" height="7" rx="1.6" fill="currentColor" stroke="none"/><path d="M24 4.5v4a2 2 0 0 0 0-4Z" fill="currentColor" stroke="none"/></svg></span></div>
         <div class="ios-head"><span class="ava"></span><b>Ania</b></div>
@@ -556,12 +556,12 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
   <div class="wrap split">
     <div>
       <h3 class="reveal">Dla tych, którzy myślą na głos.</h3>
-      <p class="reveal">Inne narzędzia wysyłają Twój głos na serwer i wystawiają co miesiąc rachunek.
-      voiceflow trzyma wszystko na Twoim komputerze — z architektury, nie z opcji.</p>
+      <p class="reveal">VoiceFlow rozpoznaje mowę lokalnie. Możesz też zalogować się do synchronizacji
+      historii i słownika lub skonfigurować własny serwer transkrypcji.</p>
       <div class="rule-list reveal">
-        <div><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></svg>Nagrania, transkrypcje i historia nie opuszczają Twojego dysku</div>
+        <div><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></svg>Nagrania pozostają lokalne przy rozpoznawaniu na urządzeniu</div>
         <div><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M3.5 12h17M12 3c2.5 2.4 3.8 5.5 3.8 9s-1.3 6.6-3.8 9c-2.5-2.4-3.8-5.5-3.8-9S9.5 5.4 12 3Z"/></svg>Każdy język, którym mówi Whisper — plus Twój własny słownik</div>
-        <div><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M12 2v8m0 0 3-3m-3 3L9 7" stroke-linecap="round" stroke-linejoin="round"/><path d="M20.4 14.5a9 9 0 1 1-16.8 0" stroke-linecap="round"/></svg>Działa offline, w samolocie, za każdym firewallem</div>
+        <div><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M12 2v8m0 0 3-3m-3 3L9 7" stroke-linecap="round" stroke-linejoin="round"/><path d="M20.4 14.5a9 9 0 1 1-16.8 0" stroke-linecap="round"/></svg>Lokalne dyktowanie działa offline po pobraniu modelu</div>
       </div>
     </div>
     <div class="split-img reveal" id="museImg"><img src="/assets/statue-muse-4.webp" alt="Marmurowa muza z profilu" loading="lazy"></div>
@@ -583,7 +583,7 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
       <thead><tr><th></th><th>voiceflow</th><th>typowa płatna aplikacja</th></tr></thead>
       <tbody>
         <tr><td>cena</td><td>darmowy, MIT</td><td>~60 zł/mies.</td></tr>
-        <tr><td>audio opuszcza Twój komputer</td><td>nigdy</td><td>zawsze</td></tr>
+        <tr><td>audio opuszcza Twój komputer</td><td>nie, w trybie lokalnym</td><td>zależy od usługi</td></tr>
         <tr><td>Linux / GNOME / Wayland</td><td>natywnie</td><td>brak wsparcia</td></tr>
         <tr><td>opóźnienie po końcu mówienia</td><td>~0,1 s na GPU</td><td>podróż przez sieć</td></tr>
         <tr><td>działa offline</td><td>tak</td><td>nie</td></tr>
@@ -612,7 +612,7 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
         Potem naciśnij <strong>Ctrl&nbsp;+&nbsp;Shift&nbsp;+&nbsp;Spacja</strong>, powiedz coś, naciśnij ponownie.</p>
         <div class="cmd-row"><div class="cmd" id="cmd-win">powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/AveJaPl/voiceflow/main/windows/install.ps1 | iex"</div></div>
         <p class="install-note">Bez terminala? Instalator na dwuklik:</p>
-        <a class="btn bat-link" href="https://github.com/AveJaPl/voiceflow/releases/latest/download/voiceflow-install.bat" data-umami-event="download-bat">
+        <a class="btn bat-link" href="https://github.com/AveJaPl/voiceflow/releases/download/v0.6.1/voiceflow-install.bat" data-umami-event="download-bat">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M12 3v12m0 0 4-4m-4 4-4-4" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 21h16" stroke-linecap="round"/></svg>
           voiceflow-install.bat
         </a>
@@ -622,35 +622,32 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
         <p>Natywna aplikacja w pasku menu. Przytrzymaj <strong>Fn</strong>, mów, puść — tekst ląduje
         w oknie, które ma fokus. Whisper (large-v3-turbo) liczy na GPU Maca, model pobiera się przy
         pierwszym uruchomieniu, nic nie wychodzi na zewnątrz. Aktualizacje instalują się same.</p>
-        <a class="btn bat-link" href="https://github.com/AveJaPl/voiceflow/releases/latest/download/VoiceFlow-mac.dmg" data-umami-event="download-dmg">
+        <a class="btn bat-link" href="https://github.com/AveJaPl/voiceflow/releases/download/mac-v0.7.0/VoiceFlow-mac.dmg" data-umami-event="download-dmg">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M12 3v12m0 0 4-4m-4 4-4-4" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 21h16" stroke-linecap="round"/></svg>
           VoiceFlow-mac.dmg
         </a>
         <p class="install-note">Podpisane i notaryzowane przez Apple — otwierasz, przeciągasz do Aplikacji,
         przy pierwszym starcie dajesz zgodę na Dostępność i mikrofon. Ze źródeł:
-        <a href="https://github.com/AveJaPl/voiceflow/blob/main/macos/README.md">macos/README.md</a>.</p>
+        <a href="https://github.com/AveJaPl/voiceflow/blob/apple/2.0/macos/README.md">macos/README.md</a>.</p>
       </div>
     </div>
     <p class="install-note reveal" style="margin-top:34px">Wymagania, szczegóły i uczciwe ograniczenia:
       <a href="https://github.com/AveJaPl/voiceflow#readme">README</a> ·
       <a href="https://github.com/AveJaPl/voiceflow/blob/main/docs/WINDOWS.md">notatki Windows</a> ·
       <a href="https://github.com/AveJaPl/voiceflow/releases">wszystkie wydania</a></p>
-    <div class="soon-row reveal"><span class="soon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2" stroke-linecap="round"/></svg><a href="https://github.com/AveJaPl/voiceflow/tree/main/ios">iPhone</a><i>App Store · w recenzji</i></span><span class="soon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2" stroke-linecap="round"/></svg><a href="https://github.com/AveJaPl/voiceflow/tree/main/android">Android</a><i>wczesna alfa · ze źródeł</i></span></div>
+    <div class="soon-row reveal"><span class="soon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2" stroke-linecap="round"/></svg><a href="https://github.com/AveJaPl/voiceflow/tree/apple/2.0/ios">iPhone</a><i>iOS · testy przed publikacją</i></span><span class="soon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2" stroke-linecap="round"/></svg><a href="https://github.com/AveJaPl/voiceflow/tree/main/android">Android</a><i>wczesna alfa · ze źródeł</i></span></div>
   </div>
 </section>
 
 <section id="server">
   <div class="wrap">
     <div class="chapter reveal"><span class="num">/06b</span><h2>Własny serwer. Jeśli chcesz.</h2></div>
-    <p class="lead reveal">Domyślnie każde urządzenie liczy u siebie i to jest najszybsza droga. Serwer ma sens,
-    gdy sprzęt jest za słaby albo gdy jeden mocny komputer ma liczyć dla kilku osób — stawia się go jedną komendą,
-    a w aplikacji wpisujesz jego adres w Zaawansowanych. Mac z VoiceFlow może też sam udostępnić swój silnik
-    telefonowi w tej samej sieci Wi-Fi — bez Dockera, jednym przełącznikiem.</p>
-    <div class="cmd-row reveal"><div class="cmd" id="cmd-server">git clone https://github.com/AveJaPl/voiceflow.git &amp;&amp; cd voiceflow/server &amp;&amp; docker compose up -d</div></div>
+    <p class="lead reveal">Domyślnie urządzenie rozpoznaje mowę lokalnie. Na Macu możesz ustawić adres własnego serwera transkrypcji w Zaawansowanych. Mac może też udostępnić swój silnik klientom zgodnym z API transkrypcji w sieci lokalnej. Obecna aplikacja iOS korzysta z silnika na telefonie; nie ma ustawienia zdalnego serwera.</p>
+    <div class="cmd-row reveal"><div class="cmd" id="cmd-server">git clone --branch apple/2.0 https://github.com/AveJaPl/voiceflow.git &amp;&amp; cd voiceflow/server &amp;&amp; docker compose up -d</div></div>
     <p class="install-note reveal">Kontrakt zgodny z OpenAI (<code>POST /v1/audio/transcriptions</code>), więc pod to samo pole
     podłączysz też inne serwery whispera albo płatne API. Konto do synchronizacji historii między urządzeniami też jest
-    własne: <a href="https://github.com/AveJaPl/voiceflow/tree/main/relay">relay/</a>. Szczegóły:
-    <a href="https://github.com/AveJaPl/voiceflow/tree/main/server">server/README.md</a>.</p>
+    własne: <a href="https://github.com/AveJaPl/voiceflow/tree/apple/2.0/relay">relay/</a>. Szczegóły:
+    <a href="https://github.com/AveJaPl/voiceflow/tree/apple/2.0/server">server/README.md</a>.</p>
   </div>
 </section>
 
@@ -663,8 +660,8 @@ footer{margin-top:170px;border-top:1px solid var(--border);padding:54px 0 62px;b
         <div class="platform"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4" stroke-linecap="round"/></svg><span class="p-name">Windows 10 / 11</span><span class="p-desc">Ten sam rdzeń, warstwa Win32: globalny skrót, schowek, przyciszanie.</span><span class="p-status beta">beta</span></div>
         <div class="platform"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2" stroke-linecap="round"/></svg><a class="p-name" href="https://github.com/AveJaPl/voiceflow/issues/6">Android</a><span class="p-desc">Klawiatura głosowa (IME) z Whisperem na urządzeniu — dyktuj w każdej aplikacji.</span><span class="p-status beta">w budowie</span></div>
         <div class="platform"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg><a class="p-name" href="https://github.com/AveJaPl/voiceflow/issues/1">KDE · Hyprland · Sway</a><span class="p-desc">Najłatwiejszy port — te kompozytory mają protokoły, których brakuje GNOME.</span><span class="p-status">w planach</span></div>
-        <div class="platform"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10H4V5Z"/><path d="M2 19h20" stroke-linecap="round"/></svg><a class="p-name" href="https://github.com/AveJaPl/voiceflow/releases/latest/download/VoiceFlow-mac.dmg">macOS</a><span class="p-desc">Natywna aplikacja SwiftUI w pasku menu: przytrzymaj i mów, whisper na GPU, model zwalniany z pamięci po bezczynności, samo-aktualizacja.</span><span class="p-status beta">DMG</span></div>
-        <div class="platform"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2" stroke-linecap="round"/></svg><a class="p-name" href="https://github.com/AveJaPl/voiceflow/tree/main/ios">iOS</a><span class="p-desc">Klawiatura głosowa: stuknij mikrofon, mów, wróć — tekst wstawia się sam. Whisper large-v3-turbo na Neural Engine (iPhone 15 Pro i nowsze).</span><span class="p-status beta">App Store · w recenzji</span></div>
+        <div class="platform"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10H4V5Z"/><path d="M2 19h20" stroke-linecap="round"/></svg><a class="p-name" href="https://github.com/AveJaPl/voiceflow/releases/download/mac-v0.7.0/VoiceFlow-mac.dmg">macOS</a><span class="p-desc">Natywna aplikacja SwiftUI w pasku menu: przytrzymaj i mów, whisper na GPU, model zwalniany z pamięci po bezczynności, samo-aktualizacja.</span><span class="p-status beta">DMG</span></div>
+        <div class="platform"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2" stroke-linecap="round"/></svg><a class="p-name" href="https://github.com/AveJaPl/voiceflow/tree/apple/2.0/ios">iOS</a><span class="p-desc">Klawiatura głosowa: stuknij mikrofon, mów, wróć — tekst wstawia się sam. Whisper large-v3-turbo na Neural Engine (iPhone 15 Pro i nowsze).</span><span class="p-status beta">iOS · testy przed publikacją</span></div>
       </div>
       <div class="reveal">
         <div class="aside-img" id="handImg"><img src="/assets/statue-hand-4.webp" alt="" loading="lazy"></div>

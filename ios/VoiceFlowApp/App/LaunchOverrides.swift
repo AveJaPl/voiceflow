@@ -14,6 +14,13 @@ import Foundation
 /// automatycznie — to standardowy mechanizm Foundation, nie hack. W buildzie
 /// Release właściwość jest stałą `false` i kompilator wycina zależny kod.
 enum LaunchOverrides {
+    static var skipModelPreparation: Bool {
+        #if DEBUG
+        return UserDefaults.standard.bool(forKey: "vfSkipModelPreparation")
+        #else
+        return false
+        #endif
+    }
     static var skipOnboarding: Bool {
         #if DEBUG
         return UserDefaults.standard.bool(forKey: "vfSkipOnboarding")

@@ -24,7 +24,7 @@ implemented on macOS yet.
 | **Microphone isolation** | Optional: swaps the system default input to a silent device (BlackHole) so a voice chat cannot hear the dictation, and restores it after. Needs BlackHole installed and Discord set to "Default" input. |
 | **Discord Rich Presence** | Optional, shows that you are dictating. Local IPC only. |
 | **Wspólny pokój** | Dołącz kodem w Ustawieniach. Kiedy ktoś inny w pokoju mówi, Twój skrót nie zaczyna nagrywać, a dźwięk na tym Macu ścisza się sam; Twoje dyktowania liczą się do rankingu sesji. Wysyłane są wyłącznie zdarzenia obecności i liczby — nagranie i tekst nigdy. Wyłączone, dopóki nie dołączysz. |
-| **Account** | Optional. Log in with the same account as the iPhone app and the dictation history and vocabulary are shared between devices (`relay/`, self-hostable). Nothing from the dictation itself goes through it. |
+| **Account** | Optional. Log in with the same account as the iPhone app and the dictation history and vocabulary are shared between devices (`relay/`, self-hostable). Dictation text and vocabulary are synced after sign-in; raw audio is not sent to the account service. |
 | **Memory** | The whisper model is freed ten minutes after the last dictation (~530 MB → ~60 MB) and reloaded in the background on the next hotkey press. Configurable under Zaawansowane. |
 | **Own transcription server** | Optional. Point the app at any OpenAI-compatible `/v1/audio/transcriptions` endpoint — `../server/` (Docker, whisper.cpp), another Mac sharing its engine on the LAN, or a paid API. Falls back to local whisper when the server does not answer. |
 | **Engine sharing** | Optional. The Mac serves its own Metal engine to the iPhone (and other machines) on the same Wi-Fi, announced over Bonjour. |

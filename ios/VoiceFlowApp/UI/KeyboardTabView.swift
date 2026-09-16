@@ -92,11 +92,11 @@ struct KeyboardTabView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("JAK TO DZIAŁA").vfEyebrow()
             VStack(alignment: .leading, spacing: 8) {
-                step(1, "Stuknij mikrofon na klawiaturze VoiceFlow — otworzy się ta apka.")
+                step(1, "Stuknij mikrofon na klawiaturze. Jeśli iOS nie otworzy aplikacji, otwórz VoiceFlow i wybierz „Dyktuj teraz”.")
                 step(2, "Mów. Stuknij mikrofon ponownie, gdy skończysz.")
                 step(3, "Wróć do poprzedniej aplikacji — tekst wstawi się sam.")
             }
-            Text("Nagranie i tekst nie opuszczają telefonu. Konto (Ustawienia) tylko synchronizuje historię z Makiem.")
+            Text("Nagranie pozostaje na telefonie. Po zalogowaniu tekst dyktowań trafia do historii konta i jest dostępny na Twoich urządzeniach.")
                 .font(VFFont.body(12))
                 .foregroundStyle(VFColor.faint)
                 .padding(.top, 4)

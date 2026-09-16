@@ -79,6 +79,10 @@ struct PillView: View {
         }
         .onChange(of: model.phase) { _, newValue in
             if newValue != .result { justCopied = false }
+            if newValue == .arming || newValue == .idle {
+                smoothedLevel = 0
+                levelHistory = Array(repeating: 0, count: PillWaveform.barCount)
+            }
         }
         .onAppear { appeared = true }
     }
@@ -218,7 +222,7 @@ struct PillView: View {
     /// bufora 1024 próbek przychodzi ~47 razy na sekundę i bez tego pasek
     /// wyglądał jak szum, nie jak mowa.
     private func pushLevel(_ level: Float) {
-        let attack: Float = 0.55
+        let attack: Float = 0.25
         let release: Float = 0.12
         if level > smoothedLevel {
             smoothedLevel += (level - smoothedLevel) * attack
@@ -266,7 +270,7 @@ struct PillWaveform: View {
                         .frame(width: barWidth, height: barHeight(level: level, index: index, phase: phase))
                         .frame(maxHeight: .infinity, alignment: .center)
                         .animation(
-                            reduceMotion ? nil : .interpolatingSpring(stiffness: 420, damping: 22),
+                            reduceMotion ? nil : .easeOut(duration: 0.16),
                             value: level
                         )
                 }
@@ -276,7 +280,7 @@ struct PillWaveform: View {
     }
 
     private var barWidth: CGFloat { 2.6 }
-    private var maxHeight: CGFloat { 22 }
+    private var maxHeight: CGFloat { 14 }
 
     private func opacity(index: Int) -> Double {
         // Najnowsze próbki po prawej — najjaśniejsze; ogon po lewej gaśnie.
@@ -285,13 +289,12 @@ struct PillWaveform: View {
     }
 
     private func barHeight(level: Float, index: Int, phase: TimeInterval) -> CGFloat {
-        // Surowy RMS mowy siedzi w paśmie ~0,02–0,15 — liniowo dawało słupki
-        // po 3 px. Wzmocnienie ×6 rozciąga pasmo mowy na pełną skalę, wykładnik
-        // 0,7 spłaszcza szczyty, żeby głośne sylaby nie przyklejały się do sufitu.
-        let boosted = min(1, pow(CGFloat(level) * 6, 0.7))
+        // Skala wyłącznie wizualna: mniejsze wzmocnienie zachowuje zapas
+        // dla głośnych sylab, bez zmiany czułości mikrofonu i rozpoznawania.
+        let boosted = min(1, pow(CGFloat(max(0, level)) * 2.5, 0.9))
         let fromAudio = boosted * maxHeight
-        // Oddech przy ciszy: fala 0,8 Hz biegnąca wzdłuż paska, 2–6 px.
-        let breath = reduceMotion ? 2 : 4 + 2 * sin(phase * 2 * .pi * 0.8 + Double(index) * 0.35)
+        // Oddech przy ciszy: fala 0,8 Hz, tylko 2–3 px.
+        let breath = reduceMotion ? 2 : 2.5 + 0.5 * sin(phase * 2 * .pi * 0.8 + Double(index) * 0.35)
         return max(CGFloat(breath), fromAudio)
     }
 }

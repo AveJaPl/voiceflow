@@ -28,6 +28,12 @@ ASC_ISSUER=$(cat "$HOME/.appstoreconnect/issuer_id")
 VERSION=$(grep 'MARKETING_VERSION:' macos/project.yml | head -1 | sed 's/.*"\(.*\)".*/\1/')
 TAG="mac-v${VERSION}"
 OUT="$ROOT/macos/build/release-${VERSION}"
+SOURCE_COMMIT=$(git rev-parse HEAD)
+# GitHub otherwise tags the default branch, not the code we actually built.
+if [[ $DRY_RUN -eq 0 ]] && [[ -n "$(git status --porcelain -- macos shared tools/release-mac.sh)" ]]; then
+    echo "[release-mac] commit Apple sources before publishing" >&2
+    exit 1
+fi
 
 if ! security find-identity -v -p codesigning | grep -q "$SIGN_IDENTITY"; then
     echo "[release-mac] brak certyfikatu „$SIGN_IDENTITY” w Keychainie." >&2
@@ -50,6 +56,7 @@ rm -rf "$OUT" && mkdir -p "$OUT"
 (cd macos && xcodegen generate >/dev/null)
 xcodebuild -project macos/VoiceFlow.xcodeproj -scheme VoiceFlow -configuration Release \
     -derivedDataPath macos/build/DerivedData-release \
+    -jobs "${VOICEFLOW_BUILD_JOBS:-2}" \
     CODE_SIGN_STYLE=Manual \
     CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
     DEVELOPMENT_TEAM="$TEAM_ID" \
@@ -63,6 +70,8 @@ xcodebuild -project macos/VoiceFlow.xcodeproj -scheme VoiceFlow -configuration R
 
 APP="$ROOT/macos/build/DerivedData-release/Build/Products/Release/VoiceFlow.app"
 [[ -d "$APP" ]] || { echo "[release-mac] brak $APP" >&2; exit 1; }
+APP_VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist")
+[[ "$APP_VERSION" == "$VERSION" ]] || { echo "[release-mac] version mismatch: bundle=$APP_VERSION tag=$VERSION" >&2; exit 1; }
 
 echo "[release-mac] sprawdzam, że apka nie zależy od Homebrew"
 if otool -L "$APP/Contents/MacOS/VoiceFlow" | grep -q /opt/homebrew; then
@@ -104,6 +113,7 @@ fi
 echo "[release-mac] publikuję ${TAG}"
 gh release create "$TAG" "$ZIP" "$DMG" \
     --repo AveJaPl/voiceflow \
+    --target "$SOURCE_COMMIT" \
     --title "VoiceFlow mac ${VERSION}" \
     --notes "macOS ${VERSION}. DMG do pierwszej instalacji (podpisany Developer ID, notaryzowany); ZIP jest kanałem samo-aktualizacji."
 echo "[release-mac] gotowe: ${TAG}"

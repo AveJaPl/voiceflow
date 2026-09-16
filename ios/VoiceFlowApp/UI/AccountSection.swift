@@ -28,7 +28,7 @@ struct AccountSection: View {
                 }
                 .buttonStyle(VFOutlineButtonStyle())
             } else {
-                Text("Konto jest opcjonalne: z nim historia dyktowań jest wspólna dla telefonu i Maca. Bez niego wszystko działa lokalnie.")
+                Text("Konto jest opcjonalne: z nim historia dyktowań jest wspólna dla telefonu i Maca. Bez konta możesz dyktować lokalnie; zakładka Historia wymaga logowania.")
                     .font(VFFont.body(12.5))
                     .foregroundStyle(VFColor.faint)
                 field("E-mail", text: $email, placeholder: "ty@przyklad.pl")

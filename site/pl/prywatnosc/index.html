@@ -24,27 +24,25 @@ a{color:var(--text);text-decoration:underline;text-underline-offset:3px}
 </head><body><main>
 <a class="back" href="/pl/">← voiceflow</a>
 <h1>Prywatność</h1>
-<p class="sub">Ostatnia aktualizacja: 9 sierpnia 2026 · W skrócie: voiceflow zaprojektowaliśmy tak, że na tej stronie prawie nie ma o czym pisać.</p>
+<p class="sub">Ostatnia aktualizacja: 16 września 2026</p>
 
-<h2>Aplikacja</h2>
-<p>voiceflow działa w całości na Twoim komputerze. Nagrania, transkrypcje,
-historia, słownik i konfiguracja są przechowywane lokalnie i nigdzie nie są
-wysyłane. Aplikacja wykonuje dokładnie dwa rodzaje połączeń sieciowych:</p>
-<ul>
-<li><b>Pobranie modelu</b> — jednorazowo, z Hugging Face, przy instalacji lub zmianie modelu mowy;</li>
-<li><b>Sprawdzenie aktualizacji</b> — opcjonalne, anonimowe zapytanie do API GitHuba
-najwyżej raz dziennie (wyłączysz je przez <code>updates.check: false</code> w konfiguracji).</li>
-</ul>
-<p>Nie ma telemetrii, nie ma analityki, nie ma konta. Kod źródłowy jest publiczny — wszystko można zweryfikować.</p>
+<h2>Dyktowanie na urządzeniu</h2>
+<p>VoiceFlow na Macu i iPhonie rozpoznaje mowę lokalnie przy użyciu pobranego modelu Whisper. Na iPhonie, dopóki model nie jest gotowy, aplikacja korzysta z rozpoznawania Apple z wymogiem przetwarzania na urządzeniu. Nagranie nie trafia do usługi konta. Lokalna historia zawiera rozpoznany tekst.</p>
+
+<h2>Opcjonalne konto i synchronizacja</h2>
+<p>Po zalogowaniu aplikacja wysyła do skonfigurowanego serwera konta treść dyktowań oraz datę, czas trwania i oznaczenie urządzenia. Mac może też przesłać wcześniejszą lokalną historię. Konto służy do udostępniania historii i słownika pomiędzy urządzeniami. Serwer przechowuje adres e-mail, skrót hasła, token dostępu oraz zsynchronizowane dane. Token na urządzeniu Apple jest przechowywany w Keychain.</p>
+<p>Wylogowanie zatrzymuje synchronizację z tego urządzenia; nie usuwa danych już zapisanych na serwerze. Wpisy historii konta można usuwać z aplikacji. W sprawie pozostałych danych skontaktuj się z operatorem swojego serwera; nie wpisuj transkrypcji ani danych logowania w publicznych zgłoszeniach GitHuba.</p>
+
+<h2>Pokoje i własny serwer</h2>
+<p>Po dołączeniu do pokoju VoiceFlow wysyła nazwę urządzenia, zdarzenia obecności i statystyki dyktowania. Ranking jest dostępny osobom znającym kod pokoju. Nie zawiera nagrania ani tekstu dyktowania.</p>
+<p>Jeśli na Macu skonfigurujesz zewnętrzny serwer transkrypcji lub udostępnianie silnika w sieci lokalnej, nagranie jest przesyłane między urządzeniem a wybranym serwerem. Zasady przechowywania danych zależą wtedy od operatora tego serwera.</p>
+
+<h2>Pobieranie modeli i aktualizacje</h2>
+<p>Aplikacja pobiera modele z Hugging Face. Mac sprawdza wydania przez API GitHuba przy starcie i co sześć godzin, a następnie pobiera aktualizację. Dostawcy tych usług otrzymują zwykłe dane połączenia, w tym adres IP; te zapytania nie zawierają transkrypcji.</p>
 
 <h2>Ta strona</h2>
-<p>voiceflow.pbdevs.com używa własnej instancji
-<a href="https://umami.is">Umami</a> do liczenia odwiedzin. Umami działa bez
-cookies i nie zbiera danych osobowych: nie zapisuje identyfikatorów, nie
-przechowuje adresów IP i niczego nie udostępnia stronom trzecim. Dlatego nie
-widzisz banera cookies — nie ma na co wyrażać zgody. Strona nie ustawia żadnych cookies.</p>
+<p>Strona korzysta z własnej instancji <a href="https://umami.is">Umami</a> do statystyk odwiedzin. Czcionki ładuje z Google Fonts. Przeglądarka łączy się z tymi usługami, przekazując dane niezbędne do obsługi połączenia, w tym adres IP. Analityka strony nie otrzymuje treści dyktowań z aplikacji.</p>
 
 <h2>Kontakt</h2>
-<p>Pytania? Załóż zgłoszenie na
-<a href="https://github.com/AveJaPl/voiceflow/issues">github.com/AveJaPl/voiceflow</a>.</p>
+<p>Błędy aplikacji i pytania techniczne można zgłaszać przez <a href="https://github.com/AveJaPl/voiceflow/issues">GitHub</a>. Zgłoszenia są publiczne; nie podawaj w nich poufnych danych.</p>
 </main></body></html>

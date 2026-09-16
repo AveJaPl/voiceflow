@@ -32,6 +32,8 @@ final class ContainerDictationEngine: NSObject, ObservableObject {
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "pl-PL"))
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
+    private var recordingID = UUID()
+    private var hasInputTap = false
     /// Ustawiane na starcie sesji przez `toggle(recordToHistory:)`, czytane
     /// w `stop()` niezależnie od tego, CO wywołało zatrzymanie (ręczny tap,
     /// `isFinal` z rozpoznawania, czy błąd) — zapis do historii zależy
@@ -57,16 +59,19 @@ final class ContainerDictationEngine: NSObject, ObservableObject {
             return
         }
 
+        let id = UUID()
+        recordingID = id
         state = .requestingPermission
         SFSpeechRecognizer.requestAuthorization { [weak self] authStatus in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.recordingID == id else { return }
                 guard authStatus == .authorized else {
                     self.state = .error("Brak zgody na rozpoznawanie mowy — włącz ją w Ustawieniach.")
                     return
                 }
                 AVAudioApplication.requestRecordPermission { granted in
                     Task { @MainActor in
+                        guard self.recordingID == id else { return }
                         guard granted else {
                             self.state = .error("Brak zgody na mikrofon — włącz ją w Ustawieniach.")
                             return
@@ -102,20 +107,23 @@ final class ContainerDictationEngine: NSObject, ObservableObject {
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak req] buffer, _ in
             req?.append(buffer)
         }
+        hasInputTap = true
 
         audioEngine.prepare()
         do {
             try audioEngine.start()
         } catch {
+            cancel()
             state = .error("AVAudioEngine.start() nie powiódł się: \(error.localizedDescription)")
             log.error("AVAudioEngine.start() failed: \(error.localizedDescription)")
             return
         }
 
         state = .listening
+        let id = recordingID
         task = recognizer?.recognitionTask(with: req) { [weak self] result, error in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.recordingID == id, self.state == .listening else { return }
                 if let result {
                     self.liveText = result.bestTranscription.formattedString
                     if result.isFinal {
@@ -131,8 +139,10 @@ final class ContainerDictationEngine: NSObject, ObservableObject {
     }
 
     private func stop() {
+        guard state == .listening else { return }
+        recordingID = UUID()
         audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
+        if hasInputTap { audioEngine.inputNode.removeTap(onBus: 0); hasInputTap = false }
         request?.endAudio()
         task?.cancel()
         task = nil
@@ -147,6 +157,18 @@ final class ContainerDictationEngine: NSObject, ObservableObject {
             // już jest.
             uploadToAccountHistory(text: liveText)
         }
+        state = .idle
+    }
+
+    func cancel() {
+        recordingID = UUID()
+        audioEngine.stop()
+        if hasInputTap { audioEngine.inputNode.removeTap(onBus: 0); hasInputTap = false }
+        task?.cancel()
+        task = nil
+        request = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        liveText = ""
         state = .idle
     }
 

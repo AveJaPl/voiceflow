@@ -28,3 +28,5 @@ References:
 
 Apple does not grant the keyboard extension microphone access. The containing
 app must start recording; the OS can require switching to it and returning.
+
+Delivery evidence and remaining gates: [final report](2026-09-16-dictation-delivery.md).

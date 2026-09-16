@@ -1,5 +1,7 @@
 # Audyt VoiceFlow Apple, 16 września 2026
 
+> Raport z pierwszego etapu audytu. Bieżące wersje, nowy pill, lokalną historię i stan wydań opisuje [raport dostarczenia](2026-09-16-dictation-delivery.md).
+
 Zakres: raport wydania, spokojniejszy pill, integracje iOS/macOS, serwery i mobilny web. Bez nagrywania, bez restartu używanej aplikacji Mac i bez akceptowania umów Apple. Początek: `apple/2.0`, `e77af0e`; istniejące zmiany dwóch Info.plist iOS pozostają poza commitem audytu.
 
 ## Co potwierdziłem

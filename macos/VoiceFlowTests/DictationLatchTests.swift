@@ -22,8 +22,8 @@ final class DictationLatchTests: XCTestCase {
         XCTAssertEqual(latch.released(at: 0.4), .none)
         XCTAssertTrue(latch.isLatched)
         // Tap 3 (dowolnie później): wciśnięcie kończy, puszczenie milczy.
-        XCTAssertEqual(latch.pressed(at: 9.0), .end)
-        XCTAssertEqual(latch.released(at: 9.1), .none)
+        XCTAssertEqual(latch.pressed(at: 9.0), .none)
+        XCTAssertEqual(latch.released(at: 9.1), .end)
         XCTAssertFalse(latch.isLatched)
         // Po zamknięciu zatrzasku wszystko wraca do normy.
         XCTAssertEqual(latch.pressed(at: 12.0), .begin)
@@ -65,6 +65,34 @@ final class DictationLatchTests: XCTestCase {
         // Po resecie stuknięcie normalnie ZACZYNA dyktowanie, nie „kończy".
         XCTAssertEqual(latch.pressed(at: 5.0), .begin)
     }
+    func testFnThenZPromotesHoldWithoutFinalizing() {
+        let latch = DictationLatch()
+        XCTAssertEqual(latch.pressed(at: 0), .begin)
+        XCTAssertEqual(latch.toggleChord(), .none)
+        XCTAssertEqual(latch.released(at: 0.2), .none)
+        XCTAssertTrue(latch.isLatched)
+        XCTAssertEqual(latch.pressed(at: 2), .none)
+        XCTAssertEqual(latch.toggleChord(), .end)
+        XCTAssertEqual(latch.released(at: 2.2), .none)
+        XCTAssertFalse(latch.isLatched)
+    }
+
+    func testChordWithDifferentHoldKeyCanStopOnFirstTap() {
+        let latch = DictationLatch()
+        XCTAssertEqual(latch.toggleChord(), .begin)
+        XCTAssertEqual(latch.pressed(at: 1), .none)
+        XCTAssertEqual(latch.released(at: 1.2), .end)
+    }
+
+    func testChordWithoutFnEventAndStrayRelease() {
+        let latch = DictationLatch()
+        XCTAssertEqual(latch.released(at: 0), .none)
+        XCTAssertEqual(latch.toggleChord(), .begin)
+        XCTAssertEqual(latch.released(at: 0.1), .none)
+        XCTAssertEqual(latch.toggleChord(), .end)
+        XCTAssertEqual(latch.released(at: 2), .none)
+    }
+
 }
 
 extension DictationLatch.Action: Equatable {}

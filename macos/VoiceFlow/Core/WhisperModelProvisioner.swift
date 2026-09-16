@@ -65,7 +65,8 @@ enum WhisperModelChoice: String, CaseIterable, Identifiable {
     var minimumValidSize: Int64 { approximateBytes / 2 }
 
     static func current(_ defaults: UserDefaults = .standard) -> WhisperModelChoice {
-        defaults.string(forKey: SettingsKeys.whisperModel).flatMap(WhisperModelChoice.init(rawValue:)) ?? .base
+        if let saved = defaults.string(forKey: SettingsKeys.whisperModel).flatMap(WhisperModelChoice.init(rawValue:)) { return saved }
+        return ProcessInfo.processInfo.physicalMemory >= 16 * 1_024 * 1_024 * 1_024 ? .largeV3TurboQ5 : .smallQ5
     }
 }
 

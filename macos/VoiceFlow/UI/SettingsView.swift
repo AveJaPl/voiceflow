@@ -11,7 +11,7 @@ enum SettingsKeys {
     static let discordKeyCode = "voiceflow.discordMuteHotkeyKeyCode"
     static let discordModifierFlags = "voiceflow.discordMuteHotkeyModifierFlags"
     static let insertionMode = "voiceflow.insertionMode"
-    /// Transkrypcja na żywo w pillu. Wyłączona = whisper NIE dekoduje w trakcie
+    /// Transkrypcja na żywo. Wyłączona = whisper NIE dekoduje w trakcie
     /// mówienia (co 300 ms), tylko raz, na końcu — mikrofon zbiera samo audio.
     /// Na maszynie bez zapasu mocy to jest różnica między „mieli" a „nie mieli".
     static let livePreview = "voiceflow.livePreviewEnabled"
@@ -285,7 +285,7 @@ final class SettingsModel: ObservableObject {
         self.insertionMode = defaults.string(forKey: SettingsKeys.insertionMode)
             .flatMap(InsertionMode.init(rawValue:)) ?? .liveTyping
         self.language = defaults.string(forKey: SettingsKeys.language)
-            .flatMap(DictationLanguage.init(rawValue:)) ?? .polish
+            .flatMap(DictationLanguage.init(rawValue:)) ?? .automatic
         self.whisperModel = WhisperModelChoice.current(defaults)
         self.speechEngine = defaults.string(forKey: SettingsKeys.speechEngine)
             .flatMap(SpeechEngineChoice.init(rawValue:)) ?? .whisper
@@ -425,7 +425,7 @@ struct SettingsView: View {
                 .padding(.horizontal, VF.Space.x12)
                 .padding(.bottom, VF.Space.x16)
 
-            ForEach(SettingsCategory.allCases) { item in
+            ForEach(SettingsCategory.allCases.filter { ![.room, .account, .advanced].contains($0) || model.labEnabled }) { item in
                 Button {
                     category = item
                 } label: {
@@ -459,7 +459,7 @@ struct SettingsView: View {
     private var categoryChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: VF.Space.x8) {
-                ForEach(SettingsCategory.allCases) { item in
+                ForEach(SettingsCategory.allCases.filter { ![.room, .account, .advanced].contains($0) || model.labEnabled }) { item in
                     Button {
                         category = item
                     } label: {
@@ -502,8 +502,8 @@ struct SettingsView: View {
 
         VFSection(title: "Podgląd na żywo") {
             VFSettingToggle(
-                title: "Transkrypcja na żywo w pillu",
-                subtitle: "Pill pokazuje tekst w trakcie mówienia.",
+                title: "Transkrypcja na żywo",
+                subtitle: "Rozpoznawaj w trakcie mówienia i wstawiaj tekst na żywo.",
                 isOn: $model.livePreview
             )
             VFHint("Wyłączona: w trakcie mówienia pill pokazuje tylko falę dźwięku, a whisper liczy RAZ, po puszczeniu skrótu — zamiast dekodować co 300 ms przez całe dyktowanie. Mniej obciążenia, zero różnicy w tekście końcowym. Działa od następnej wypowiedzi, bez restartu.")
@@ -514,7 +514,7 @@ struct SettingsView: View {
                 options: WhisperModelChoice.allCases.map { (value: $0, label: $0.displayName) },
                 selection: $model.whisperModel
             )
-            VFHint("Liczenie idzie na GPU (Metal). large-v3-turbo jest najdokładniejszy i z wiązką 1 domyka się w ułamku sekundy; base jest najlżejszy w pamięci. Pierwsze użycie pobiera model; zmiana wymaga restartu VoiceFlow.")
+            VFHint("Liczenie idzie na GPU (Metal). large-v3-turbo jest najdokładniejszy i z wiązką 1 domyka się w ułamku sekundy; base jest najlżejszy w pamięci. Pierwsze użycie pobiera model. Zmiana działa od następnej wypowiedzi.")
         }
 
         VFSection(title: "Język dyktowania") {
@@ -522,7 +522,7 @@ struct SettingsView: View {
                 options: DictationLanguage.allCases.map { (value: $0, label: $0.label) },
                 selection: $model.language
             )
-            VFHint("Zmiana języka wymaga restartu aplikacji — silnik rozpoznawania tworzy się raz, przy starcie.")
+            VFHint("Whisper wybiera język automatycznie albo używa wybranego polskiego lub angielskiego. Zmiana działa od następnej wypowiedzi.")
         }
     }
 

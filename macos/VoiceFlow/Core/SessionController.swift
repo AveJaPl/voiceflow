@@ -213,7 +213,8 @@ final class SessionController {
     }
 
     /// Wołane RAZ przy starcie aplikacji — patrz `SpeechEngine.prewarm`.
-    func prewarm() async {
+    @discardableResult
+    func prewarm() async -> Bool {
         // WYŁĄCZONE 2026-08-09. `pinToCurrentDefaultInput()` (przypięcie
         // silnika do konkretnego urządzenia przez AudioUnitSetProperty) miało
         // umożliwić izolację mikrofonu przez BlackHole, ale rozjeżdża wewnętrzny
@@ -226,9 +227,11 @@ final class SessionController {
             try await engine.prewarm()
             startConsumingUpdates()
             log.info("SessionController prewarmed")
+            return true
         } catch {
             fail("Prewarm nie powiódł się: \(error.localizedDescription)")
             log.error("Prewarm failed: \(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
 
@@ -344,6 +347,11 @@ final class SessionController {
 
     /// Skrót puszczony — domykamy segment, formatujemy, wstrzykujemy finał, zapisujemy notatkę.
     func endUtterance() {
+        if state == .finalizing {
+            // The next hold was released before the previous recognition ended.
+            beginPendingAfterFinish = false
+            return
+        }
         guard state == .listening else {
             DebugLog.write("Session", "endUtterance POMINIĘTY — stan to \(state), nie .listening; cofam ducking awaryjnie")
             // Sesja nie doszła do .listening (błąd startu albo wyścig) — mimo to

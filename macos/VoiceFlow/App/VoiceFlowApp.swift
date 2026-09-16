@@ -113,9 +113,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         setupAmbientListening()
 
+        uiModel.stateTitle = "Przygotowuję model…"
+        uiModel.stateDetail = "Pierwsze uruchomienie pobiera wybrany model. Możesz zmienić go w Ustawieniach."
+        if !UserDefaults.standard.bool(forKey: "voiceflow.hasOpenedSetup") {
+            UserDefaults.standard.set(true, forKey: "voiceflow.hasOpenedSetup")
+            showMainWindow()
+        }
         Task { [weak self] in
-            await self?.sessionController?.prewarm()
-            DebugLog.write("App", "prewarm zakończony")
+            guard let self else { return }
+            let ready = await sessionController?.prewarm() ?? false
+            if sessionController?.state == .idle {
+                uiModel.stateTitle = ready ? "Gotowy" : "Model niedostępny"
+                uiModel.stateDetail = ready ? "Przytrzymaj skrót i mów. Fn+Z włącza tryb bez trzymania." : "Sprawdź połączenie i wybór modelu. Kolejne dyktowanie ponowi ładowanie."
+            }
         }
     }
 
@@ -290,7 +300,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Zapisany wybór języka z Ustawień; domyślnie polski. Zmiana wymaga
             // restartu aplikacji (silnik tworzy się raz, tutaj, przy starcie).
             let storedLanguage = UserDefaults.standard.string(forKey: SettingsKeys.language)
-                .flatMap(DictationLanguage.init(rawValue:)) ?? .polish
+                .flatMap(DictationLanguage.init(rawValue:)) ?? .automatic
             let engine = try makeSpeechEngine(for: storedLanguage)
             whisperEngine = engine as? WhisperSpeechEngine
             // Słownik użytkownika (§Zadanie 1 audytu) scalony z domyślnym RAZ,
@@ -364,18 +374,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// żeby awaria serwera Apple z 2026-08-10 (zero wyniku, zero błędu, patrz
     /// docs/plans/whisper-local-engine-pl.md) nie mogła się powtórzyć.
     private func makeSpeechEngine(for language: DictationLanguage) throws -> SpeechEngine {
-        guard language == .polish else {
-            return try AppleSpeechEngine(locale: Locale(identifier: "en-US"))
-        }
+        let code = language == .polish ? "pl" : language == .english ? "en" : "auto"
         let storedEngine = UserDefaults.standard.string(forKey: SettingsKeys.speechEngine)
             .flatMap(SpeechEngineChoice.init(rawValue:)) ?? .whisper
         switch storedEngine {
-        case .whisper:
-            return WhisperSpeechEngine(language: "pl")
-        case .apple:
-            return try AppleSpeechEngine(locale: Locale(identifier: "pl-PL"))
-        case .server:
-            return RemoteWhisperEngine(language: "pl")
+        case .whisper: return WhisperSpeechEngine(language: code)
+        case .apple: return try AppleSpeechEngine(locale: Locale(identifier: language == .english ? "en-US" : "pl-PL"))
+        case .server: return RemoteWhisperEngine(language: code)
         }
     }
 
@@ -506,12 +511,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         monitor.onToggleChord = { [weak self] in
-            guard let self, let session = self.sessionController else { return }
-            if session.state == .listening {
-                self.dictationLatch?.reset()
-                self.finishUtteranceFromHotkey()
-            } else {
-                session.beginUtterance()
+            switch latch.toggleChord() {
+            case .begin: self?.sessionController?.beginUtterance()
+            case .end: self?.finishUtteranceFromHotkey()
+            case .none: break // Fn already started this session; keep it open.
             }
         }
         if !monitor.start() {
@@ -634,6 +637,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // NIE czyścimy liveText tutaj — przy kontynuacji tej samej myśli
             // (krótka przerwa, np. oddech) tekst rośnie dalej z tego samego
             // miejsca; SessionController sam zdecyduje, czy to świeży start.
+            pillController.model.audioLevel = 0
             pillController.model.phase = .arming
             pillController.model.armTrigger += 1
             pillController.show()

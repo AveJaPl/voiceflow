@@ -136,6 +136,7 @@ final class WhisperModelStore: ObservableObject {
         do {
             let config = WhisperKitConfig(
                 modelFolder: folder.path,
+                computeOptions: ModelComputeOptions(melCompute: .cpuOnly, audioEncoderCompute: .cpuAndNeuralEngine, textDecoderCompute: .cpuAndNeuralEngine),
                 verbose: false,
                 logLevel: .error,
                 prewarm: true,

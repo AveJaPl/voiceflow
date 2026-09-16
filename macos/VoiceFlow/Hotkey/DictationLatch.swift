@@ -12,7 +12,7 @@ import Foundation
 ///   tap 1: press → `begin`, release → `end`     (krótka pusta sesja — tak samo
 ///                                                działał szybki tap do tej pory)
 ///   tap 2: press → `begin`, release → `none`    (zatrzask: sesja zostaje otwarta)
-///   tap 3: press → `end`,   release → `none`    (koniec dyktowania)
+///   tap 3: press → `none`,  release → `end`    (koniec dyktowania)
 ///
 /// Zatrzask celowo NIE opóźnia `begin` do rozstrzygnięcia „tap czy podwójny tap"
 /// — hold-to-talk musi startować natychmiast, a nie po oknie podwójnego
@@ -49,23 +49,37 @@ final class DictationLatch {
     }
 
     func pressed(at now: TimeInterval) -> Action {
+        guard pressedAt == nil else { return .none }
+        pressedAt = now
+        // A latched session stops on release. Fn+Z can now be resolved before
+        // the Fn press accidentally stops the recording it is meant to toggle.
+        return isLatched ? .none : .begin
+    }
+
+    func toggleChord() -> Action {
+        let alreadyStartedByHold = pressedAt != nil
         if isLatched {
-            isLatched = false
-            suppressNextRelease = true
-            lastQuickTapReleaseAt = -.infinity
+            reset()
             return .end
         }
-        pressedAt = now
-        return .begin
+        isLatched = true
+        suppressNextRelease = alreadyStartedByHold
+        return alreadyStartedByHold ? .none : .begin
     }
 
     func released(at now: TimeInterval) -> Action {
+        let started = pressedAt
+        pressedAt = nil
         if suppressNextRelease {
             suppressNextRelease = false
             return .none
         }
-        let duration = now - (pressedAt ?? now)
-        if duration <= quickTapMaxSeconds {
+        guard let started else { return .none }
+        if isLatched {
+            reset()
+            return .end
+        }
+        if now - started <= quickTapMaxSeconds {
             if now - lastQuickTapReleaseAt <= doubleTapWindowSeconds {
                 isLatched = true
                 lastQuickTapReleaseAt = -.infinity
@@ -73,8 +87,6 @@ final class DictationLatch {
             }
             lastQuickTapReleaseAt = now
         } else {
-            // Realne przytrzymanie zeruje pamięć o pojedynczym stuknięciu —
-            // tap, długi hold i tap zaraz po nim to nie jest „podwójny tap".
             lastQuickTapReleaseAt = -.infinity
         }
         return .end

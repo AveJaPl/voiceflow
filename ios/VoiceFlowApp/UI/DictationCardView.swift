@@ -44,7 +44,7 @@ struct DictationCardView: View {
                         .foregroundStyle(VFColor.muted)
                     Spacer()
                     if engine.state == .listening {
-                        LevelBars(level: engine.audioLevel)
+                        VoiceWaveform(level: engine.audioLevel)
                             .frame(width: 72, height: 16)
                     }
                 }
@@ -72,11 +72,12 @@ struct DictationCardView: View {
                     Circle()
                         .strokeBorder(VFColor.border, lineWidth: 1)
                         .frame(width: 74, height: 74)
-                    Image(systemName: "mic.fill")
+                    Image(systemName: engine.state == .listening ? "stop.fill" : "mic.fill")
                         .font(.system(size: 24))
                         .foregroundStyle(engine.state == .listening ? VFColor.background : VFColor.text)
                 }
             }
+            .accessibilityLabel(engine.state == .listening ? "Koniec dyktowania" : "Start dyktowania")
             .buttonStyle(.plain)
             .disabled(engine.state == .transcribing || engine.state == .requestingPermission)
 
@@ -147,30 +148,5 @@ struct DictationCardView: View {
         case .transcribing: return "Chwila…"
         default: return "…"
         }
-    }
-}
-
-/// Mały miernik poziomu na karcie: słupki rosną symetrycznie od osi, jak
-/// fala w pillu na Macu. Bez historii — telefon ma na to za mało miejsca.
-private struct LevelBars: View {
-    let level: Float
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 3) {
-            ForEach(0..<9, id: \.self) { index in
-                Capsule()
-                    .fill(VFColor.text.opacity(0.35 + 0.65 * Double(index) / 8))
-                    .frame(width: 3, height: height(index: index))
-                    .frame(maxHeight: .infinity, alignment: .center)
-                    .animation(.easeOut(duration: 0.16), value: level)
-            }
-        }
-    }
-
-    private func height(index: Int) -> CGFloat {
-        let boosted = min(1, pow(CGFloat(max(0, level)) * 2.5, 0.9))
-        // Środkowe słupki najwyższe — sylwetka, nie płaska kreska.
-        let shape = 1 - abs(CGFloat(index) - 4) / 6
-        return max(3, boosted * 12 * shape)
     }
 }

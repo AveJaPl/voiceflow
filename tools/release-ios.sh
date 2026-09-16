@@ -30,7 +30,7 @@ rm -rf "$OUT" && mkdir -p "$OUT"
 echo "[release-ios] archiwum ${VERSION} (${BUILD})"
 (cd ios && xcodegen generate >/dev/null)
 xcodebuild -project ios/VoiceFlowIOS.xcodeproj -scheme VoiceFlowApp -configuration Release \
-    -destination 'generic/platform=iOS' -archivePath "$ARCHIVE" \
+    -jobs "${VOICEFLOW_BUILD_JOBS:-2}" -destination 'generic/platform=iOS' -archivePath "$ARCHIVE" \
     -allowProvisioningUpdates \
     -authenticationKeyPath "$ASC_KEY" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER" \
     archive 2>&1 | grep -E "error:|ARCHIVE" | tail -3

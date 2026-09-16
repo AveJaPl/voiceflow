@@ -54,6 +54,7 @@ enum InsertionMode: String, CaseIterable, Identifiable {
 
 /// Język dyktowania.
 enum DictationLanguage: String, CaseIterable, Identifiable {
+    case automatic
     case polish
     case english
 
@@ -61,6 +62,7 @@ enum DictationLanguage: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
+        case .automatic: "Polski + English (automatycznie)"
         case .polish: "Polski"
         case .english: "English"
         }

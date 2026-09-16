@@ -110,11 +110,14 @@ final class AudioCapture {
         input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, time in
             guard let self else { return }
-            self.deliveryQueue.async {
-                self.onBuffer?(buffer, time)
-                let level = Self.rms(of: buffer)
-                self.onLevel?(level, time.sampleTime > 0 ? Double(time.sampleTime) / format.sampleRate : CACurrentMediaTime())
+            // Metering must not wait behind recognition work on deliveryQueue.
+            let level = Self.rms(of: buffer)
+            let timestamp = CACurrentMediaTime()
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isRunning else { return }
+                self.onLevel?(level, timestamp)
             }
+            self.deliveryQueue.async { self.onBuffer?(buffer, time) }
         }
 
         engine.prepare()

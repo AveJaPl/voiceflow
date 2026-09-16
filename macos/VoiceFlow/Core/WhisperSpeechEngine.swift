@@ -28,7 +28,8 @@ final class WhisperSpeechEngine: SpeechEngine {
     private let log = Logger(subsystem: "pl.programo.voiceflow", category: "WhisperSpeechEngine")
     private let queue = DispatchQueue(label: "pl.programo.voiceflow.whisper", qos: .userInteractive)
 
-    private let language: String
+    private var language: String
+    private var loadedModelChoice: WhisperModelChoice?
     private let defaults: UserDefaults
     private var context: WhisperContext?
     /// Ustalane w `prewarm` razem z modelem — patrz `WhisperModelChoice.beamSize`.
@@ -169,11 +170,16 @@ final class WhisperSpeechEngine: SpeechEngine {
     /// zaczynając nowe. Bezpieczne do wołania z wielu miejsc naraz.
     @discardableResult
     private func ensureLoaded() async throws -> WhisperContext {
+        let desired = WhisperModelChoice.current(defaults)
         let (existing, inFlight): (WhisperContext?, Task<WhisperContext, Error>?) = queue.sync {
-            (context, loadingTask)
+            (loadedModelChoice == desired ? context : nil, loadingTask)
         }
         if let existing { return existing }
-        if let inFlight { return try await inFlight.value }
+        if let inFlight {
+            _ = try await inFlight.value
+            let matches = queue.sync { loadedModelChoice == desired }
+            if matches, let loaded = queue.sync(execute: { context }) { return loaded }
+        }
 
         let task = Task.detached(priority: .userInitiated) { [self] in
             try await loadModel()
@@ -236,6 +242,7 @@ final class WhisperSpeechEngine: SpeechEngine {
 
         queue.sync {
             self.context = loaded
+            self.loadedModelChoice = choice
             self.vadModelPath = vadPath
         }
         scheduleIdleUnload()
@@ -312,6 +319,9 @@ final class WhisperSpeechEngine: SpeechEngine {
     func beginUtterance() {
         queue.async { [weak self] in
             guard let self else { return }
+            let selectedLanguage = self.defaults.string(forKey: SettingsKeys.language) ?? "automatic"
+            self.language = selectedLanguage == "polish" ? "pl" : selectedLanguage == "english" ? "en" : "auto"
+            if self.loadedModelChoice != WhisperModelChoice.current(self.defaults) { self.context = nil }
             idleUnloadTimer?.cancel()
             idleUnloadTimer = nil
             if context == nil, loadingTask == nil {

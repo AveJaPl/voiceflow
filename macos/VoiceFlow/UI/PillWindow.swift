@@ -70,25 +70,9 @@ final class PillWindowController: NSObject {
     /// tylko przy przejściu między fazami — realnie rzadko, nie co słowo.
     private static func targetSize(for phase: PillPhase) -> NSSize {
         switch phase {
-        case .idle:
-            NSSize(width: 220, height: 56)
-        case .arming, .finalizing:
-            NSSize(width: 240, height: 56)
-        case .listening:
-            NSSize(width: 260, height: 60)
-        case .transcribing:
-            // Dość miejsca na 3 zawinięte linie (§14pt) przy stałej szerokości —
-            // to jest ta "sama wielkość na mówienie", nie rośnie ze zdaniem.
-            NSSize(width: 460, height: 128)
-        case .result:
-            // Wcześniej 460x210 — zbyt duże, "aż tak wielkie okno" (feedback
-            // Wojtka). Ta sama szerokość co `.transcribing`, wysokość ledwo
-            // większa (miejsce na przycisk Kopiuj pod tekstem, nie osobna
-            // sekcja) — długi tekst dostaje scroll W ŚRODKU tej ramki
-            // (PillView.swift, maxHeight tam MUSI się zgadzać z tym rozmiarem).
-            NSSize(width: 460, height: 150)
-        case .error:
-            NSSize(width: 340, height: 64)
+        case .result: NSSize(width: 340, height: 164)
+        case .error: NSSize(width: 340, height: 116)
+        default: NSSize(width: 204, height: 54)
         }
     }
 
@@ -178,6 +162,8 @@ final class PillWindowController: NSObject {
     /// okien innych aplikacji: ekran zawierający kursor myszy, bo tam
     /// zazwyczaj jest uwaga użytkownika, z fallbackiem na ekran główny.
     private func targetScreen() -> NSScreen? {
+        if panel.isVisible, let screen = panel.screen { return screen }
+        if let userCenter, let screen = NSScreen.screens.first(where: { $0.visibleFrame.contains(userCenter) }) { return screen }
         let mouseLocation = NSEvent.mouseLocation
         return NSScreen.screens.first { $0.frame.contains(mouseLocation) } ?? NSScreen.main
     }
@@ -204,25 +190,9 @@ final class PillWindowController: NSObject {
 
         isProgrammaticMove = true
 
-        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        if animated && panel.isVisible && !reduceMotion {
-            // `isProgrammaticMove` MUSI zostać true przez CAŁĄ animację, nie
-            // tylko do momentu wywołania tej funkcji — `didMoveNotification`
-            // leci dla każdej klatki pośredniej, nie tylko na końcu. Reset
-            // dopiero w completion handlerze animacji, inaczej klatki pośrednie
-            // zostałyby błędnie zapisane jako "użytkownik przeciągnął".
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.26
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                panel.animator().setFrame(frame, display: true)
-                hosting.animator().frame = NSRect(origin: .zero, size: frame.size)
-            } completionHandler: { [weak self] in
-                self?.isProgrammaticMove = false
-            }
-        } else {
-            panel.setFrame(frame, display: true)
-            hosting.frame = NSRect(origin: .zero, size: frame.size)
-            isProgrammaticMove = false
-        }
+        // No competing AppKit/SwiftUI geometry animations or delayed move callbacks.
+        panel.setFrame(frame, display: true)
+        hosting.frame = NSRect(origin: .zero, size: frame.size)
+        isProgrammaticMove = false
     }
 }

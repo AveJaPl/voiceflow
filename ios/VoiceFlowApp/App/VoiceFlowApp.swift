@@ -73,7 +73,6 @@ struct RootView: View {
 struct MainTabView: View {
     /// Konto trzymane tutaj, a nie per ekran — Historia i Pulpit biorą stąd
     /// poświadczenia do HTTP API.
-    @StateObject private var account = AccountSession()
     @ObservedObject private var models = WhisperModelStore.shared
     var onDictate: () -> Void
 
@@ -81,11 +80,9 @@ struct MainTabView: View {
         TabView {
             NavigationStack { KeyboardTabView(models: models, onDictate: onDictate) }
                 .tabItem { Label("Klawiatura", systemImage: "keyboard") }
-            NavigationStack { HistoryView(remote: account) }
+            NavigationStack { HistoryView() }
                 .tabItem { Label("Historia", systemImage: "clock") }
-            NavigationStack { RoomsView() }
-                .tabItem { Label("Pokoje", systemImage: "person.2") }
-            NavigationStack { SettingsView(remote: account, models: models) }
+            NavigationStack { SettingsView(models: models) }
                 .tabItem { Label("Ustawienia", systemImage: "gearshape") }
         }
         .tint(VFColor.text)

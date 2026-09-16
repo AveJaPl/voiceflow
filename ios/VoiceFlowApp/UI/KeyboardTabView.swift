@@ -19,7 +19,6 @@ struct KeyboardTabView: View {
                     header
                     keyboardCard
                     modelCard
-                    howTo
                     Button {
                         onDictate()
                     } label: {
@@ -31,6 +30,7 @@ struct KeyboardTabView: View {
                         }
                     }
                     .buttonStyle(VFOutlineButtonStyle(solid: true))
+                    howTo
                 }
                 .padding(24)
             }
@@ -93,10 +93,10 @@ struct KeyboardTabView: View {
             Text("JAK TO DZIAŁA").vfEyebrow()
             VStack(alignment: .leading, spacing: 8) {
                 step(1, "Stuknij mikrofon na klawiaturze. Jeśli iOS nie otworzy aplikacji, otwórz VoiceFlow i wybierz „Dyktuj teraz”.")
-                step(2, "Mów. Stuknij mikrofon ponownie, gdy skończysz.")
-                step(3, "Wróć do poprzedniej aplikacji — tekst wstawi się sam.")
+                step(2, "Po rozpoczęciu wróć do poprzedniej aplikacji. Mów i wybierz Koniec dyktowania na klawiaturze.")
+                step(3, "Tekst wstawia się automatycznie w polu, z którego zaczynasz, lub przyciskiem Wstaw tekst.")
             }
-            Text("Nagranie pozostaje na telefonie. Po zalogowaniu tekst dyktowań trafia do historii konta i jest dostępny na Twoich urządzeniach.")
+            Text("Nagranie i historia pozostają na telefonie. Nie potrzebujesz konta.")
                 .font(VFFont.body(12))
                 .foregroundStyle(VFColor.faint)
                 .padding(.top, 4)
@@ -137,7 +137,7 @@ struct ModelStatusView: View {
             if case .downloading(let fraction) = models.phase {
                 ProgressView(value: fraction)
                     .tint(VFColor.text)
-                Text("Pobieram \(models.selected.approximateMB) MB — dyktowanie działa już teraz przez Apple, whisper włączy się sam po pobraniu.")
+                Text("Pobieram \(models.selected.approximateMB) MB — dyktowanie będzie gotowe po pobraniu i załadowaniu modelu.")
                     .font(VFFont.body(12))
                     .foregroundStyle(VFColor.faint)
                     .fixedSize(horizontal: false, vertical: true)

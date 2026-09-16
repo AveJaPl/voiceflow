@@ -107,7 +107,7 @@ struct MainView: View {
             .padding(.horizontal, VF.Space.x12)
             .padding(.bottom, VF.Space.x20)
 
-            ForEach(VFPage.allCases) { item in
+            ForEach(VFPage.allCases.filter { $0 != .room || UserDefaults.standard.bool(forKey: SettingsKeys.labEnabled) }) { item in
                 Button {
                     page = item
                 } label: {
@@ -224,7 +224,7 @@ struct DashboardPage: View {
     var body: some View {
         VFPageHeader(
             title: "Przegląd",
-            subtitle: "Stan dyktowania i twój rytm pracy, liczony wyłącznie z lokalnej historii."
+            subtitle: "Wybierz model w Ustawieniach, dodaj własne słowa i dyktuj."
         )
 
         HStack(alignment: .top, spacing: VF.Space.x16) {
@@ -294,7 +294,7 @@ struct DashboardPage: View {
             }
         }
 
-        StatsInsights(model: model)
+        // Usage statistics are not part of the focused dictation flow.
     }
 
     private func copy(_ text: String) {

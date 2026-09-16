@@ -1,55 +1,32 @@
-# VoiceFlow — iOS
+# VoiceFlow for iPhone
 
-Container app and custom keyboard for `io.github.avejapl.voiceflow.ios`.
-Minimum iOS: 17. iPhone only (`TARGETED_DEVICE_FAMILY: 1`).
+Local WhisperKit dictation with Polish/English detection, model selection,
+custom vocabulary and local history. No sign-in is required. The first launch
+downloads a device-appropriate model; dictation waits for that model to be ready.
 
-## Current flow
+The voice keyboard replaces the system keyboard with a start/stop panel and
+an audio-driven waveform shared with the Mac pill. iOS does not allow microphone
+access inside keyboard extensions. Recording starts in the containing app; the
+user returns with the system gesture. UIBackgroundModes audio keeps that active
+recording running. The keyboard sends a session-scoped stop request through the
+App Group and reads atomic status snapshots. GPU computation is disabled in the
+WhisperKit model configuration for background recognition.
 
-The app has Keyboard, History, Rooms and Settings tabs. WhisperKit performs
-local transcription with a model selected for the device. While the model is
-unavailable, Apple speech recognition is used with on-device processing required.
-The UI checks in the simulator do not establish transcription quality on hardware.
+Automatic insertion is permitted only for a fresh result, in the original text
+field, and only once. Otherwise the keyboard offers manual insertion. Closing
+the app's dictation sheet explicitly cancels recording. Stale status stops the
+recording animation instead of pretending the microphone is still active.
 
-The keyboard cannot record audio. It asks the system to open `voiceflow://dictate`;
-this is not a supported guarantee for keyboard extensions. If the system rejects
-the request, the keyboard tells the user to open VoiceFlow and select “Dyktuj teraz”.
-The old responder-chain `openURL:` fallback was removed because it fails on modern
-iOS and bypasses the extension API restriction. See Apple's explanation:
-https://developer.apple.com/forums/thread/764570
+Setup: enable VoiceFlow in iOS Keyboard settings and grant Full Access for App
+Group communication. Grant Microphone access in the main app. Opening the app
+from the keyboard uses SwiftUI's public openURL action; behavior must be checked
+on the target iOS version. A manual-open hint remains when the OS refuses.
 
-After dictation, the app stores text in the shared App Group. On returning to the
-keyboard, a fresh result (less than 60 seconds old) is inserted once. The user must
-return to the original app manually. Secure text fields and apps that disallow
-third-party keyboards do not support this extension.
+Build: `cd ios && xcodegen generate`; use the VoiceFlowApp scheme.
+Release: `tools/release-ios.sh --no-upload`, then upload the reviewed IPA.
+Debug-only launch arguments `-vfSkipOnboarding YES -vfSkipModelPreparation YES`
+allow UI checks without audio or downloading a model. They are disabled in Release.
 
-History in the History tab requires an account. Signed-in dictations are also
-uploaded as text to the account service; audio remains local. Rooms reads the live
-ranking and can change the room's blocking mode. The current iOS app has no remote
-transcription-server setting or remote Mac control tab.
-
-## Build and test
-
-```sh
-cd ios
-xcodegen generate
-xcodebuild -project VoiceFlowIOS.xcodeproj -scheme VoiceFlowApp \
-  -destination 'generic/platform=iOS' -allowProvisioningUpdates build
-xcodebuild -project VoiceFlowIOS.xcodeproj -scheme VoiceFlowApp \
-  -destination 'platform=iOS Simulator,name=iPhone 16e' test
-```
-
-For silent UI checks in a Debug build, launch with
-`-vfSkipOnboarding YES -vfSkipModelPreparation YES`. These flags are disabled
-in Release. Do not tap “Dyktuj teraz” during checks that must not use the microphone.
-The WhisperKit fixture test is skipped in the simulator; it requires a device.
-
-Bundle IDs: `io.github.avejapl.voiceflow.ios` and
-`io.github.avejapl.voiceflow.ios.keyboard`. App Group:
-`group.io.github.avejapl.voiceflow.ios`.
-
-## Distribution status
-
-On 16 September 2026, App Store Connect confirmed `0.6.0 (1)` as `VALID`, but
-TestFlight was blocked by `MISSING_EXPORT_COMPLIANCE` and had no tester groups.
-The App Store record was `1.0`, `PREPARE_FOR_SUBMISSION`, with empty metadata.
-See `../docs/plans/2026-09-16-apple-audit.md` for verification and remaining work.
+Verification boundary: simulator logic/UI checks do not establish physical
+microphone capture, background inference latency, keyboard handoff or mixed-language
+accuracy. Those require a real-device recording test before App Store submission.

@@ -1,90 +1,49 @@
 import SwiftUI
 
-/// Ekran pokazywany, gdy apka jest otwarta z klawiatury
-/// (`voiceflow://dictate`, patrz `VoiceFlowApp.swift` `.onOpenURL` i
-/// docs/plans/ios-voiceflow-app.md §7 — PIVOT #2). Dwa stany:
-///   1. Nagrywanie — TEN SAM `DictationCardView` co zakładka "Dyktuj" i test
-///      onboardingu (Wojtek wprost poprosił o jeden mechanizm, nie trzy
-///      równoległe), ale `autoStart: true` — user kliknął mikrofon W
-///      KLAWIATURZE, nie musi kliknąć drugi raz tutaj.
-///   2. Po zakończeniu — `HandoffCompleteView`: tekst już czeka w App Group
-///      na klawiaturę, user musi tylko przesunąć z powrotem (gest systemowy,
-///      dokładnie jak u Wisprа — to nie nasz wymysł, jedyny sposób jaki iOS
-///      daje).
 struct KeyboardHandoffView: View {
-    /// Zamknięcie ekranu modalnego (redesign 2026-08-12 — dyktowanie nie jest
-    /// już zakładką, tylko `fullScreenCover` nad apką). Gest „wróć do
-    /// poprzedniej aplikacji" zostaje główną drogą; przycisk jest dla sytuacji,
-    /// w której user chce zostać w VoiceFlow.
-    var onClose: (() -> Void)? = nil
-
-    @State private var isDone = false
+    var onClose: (() -> Void)?
+    @ObservedObject private var session = KeyboardDictationSession.shared
 
     var body: some View {
-        Group {
-            if isDone {
-                HandoffCompleteView(onClose: onClose)
-            } else {
-                DictationCardView(compact: false, recordsToHistory: true, autoStart: true) { finalText in
-                    AppGroup.defaults.set(finalText, forKey: AppGroupKeys.pendingInsertText)
-                    AppGroup.defaults.set(Date(), forKey: AppGroupKeys.pendingInsertAt)
-                    withAnimation(.easeOut(duration: 0.25)) { isDone = true }
-                }
+        VStack(spacing: 28) {
+            HStack { Spacer(); Button("Zamknij") { if session.engine.isBusy { session.cancel() }; onClose?() } }
+            Spacer()
+            VoiceWaveform(level: session.snapshot.level).frame(width: 176, height: 28)
+            Text(title).font(.system(size: 28, weight: .semibold))
+            Text(detail).font(.system(size: 15)).foregroundStyle(VFColor.muted)
+                .multilineTextAlignment(.center)
+            if session.snapshot.phase == .recording {
+                Button("Koniec dyktowania") { session.stop() }.buttonStyle(VFOutlineButtonStyle(solid: true))
             }
+            if session.snapshot.phase == .result {
+                ScrollView { Text(session.snapshot.text).textSelection(.enabled) }.frame(maxHeight: 180)
+                Button("Kopiuj tekst") { UIPasteboard.general.string = session.snapshot.text }
+                    .buttonStyle(VFOutlineButtonStyle())
+            }
+            if session.snapshot.phase == .error || session.snapshot.phase == .idle {
+                Button("Start dyktowania") { session.start() }.buttonStyle(VFOutlineButtonStyle(solid: true))
+            }
+            Spacer()
         }
-        .overlay(alignment: .topTrailing) {
-            if !isDone, let onClose {
-                Button("Zamknij", action: onClose)
-                    .padding()
-            }
+        .padding(28).background(VFColor.background).foregroundStyle(VFColor.text)
+        .onAppear { session.start() }
+    }
+    private var title: String {
+        switch session.snapshot.phase {
+        case .recording: "Słucham"
+        case .processing: "Rozpoznaję…"
+        case .result: "Tekst gotowy"
+        case .error: "Jeszcze chwila"
+        default: "Przygotowuję…"
         }
     }
-}
-
-private struct HandoffCompleteView: View {
-    var onClose: (() -> Void)?
-
-    var body: some View {
-        VStack(spacing: 24) {
-            Spacer()
-
-            Image(systemName: "checkmark.circle")
-                .font(.system(size: 40, weight: .light))
-                .foregroundStyle(VFColor.text)
-
-            VStack(spacing: 10) {
-                Text("GOTOWE")
-                    .font(VFFont.display(26, weight: .extrabold))
-                    .textCase(.uppercase)
-                    .tracking(-0.5)
-                    .foregroundStyle(VFColor.text)
-                Text("Wróć do poprzedniej aplikacji — tekst wstawi się sam.")
-                    .font(VFFont.body(14))
-                    .foregroundStyle(VFColor.muted)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 40)
-            }
-
-            Spacer()
-
-            if let onClose {
-                Button("Zamknij") { onClose() }
-                    .buttonStyle(VFOutlineButtonStyle())
-                    .padding(.bottom, 8)
-            }
-
-            VStack(spacing: 12) {
-                Image(systemName: "arrow.down")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(VFColor.faint)
-                Text("Przesuń palcem od dolnej krawędzi ekranu")
-                    .font(VFFont.body(12.5))
-                    .foregroundStyle(VFColor.faint)
-            }
-            .padding(.bottom, 28)
+    private var detail: String {
+        switch session.snapshot.phase {
+        case .recording: "Wróć do poprzedniej aplikacji gestem na dolnym pasku. Mów dalej i zakończ dyktowanie na klawiaturze VoiceFlow."
+        case .result: KeyboardSessionStore.automaticallyInsert ? "Wróć do pola, z którego zaczęło się dyktowanie. Możesz też wstawić tekst przyciskiem na klawiaturze." : "Wróć do klawiatury VoiceFlow i wybierz Wstaw tekst."
+        case .error: session.snapshot.text
+        case .processing: "Nagrywanie zakończone. Model przetwarza wypowiedź na telefonie."
+        default: "Model i mikrofon muszą być gotowe przed rozpoczęciem."
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(VFColor.background)
     }
 }

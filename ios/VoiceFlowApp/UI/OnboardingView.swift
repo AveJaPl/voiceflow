@@ -96,7 +96,7 @@ private struct IntroStepView: View {
                     .foregroundStyle(VFColor.text)
                     .textCase(.uppercase)
                     .tracking(-0.5)
-                Text("Za chwilę otworzymy Ustawienia systemowe. Tam dodasz klawiaturę VoiceFlow i włączysz jej Pełny dostęp — bez tego mikrofon w klawiaturze nie zadziała.")
+                Text("Za chwilę otworzymy Ustawienia systemowe. Tam dodasz klawiaturę VoiceFlow i włączysz jej Pełny dostęp — dzięki temu klawiatura odbierze tekst z aplikacji. Mikrofon działa w VoiceFlow.")
                     .font(VFFont.body(14))
                     .foregroundStyle(VFColor.muted)
                     .fixedSize(horizontal: false, vertical: true)

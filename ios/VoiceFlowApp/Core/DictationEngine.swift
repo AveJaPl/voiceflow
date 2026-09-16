@@ -68,8 +68,8 @@ final class DictationEngine: ObservableObject {
     /// Jak na Macu: 5 minut maksimum, potem nagranie się ucina — bufor 64 KB/s.
     private static let maxSeconds = 300
 
-    init(models: WhisperModelStore = .shared) {
-        self.models = models
+    init(models: WhisperModelStore? = nil) {
+        self.models = models ?? .shared
         apple.$state
             .sink { [weak self] appleState in
                 guard let self, self.backend == .apple else { return }
@@ -110,8 +110,7 @@ final class DictationEngine: ObservableObject {
             backend = .whisper(models.selected.title)
             startWhisper(pipeline)
         } else {
-            backend = .apple
-            apple.toggle(recordToHistory: recordToHistory)
+            state = .error("Najpierw pobierz model w Ustawieniach. Dyktowanie będzie gotowe po jego załadowaniu.")
         }
     }
 
@@ -147,7 +146,8 @@ final class DictationEngine: ObservableObject {
         samples.reserveCapacity(16_000 * 60)
         let input = audioEngine.inputNode
         let format = input.outputFormat(forBus: 0)
-        guard let converter = AVAudioConverter(from: format, to: targetFormat) else {
+        guard format.sampleRate > 0, format.channelCount > 0,
+              let converter = AVAudioConverter(from: format, to: targetFormat) else {
             releaseAudio()
             state = .error("Nie udało się przygotować konwersji audio.")
             return
@@ -234,7 +234,7 @@ final class DictationEngine: ObservableObject {
         state = .idle
     }
 
-    private func stop() {
+    func stop() {
         if backend == .apple {
             apple.toggle(recordToHistory: recordToHistory)
             return
@@ -276,13 +276,13 @@ final class DictationEngine: ObservableObject {
         // `WhisperSpeechEngine.buildInitialPrompt` na Macu.
         let promptTokens: [Int]? = vocabulary.isEmpty
             ? nil
-            : pipeline.tokenizer?.encode(text: " " + vocabulary.joined(separator: ", "))
+            : pipeline.tokenizer.map { Array($0.encode(text: " " + vocabulary.joined(separator: ", ")).prefix(200)) }
         let options = DecodingOptions(
             task: .transcribe,
-            language: "pl",
+            language: UserDefaults.standard.string(forKey: "voiceflow.dictationLanguage"),
             temperature: 0,
             usePrefillPrompt: true,
-            detectLanguage: false,
+            detectLanguage: UserDefaults.standard.string(forKey: "voiceflow.dictationLanguage") == nil,
             skipSpecialTokens: true,
             withoutTimestamps: true,
             promptTokens: promptTokens
@@ -305,14 +305,7 @@ final class DictationEngine: ObservableObject {
         liveText = text
         if recordToHistory, !text.isEmpty {
             DictationHistoryStore.append(DictationEntry(text: text, source: .containerApp))
-            if let credentials = KeychainCredentialStore().load() {
-                Task {
-                    try? await AccountAPI.postHistory(
-                        credentials: credentials, text: text,
-                        createdAt: Date(), durationSeconds: duration, source: "phone"
-                    )
-                }
-            }
+
         }
         state = .idle
     }

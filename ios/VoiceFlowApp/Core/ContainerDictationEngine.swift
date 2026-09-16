@@ -87,8 +87,9 @@ final class ContainerDictationEngine: NSObject, ObservableObject {
         liveText = ""
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.record, mode: .measurement, options: .duckOthers)
-            try session.setActive(true, options: .notifyOthersOnDeactivation)
+            // Ducking is not supported by the record-only category.
+            try session.setCategory(.record, mode: .measurement)
+            try session.setActive(true)
         } catch {
             state = .error("Nie udało się skonfigurować sesji audio: \(error.localizedDescription)")
             return

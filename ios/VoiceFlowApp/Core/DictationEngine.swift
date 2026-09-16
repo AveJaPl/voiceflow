@@ -6,22 +6,9 @@ import os.log
 
 private let log = Logger(subsystem: "io.github.avejapl.voiceflow.ios", category: "DictationEngine")
 
-/// Jeden silnik dyktowania dla całej apki (karta dyktowania, przepływ z
-/// klawiatury, test w onboardingu). Pod spodem DWIE drogi:
-///
-/// - **whisper na urządzeniu** (WhisperKit, Core ML/Neural Engine) — domyślna,
-///   gdy model jest pobrany i załadowany (`WhisperModelStore`). Nagrywamy całą
-///   wypowiedź, po puszczeniu przycisku liczymy RAZ, z pełnym kontekstem —
-///   tak samo jak przebieg końcowy na Macu. Bez podglądu na żywo: na telefonie
-///   dekodowanie co pół sekundy kosztowałoby baterię, a tekst i tak trafia do
-///   klawiatury dopiero po zakończeniu.
-/// - **Apple `SFSpeechRecognizer`** (`ContainerDictationEngine`) — zapasowa,
-///   dopóki model się pobiera albo gdy telefon go nie udźwignie. Daje podgląd
-///   na żywo, ale po polsku myli się częściej.
-///
-/// Wybór jest automatyczny przy KAŻDYM starcie nagrania, więc pierwsze
-/// dyktowania po instalacji idą przez Apple, a gdy tylko model dojedzie,
-/// kolejne — przez whisper. Użytkownik nic nie przełącza.
+/// Local Whisper dictation shared by the app and keyboard handoff.
+/// A downloaded, loaded model is required; there is no automatic Apple fallback.
+/// Recognition runs once after recording, preserving the full utterance context.
 @MainActor
 final class DictationEngine: ObservableObject {
     enum State: Equatable {
@@ -135,8 +122,9 @@ final class DictationEngine: ObservableObject {
     private func beginRecording() {
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.record, mode: .measurement, options: .duckOthers)
-            try session.setActive(true, options: .notifyOthersOnDeactivation)
+            // Ducking is not supported by the record-only category.
+            try session.setCategory(.record, mode: .measurement)
+            try session.setActive(true)
         } catch {
             state = .error("Nie udało się skonfigurować sesji audio: \(error.localizedDescription)")
             return

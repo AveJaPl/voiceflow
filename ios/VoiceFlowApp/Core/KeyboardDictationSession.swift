@@ -30,17 +30,31 @@ final class KeyboardDictationSession: ObservableObject {
             }
     }
 
-    func start(requestID: UUID? = nil) {
-        guard !engine.isBusy else { return }
-        if !engine.microphoneReady && UIApplication.shared.applicationState != .active { return }
-        if sessionStartedAt == nil { sessionStartedAt = Date() }
+    func activate(requestID: UUID? = nil) {
+        guard UIApplication.shared.applicationState == .active, !engine.isBusy, !engine.microphoneReady else { return }
+        sessionStartedAt = Date()
         snapshot = KeyboardSessionSnapshot(id: requestID ?? UUID(), phase: .preparing)
+        snapshot.accountKey = AccountSession.shared.accountKey
+        startTimer()
+        engine.prepareKeyboardMicrophone()
+    }
+
+    private func startTimer() {
         timer?.invalidate()
         let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
         self.timer = timer
         RunLoop.main.add(timer, forMode: .common)
+    }
+
+    func start(requestID: UUID? = nil) {
+        guard !engine.isBusy else { return }
+        if !engine.microphoneReady && UIApplication.shared.applicationState != .active { return }
+        if sessionStartedAt == nil { sessionStartedAt = Date() }
+        snapshot = KeyboardSessionSnapshot(id: requestID ?? UUID(), phase: .preparing)
+        snapshot.accountKey = AccountSession.shared.accountKey
+        startTimer()
         engine.toggle(keepAudioAlive: true)
     }
 

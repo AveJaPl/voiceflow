@@ -37,7 +37,7 @@ targets:
       properties:
         CFBundleDisplayName: VoiceFlow
         CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "5"
+        CFBundleVersion: "6"
         UIBackgroundModes: [audio, processing]
         BGTaskSchedulerPermittedIdentifiers: [io.github.avejapl.voiceflow.ios.prepareModel]
         ITSAppUsesNonExemptEncryption: false
@@ -82,7 +82,7 @@ targets:
         PRODUCT_NAME: VoiceFlow
         GENERATE_INFOPLIST_FILE: NO
         MARKETING_VERSION: "1.0"
-        CURRENT_PROJECT_VERSION: "5"
+        CURRENT_PROJECT_VERSION: "6"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_PREVIEWS: YES
     dependencies:
@@ -103,7 +103,7 @@ targets:
       properties:
         CFBundleDisplayName: VoiceFlow
         CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "5"
+        CFBundleVersion: "6"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.keyboard-service
           NSExtensionPrincipalClass: KeyboardViewController
@@ -136,7 +136,7 @@ targets:
         PRODUCT_NAME: VoiceFlowKeyboard
         GENERATE_INFOPLIST_FILE: NO
         MARKETING_VERSION: "1.0"
-        CURRENT_PROJECT_VERSION: "5"
+        CURRENT_PROJECT_VERSION: "6"
         SKIP_INSTALL: YES
 
   VoiceFlowTests:

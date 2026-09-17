@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct HistoryView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject var account: AccountSession
     @State private var entries: [DictationEntry] = []
     @State private var query = ""
@@ -42,6 +43,7 @@ struct HistoryView: View {
         .scrollContentBackground(.hidden).background(VFColor.background)
         .navigationTitle("Historia").searchable(text: $query, prompt: "Szukaj")
         .onAppear { entries = DictationHistoryStore.load() }
+        .onChange(of: scenePhase) { _, phase in if phase == .active { entries = DictationHistoryStore.load() } }
         .onReceive(NotificationCenter.default.publisher(for: .init("voiceflow.historyChanged"))) { _ in
             entries = DictationHistoryStore.load()
         }

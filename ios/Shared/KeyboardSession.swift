@@ -10,6 +10,7 @@ struct KeyboardSessionSnapshot: Codable {
     var resultAt: Date?
     var microphoneReady: Bool?
     var expiresAt: Date?
+    var accountKey: String?
 
     func canStartInPlace(at now: Date) -> Bool {
         microphoneReady == true && isLive(at: now) && (expiresAt == nil || expiresAt! > now)

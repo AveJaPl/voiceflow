@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct KeyboardHandoffView: View {
+    @Environment(\.scenePhase) private var scenePhase
     var requestID: UUID? = nil
     var onClose: (() -> Void)?
     @ObservedObject private var session = KeyboardDictationSession.shared
@@ -24,8 +25,8 @@ struct KeyboardHandoffView: View {
                     .buttonStyle(VFOutlineButtonStyle())
             }
             if session.snapshot.phase == .error || session.snapshot.phase == .idle {
-                Button("Start dyktowania") { session.start(requestID: requestID) }.buttonStyle(VFOutlineButtonStyle(solid: true))
-                    .disabled(!models.isReady)
+                Button(session.engine.microphoneReady ? "Sesja gotowa" : "Włącz VoiceFlow") { session.activate(requestID: requestID) }.buttonStyle(VFOutlineButtonStyle(solid: true))
+                    .disabled(!models.isReady || session.engine.microphoneReady)
             }
             Text("Mikrofon wyłączy się 30 sekund po schowaniu klawiatury. Na pierwszy powrót do klawiatury masz minutę. Pomiędzy dyktowaniami dźwięk nie jest zapisywany ani rozpoznawany.")
                 .font(.system(size: 12)).foregroundStyle(VFColor.muted).multilineTextAlignment(.center)
@@ -34,10 +35,14 @@ struct KeyboardHandoffView: View {
             Spacer()
         }
         .padding(28).background(VFColor.background).foregroundStyle(VFColor.text)
-        .onAppear { if models.isReady { session.start(requestID: requestID) } }
+        .onAppear { activateWhenReady() }
+        .onChange(of: scenePhase) { _, phase in if phase == .active { activateWhenReady() } }
         .onChange(of: models.isReady) { _, ready in
-            if ready, !session.engine.isBusy { session.start(requestID: requestID) }
+            if ready { activateWhenReady() }
         }
+    }
+    private func activateWhenReady() {
+        if models.isReady { session.activate(requestID: requestID) }
     }
     private var title: String {
         switch session.snapshot.phase {
@@ -45,7 +50,7 @@ struct KeyboardHandoffView: View {
         case .processing: "Domykam…"
         case .result: "Tekst gotowy"
         case .error: "Jeszcze chwila"
-        default: "Przygotowuję…"
+        default: session.engine.microphoneReady ? "Klawiatura gotowa" : "Przygotowuję…"
         }
     }
     private var detail: String {
@@ -54,7 +59,7 @@ struct KeyboardHandoffView: View {
         case .result: KeyboardSessionStore.automaticallyInsert ? "Wróć do pola, z którego zaczęło się dyktowanie. Możesz też wstawić tekst przyciskiem na klawiaturze." : "Wróć do klawiatury VoiceFlow i wybierz Wklej tekst."
         case .error: session.snapshot.text
         case .processing: "Nagrywanie zakończone. Model przetwarza wypowiedź na telefonie."
-        default: "Model i mikrofon muszą być gotowe przed rozpoczęciem."
+        default: session.engine.microphoneReady ? "Wróć do poprzedniej aplikacji i kliknij Nowe dyktowanie na klawiaturze. Jeszcze nie nagrywam." : "Przygotowuję model i mikrofon. Nagrywanie rozpoczniesz na klawiaturze."
         }
     }
 }

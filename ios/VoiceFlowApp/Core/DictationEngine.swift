@@ -56,6 +56,7 @@ final class DictationEngine: ObservableObject {
     private var hasInputTap = false
     private let utteranceGate = AudioUtteranceGate()
     private var keepAudioAlive = false
+    private var prepareOnly = false
     var microphoneReady: Bool { keepAudioAlive && audioEngine.isRunning }
     /// Jak na Macu: 5 minut maksimum, potem nagranie się ucina — bufor 64 KB/s.
     private static let maxSeconds = 300
@@ -90,10 +91,20 @@ final class DictationEngine: ObservableObject {
         case .transcribing, .requestingPermission:
             break
         default:
+            self.prepareOnly = false
             self.recordToHistory = recordToHistory
             self.keepAudioAlive = keepAudioAlive
             start()
         }
+    }
+
+    /// Activate the microphone without collecting an utterance. The first
+    /// actual recording starts only after the keyboard sends a start command.
+    func prepareKeyboardMicrophone() {
+        guard !isBusy, !microphoneReady else { return }
+        prepareOnly = true
+        keepAudioAlive = true
+        start()
     }
 
     // MARK: - Start
@@ -186,9 +197,16 @@ final class DictationEngine: ObservableObject {
             state = .error("Nie udało się uruchomić mikrofonu: \(error.localizedDescription)")
             return
         }
-        startedAt = Date()
-        utteranceGate.set(recordingID)
-        state = .listening
+        if prepareOnly {
+            prepareOnly = false
+            recordingPipeline = nil
+            utteranceGate.set(nil)
+            state = .idle
+        } else {
+            startedAt = Date()
+            utteranceGate.set(recordingID)
+            state = .listening
+        }
     }
 
     /// Wołane z wątku audio — bez dotykania stanu obserwowanego przez UI.

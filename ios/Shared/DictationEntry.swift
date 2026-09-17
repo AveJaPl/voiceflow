@@ -7,17 +7,19 @@ struct DictationEntry: Identifiable, Codable, Equatable {
     let date: Date
     /// Skąd przyszedł ten wpis — do przyszłego rozróżnienia w UI historii.
     let source: Source
+    let accountKey: String?
 
     enum Source: String, Codable {
         case keyboard
         case containerApp
     }
 
-    init(id: UUID = UUID(), text: String, date: Date = Date(), source: Source) {
+    init(id: UUID = UUID(), text: String, date: Date = Date(), source: Source, accountKey: String? = nil) {
         self.id = id
         self.text = text
         self.date = date
         self.source = source
+        self.accountKey = accountKey
     }
 }
 
@@ -38,6 +40,7 @@ enum DictationHistoryStore {
             entries = Array(entries.prefix(maxEntries))
         }
         save(entries)
+        NotificationCenter.default.post(name: .init("voiceflow.historyChanged"), object: nil)
     }
 
     static func clear() {

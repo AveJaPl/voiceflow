@@ -21,6 +21,10 @@ struct AccountSection: View {
                 Text(statusText)
                     .font(VFFont.body(12.5))
                     .foregroundStyle(VFColor.faint)
+                Text(remote.status).font(VFFont.body(12)).foregroundStyle(VFColor.muted)
+                Button(remote.syncing ? "Synchronizuję…" : "Odśwież konto") {
+                    Task { await remote.refresh() }
+                }.disabled(remote.syncing).buttonStyle(VFOutlineButtonStyle())
                 Button("Wyloguj") {
                     AccountIdentity.email = nil
                     knownEmail = nil
@@ -28,7 +32,7 @@ struct AccountSection: View {
                 }
                 .buttonStyle(VFOutlineButtonStyle())
             } else {
-                Text("Konto jest opcjonalne: z nim historia dyktowań jest wspólna dla telefonu i Maca. Bez konta możesz dyktować lokalnie; zakładka Historia wymaga logowania.")
+                Text("Konto jest opcjonalne: z nim historia dyktowań jest wspólna dla telefonu i Maca. Zaloguj się tym samym e-mailem i hasłem co na Macu. Bez konta nadal masz historię lokalną.")
                     .font(VFFont.body(12.5))
                     .foregroundStyle(VFColor.faint)
                 field("E-mail", text: $email, placeholder: "ty@przyklad.pl")

@@ -42,6 +42,8 @@ final class DictationEngine: ObservableObject {
     private let models: WhisperModelStore
     private var appleObservers: Set<AnyCancellable> = []
     private var recordToHistory = true
+    private var recordingCredentials: RemoteCredentials?
+    private var recordingVocabulary: [String] = []
 
     // Whisper: nagranie
     private let audioEngine = AVAudioEngine()
@@ -52,6 +54,9 @@ final class DictationEngine: ObservableObject {
     private var recordingPipeline: WhisperKit?
     private var recordingID = UUID()
     private var hasInputTap = false
+    private let utteranceGate = AudioUtteranceGate()
+    private var keepAudioAlive = false
+    var microphoneReady: Bool { keepAudioAlive && audioEngine.isRunning }
     /// Jak na Macu: 5 minut maksimum, potem nagranie się ucina — bufor 64 KB/s.
     private static let maxSeconds = 300
 
@@ -78,7 +83,7 @@ final class DictationEngine: ObservableObject {
 
     var isBusy: Bool { state == .listening || state == .requestingPermission || state == .transcribing }
 
-    func toggle(recordToHistory: Bool = true) {
+    func toggle(recordToHistory: Bool = true, keepAudioAlive: Bool = false) {
         switch state {
         case .listening:
             stop()
@@ -86,6 +91,7 @@ final class DictationEngine: ObservableObject {
             break
         default:
             self.recordToHistory = recordToHistory
+            self.keepAudioAlive = keepAudioAlive
             start()
         }
     }
@@ -93,6 +99,8 @@ final class DictationEngine: ObservableObject {
     // MARK: - Start
 
     private func start() {
+        recordingCredentials = AccountSession.shared.credentials
+        recordingVocabulary = AccountSession.shared.vocabulary
         if models.isReady, let pipeline = models.pipeline {
             backend = .whisper(models.selected.title)
             startWhisper(pipeline)
@@ -106,6 +114,13 @@ final class DictationEngine: ObservableObject {
         let id = UUID()
         recordingID = id
         liveText = ""
+        if audioEngine.isRunning {
+            samples.removeAll(keepingCapacity: true)
+            startedAt = Date()
+            utteranceGate.set(id)
+            state = .listening
+            return
+        }
         state = .requestingPermission
         AVAudioApplication.requestRecordPermission { [weak self] granted in
             Task { @MainActor in
@@ -122,8 +137,12 @@ final class DictationEngine: ObservableObject {
     private func beginRecording() {
         let session = AVAudioSession.sharedInstance()
         do {
-            // Ducking is not supported by the record-only category.
-            try session.setCategory(.record, mode: .measurement)
+            if keepAudioAlive {
+                try session.setCategory(.playAndRecord, mode: .measurement,
+                    options: [.mixWithOthers, .defaultToSpeaker, .allowBluetooth])
+            } else {
+                try session.setCategory(.record, mode: .measurement)
+            }
             try session.setActive(true)
         } catch {
             state = .error("Nie udało się skonfigurować sesji audio: \(error.localizedDescription)")
@@ -142,11 +161,12 @@ final class DictationEngine: ObservableObject {
         }
         self.converter = converter
         let target = targetFormat
-        let id = recordingID
+        let gate = utteranceGate
         input.removeTap(onBus: 0)
         // Tap woła z wątku audio: konwersja i RMS liczą się tam, stan
         // obserwowany przez UI zmienia się dopiero na głównym aktorze.
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+            guard let id = gate.get() else { return }
             let mono = Self.resample(buffer, converter: converter, to: target)
             let level = Self.rms(mono)
             Task { @MainActor [weak self] in
@@ -167,6 +187,7 @@ final class DictationEngine: ObservableObject {
             return
         }
         startedAt = Date()
+        utteranceGate.set(recordingID)
         state = .listening
     }
 
@@ -202,6 +223,8 @@ final class DictationEngine: ObservableObject {
     // MARK: - Stop
 
     private func releaseAudio() {
+        utteranceGate.set(nil)
+        keepAudioAlive = false
         audioEngine.stop()
         if hasInputTap {
             audioEngine.inputNode.removeTap(onBus: 0)
@@ -210,6 +233,11 @@ final class DictationEngine: ObservableObject {
         converter = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         audioLevel = 0
+    }
+
+    func endKeyboardSession() {
+        if state == .listening { stop() }
+        releaseAudio()
     }
 
     func cancel() {
@@ -228,7 +256,9 @@ final class DictationEngine: ObservableObject {
             return
         }
         guard state == .listening else { return }
-        releaseAudio()
+        utteranceGate.set(nil)
+        if !keepAudioAlive { releaseAudio() }
+        audioLevel = 0
         let duration = startedAt.map { Date().timeIntervalSince($0) } ?? 0
 
         guard let pipeline = recordingPipeline, samples.count > 1_600 else {
@@ -242,7 +272,7 @@ final class DictationEngine: ObservableObject {
         samples.removeAll()
         recordingPipeline = nil
         let id = recordingID
-        let vocabulary = UserDefaults.standard.stringArray(forKey: "voiceflow.customVocabulary") ?? []
+        let vocabulary = recordingVocabulary
         Task { [weak self] in
             do {
                 let text = try await Self.transcribe(audio, with: pipeline, vocabulary: vocabulary)
@@ -259,7 +289,7 @@ final class DictationEngine: ObservableObject {
         }
     }
 
-    nonisolated private static func transcribe(_ audio: [Float], with pipeline: WhisperKit, vocabulary: [String]) async throws -> String {
+    nonisolated static func transcribe(_ audio: [Float], with pipeline: WhisperKit, vocabulary: [String]) async throws -> String {
         // Słownik jako prompt dekodera — ta sama sztuczka co
         // `WhisperSpeechEngine.buildInitialPrompt` na Macu.
         let promptTokens: [Int]? = vocabulary.isEmpty
@@ -292,7 +322,10 @@ final class DictationEngine: ObservableObject {
     private func finish(text: String, duration: TimeInterval) {
         liveText = text
         if recordToHistory, !text.isEmpty {
-            DictationHistoryStore.append(DictationEntry(text: text, source: .containerApp))
+            let entry = DictationEntry(text: text, source: .containerApp,
+                accountKey: recordingCredentials.map(AccountSession.key))
+            DictationHistoryStore.append(entry)
+            AccountSession.shared.record(entry, duration: duration, credentials: recordingCredentials)
 
         }
         state = .idle

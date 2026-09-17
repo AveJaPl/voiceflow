@@ -132,7 +132,7 @@ private struct SettingsStepView: View {
         .init(number: 2, icon: "keyboard", title: "Wybierz VoiceFlow",
               detail: "Pojawi się na liście klawiatur firm trzecich"),
         .init(number: 3, icon: "mic.badge.plus", title: "Włącz Pełny dostęp",
-              detail: "Bez tego mikrofon w klawiaturze nie zadziała — to wymóg systemu iOS, nie nasza decyzja"),
+              detail: "Dzięki temu klawiatura odbierze wynik z aplikacji VoiceFlow. Mikrofon działa w aplikacji."),
     ]
 
     var body: some View {
@@ -295,7 +295,7 @@ private struct TestDictationStepView: View {
                     .font(VFFont.display(22, weight: .bold))
                     .textCase(.uppercase)
                     .foregroundStyle(VFColor.text)
-                Text("Stuknij mikrofon poniżej i powiedz coś krótkiego. Zobaczysz tekst pojawiający się na żywo — to jest dowód, że wszystko działa, nie tylko obietnica.")
+                Text("Stuknij mikrofon poniżej i powiedz coś krótkiego. Zakończ nagrywanie; wtedy model rozpozna wypowiedź i pokaże tekst.")
                     .font(VFFont.body(13))
                     .foregroundStyle(VFColor.muted)
                     .fixedSize(horizontal: false, vertical: true)

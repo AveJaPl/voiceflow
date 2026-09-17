@@ -37,8 +37,9 @@ targets:
       properties:
         CFBundleDisplayName: VoiceFlow
         CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "3"
-        UIBackgroundModes: [audio]
+        CFBundleVersion: "5"
+        UIBackgroundModes: [audio, processing]
+        BGTaskSchedulerPermittedIdentifiers: [io.github.avejapl.voiceflow.ios.prepareModel]
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         UIRequiresFullScreen: true
@@ -81,7 +82,7 @@ targets:
         PRODUCT_NAME: VoiceFlow
         GENERATE_INFOPLIST_FILE: NO
         MARKETING_VERSION: "1.0"
-        CURRENT_PROJECT_VERSION: "3"
+        CURRENT_PROJECT_VERSION: "5"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_PREVIEWS: YES
     dependencies:
@@ -102,7 +103,7 @@ targets:
       properties:
         CFBundleDisplayName: VoiceFlow
         CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "3"
+        CFBundleVersion: "5"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.keyboard-service
           NSExtensionPrincipalClass: KeyboardViewController
@@ -135,7 +136,7 @@ targets:
         PRODUCT_NAME: VoiceFlowKeyboard
         GENERATE_INFOPLIST_FILE: NO
         MARKETING_VERSION: "1.0"
-        CURRENT_PROJECT_VERSION: "3"
+        CURRENT_PROJECT_VERSION: "5"
         SKIP_INSTALL: YES
 
   VoiceFlowTests:
@@ -153,6 +154,7 @@ targets:
       # CELOWO bez `VoiceFlowApp` w całości — ten katalog zawiera `@main`,
       # którego nie wolno wciągać do bundle'a testowego.
       - path: VoiceFlowApp/Core/WhisperModelCatalog.swift
+      - path: VoiceFlowApp/Account
       # Ta sama próbka co w testach Maca — jeden wzorzec tekstu dla obu platform.
       - path: ../macos/VoiceFlowTests/Fixtures/dyktowanie-pl.wav
         buildPhase: resources

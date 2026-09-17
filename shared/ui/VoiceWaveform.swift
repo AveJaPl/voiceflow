@@ -50,3 +50,28 @@ struct VoiceWaveform: View {
         .accessibilityHidden(true)
     }
 }
+
+/// Shared compact recording surface. Identical geometry and meter on both platforms.
+struct VoiceRecordingPill: View {
+    let level: Float
+    var label = "Słucham"
+    var active = true
+    var icon = "mic.fill"
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon).font(.system(size: 13, weight: .medium))
+            if active {
+                VoiceWaveform(level: level).frame(width: 124, height: 22)
+            } else {
+                Text(label).font(.system(size: 12, weight: .medium)).frame(width: 124, height: 22)
+            }
+        }
+        .padding(.horizontal, 18).padding(.vertical, 12)
+        .foregroundStyle(.white)
+        .background(Color(red: 0.24, green: 0.24, blue: 0.26))
+        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(.white.opacity(0.14), lineWidth: 1))
+        .accessibilityLabel(label)
+    }
+}

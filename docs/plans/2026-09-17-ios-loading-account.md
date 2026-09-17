@@ -1,0 +1,14 @@
+# iOS: przygotowanie modelu, konto i pill
+
+Cel: usunąć bezterminowe „ŁADUJĘ”, przywrócić konto używane na Macu oraz wspólny wygląd powierzchni nagrywania. Dostarczenie: nowy build na fizyczny iPhone.
+
+1. Przygotowanie modelu: jawne etapy specjalizacji Core ML i tokenizera, czas oczekiwania, limit oczekiwania z możliwością ponowienia lub wybrania mniejszego modelu. Zachować pobrane pliki przy błędzie ładowania. Nie zmieniać po cichu wybranego modelu ani używać GPU podczas rozpoznawania w tle. Zapisywać diagnostykę etapu bez treści dyktowań.
+2. Konto: istniejący HTTPS relay i logowanie e-mail/hasło jak na Macu; historia konta i lokalna widoczne osobno, bez mieszania kont. Synchronizować nowe dyktowania zalogowanego użytkownika oraz słownik. Nie importować automatycznie starych lokalnych tekstów do kolejnego konta. Przy niejednoznacznej wysyłce najpierw odczytać historię; nie ponawiać zapisu w ciemno. Nie zmieniać schematu serwera.
+3. Wspólny pill: szary kolor zgodnie z ostatnią prośbą; promień, rozmiar fali, font i mikrofon zbliżone do Maca; zachować wspólny VoiceWaveform (30 Hz). iOS nie otrzymuje dowolnego okna nakładanego nad inne aplikacje; pill działa w aplikacji i jej klawiaturze.
+4. Weryfikacja: testy logiki ładowania/konta, build urządzenia i symulatora, UI oraz diagnostyka na iPhonie. Konto użytkownika wymaga jego własnego logowania; nie odczytywać ani wypisywać hasła. Nagranie testowe z pliku, jeśli możliwe bez uruchamiania mikrofonu. Raportować osobno gotowość modelu, wynik transkrypcji i niezweryfikowane przejście między aplikacjami.
+
+Zakres Maca: porównać istniejący mechanizm wysyłki i wygląd; nie podmieniać działającego procesu Maca podczas pracy użytkownika. Obecny Mac wysyła historię do konta, ale jego lokalny ekran nie pobiera historii telefonu; ta granica wymaga jawnego raportu, a pełny odbiór w obu kierunkach wymaga też wydania Maca.
+
+Aktualizacja zakresu po testach użytkownika: podgląd wyniku w przewijanej klawiaturze, niezależny start kolejnego dyktowania, ręczne lub automatyczne wklejenie do bieżącego zaznaczenia, „Domykam…” i brak dodatkowego globusa tam, gdzie iOS już go zapewnia. Jedna jawna aktywacja mikrofonu w aplikacji umożliwia następne dyktowania z klawiatury bez przełączania. Sesja trwa podczas widoczności klawiatury, wygasa po 30 sekundach jej nieobecności; pierwszy powrót ma 60 sekund. Poza dyktowaniem próbki są odrzucane przed konwersją. Pełne uruchomienie mikrofonu z samego rozszerzenia bez otwarcia aplikacji nie jest obsługiwane przez iOS.
+
+Optymalizacja: encoder CPU (problem specjalizacji ANE na iOS 27), decoder ANE, bez zmiany wag large-v3-turbo. Usunięty dodatkowy prewarm powodujący dwukrotne ładowanie encodera CPU. Praca w tle przez BGContinuedProcessingTask podlega przydziałowi czasu przez iOS; wygaśnięcie jest obsługiwane i zachowuje pliki.

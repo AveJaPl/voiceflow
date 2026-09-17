@@ -7,20 +7,30 @@ struct KeyboardSessionSnapshot: Codable {
     var level: Float = 0
     var text: String = ""
     var updatedAt = Date()
+    var resultAt: Date?
+    var microphoneReady: Bool?
+    var expiresAt: Date?
+
+    func canStartInPlace(at now: Date) -> Bool {
+        microphoneReady == true && isLive(at: now) && (expiresAt == nil || expiresAt! > now)
+    }
 
     func isLive(at now: Date) -> Bool {
         now.timeIntervalSince(updatedAt) >= 0 && now.timeIntervalSince(updatedAt) < 3
     }
     func mayAutoInsert(now: Date, requestedAt: Date?, sameDocument: Bool, consumed: Bool) -> Bool {
         guard phase == .result, !consumed, sameDocument, let requestedAt,
-              updatedAt >= requestedAt else { return false }
-        return PendingInsert.shouldInsert(text: text, insertedAt: updatedAt, now: now)
+              (resultAt ?? updatedAt) >= requestedAt else { return false }
+        return PendingInsert.shouldInsert(text: text, insertedAt: resultAt ?? updatedAt, now: now)
     }
 
 }
 
 enum KeyboardSessionStore {
     static let automaticInsertionKey = "keyboard.automaticInsertion"
+    static let visibleAtKey = "keyboard.lastVisibleAt"
+    static let startKey = "keyboard.startRequest"
+    static let endKey = "keyboard.endSession"
     static let stopKey = "keyboard.stopSessionID"
     static let consumedKey = "keyboard.consumedSessionID"
     private static var url: URL? {

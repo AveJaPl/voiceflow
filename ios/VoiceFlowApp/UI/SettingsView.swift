@@ -2,13 +2,17 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var models: WhisperModelStore
-    @State private var words = (UserDefaults.standard.stringArray(forKey: "voiceflow.customVocabulary") ?? []).joined(separator: "\n")
+    @ObservedObject var account: AccountSession
+    private var words: Binding<String> { Binding(
+        get: { account.vocabulary.joined(separator: "\n") },
+        set: { account.updateVocabulary(Array($0.split(separator: "\n", omittingEmptySubsequences: false).map(String.init).prefix(100))) }) }
     @State private var language = UserDefaults.standard.string(forKey: "voiceflow.dictationLanguage") ?? "auto"
     @State private var automatic = KeyboardSessionStore.automaticallyInsert
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
+                AccountSection(remote: account)
                     VStack(alignment: .leading, spacing: 10) {
                         Text("MODEL ROZPOZNAWANIA").vfEyebrow()
                         ModelStatusView(models: models)
@@ -60,24 +64,22 @@ struct SettingsView: View {
                     Text("Automatyczny wybór języka. Nazwy własne dodaj do słownika poniżej.")
                         .font(VFFont.body(12)).foregroundStyle(VFColor.muted)
                 }
-                Toggle("Automatycznie wstawiaj tekst", isOn: $automatic)
+                Toggle("Automatycznie wklejaj tekst", isOn: $automatic)
+                Text("Po rozpoznaniu tekst zastąpi zaznaczenie lub pojawi się przy kursorze w polu, z którego zaczynasz dyktowanie.").font(VFFont.body(12)).foregroundStyle(VFColor.muted)
                 VStack(alignment: .leading, spacing: 10) {
                     Text("WŁASNY SŁOWNIK").vfEyebrow()
                     Text("Jedno słowo lub nazwa w wierszu, np. Programo. Zmiany działają od następnego dyktowania.")
                         .font(VFFont.body(12)).foregroundStyle(VFColor.muted)
-                    TextEditor(text: $words).font(VFFont.body(15)).frame(height: 150)
+                    TextEditor(text: words).font(VFFont.body(15)).frame(height: 150)
                         .scrollContentBackground(.hidden).padding(12).background(VFColor.surfaceSolid)
                         .accessibilityLabel("Własne słowa")
                 }
                 Link("Prywatność", destination: URL(string: "https://voiceflow.pbdevs.com/pl/prywatnosc")!)
-                Text("Nagrania i historia pozostają na telefonie. Po pobraniu modelu dyktowanie działa bez internetu i bez konta.")
+                Text("Audio jest przetwarzane na telefonie. Po zalogowaniu tekst nowych dyktowań i słownik synchronizują się z kontem. Dyktowanie działa też bez konta i internetu.")
                     .font(VFFont.body(12)).foregroundStyle(VFColor.muted)
             }.padding(24)
         }.background(VFColor.background).navigationTitle("Ustawienia")
-        .onChange(of: words) { _, value in
-            let vocabulary = Array(value.split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.prefix(100))
-            UserDefaults.standard.set(vocabulary, forKey: "voiceflow.customVocabulary")
-        }
+        .onAppear { automatic = KeyboardSessionStore.automaticallyInsert }
         .onChange(of: language) { _, value in
             if value == "auto" { UserDefaults.standard.removeObject(forKey: "voiceflow.dictationLanguage") }
             else { UserDefaults.standard.set(value, forKey: "voiceflow.dictationLanguage") }

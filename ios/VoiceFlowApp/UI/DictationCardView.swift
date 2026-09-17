@@ -44,8 +44,7 @@ struct DictationCardView: View {
                         .foregroundStyle(VFColor.muted)
                     Spacer()
                     if engine.state == .listening {
-                        VoiceWaveform(level: engine.audioLevel)
-                            .frame(width: 72, height: 16)
+                        VoiceRecordingPill(level: engine.audioLevel)
                     }
                 }
                 Text(engine.liveText.isEmpty ? placeholder : engine.liveText)

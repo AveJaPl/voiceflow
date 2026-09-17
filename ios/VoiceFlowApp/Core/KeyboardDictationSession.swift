@@ -2,7 +2,8 @@ import AVFoundation
 import Combine
 import UIKit
 
-/// The app owns audio. The extension only reads levels/results and requests stop.
+/// One explicitly activated audio session; the extension controls utterances.
+/// Between utterances no audio is buffered, transcribed, saved or uploaded.
 @MainActor
 final class KeyboardDictationSession: ObservableObject {
     static let shared = KeyboardDictationSession()
@@ -12,6 +13,12 @@ final class KeyboardDictationSession: ObservableObject {
     private var observer: AnyCancellable?
     private var interruption: NSObjectProtocol?
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+    private var sessionStartedAt: Date?
+    private var sessionDeadline: Date? {
+        guard let sessionStartedAt else { return nil }
+        return KeyboardActivityPolicy.deadline(startedAt: sessionStartedAt,
+            lastVisibleAt: AppGroup.defaults.object(forKey: KeyboardSessionStore.visibleAtKey) as? Date)
+    }
 
     private init() {
         observer = engine.$state.dropFirst().sink { [weak self] state in self?.changed(state) }
@@ -19,45 +26,70 @@ final class KeyboardDictationSession: ObservableObject {
             object: nil, queue: .main) { [weak self] note in
                 guard let type = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
                       type == AVAudioSession.InterruptionType.began.rawValue else { return }
-                Task { @MainActor in self?.stop() }
+                Task { @MainActor in self?.endSession() }
             }
     }
 
-    func start() {
+    func start(requestID: UUID? = nil) {
         guard !engine.isBusy else { return }
-        snapshot = KeyboardSessionSnapshot(id: UUID(), phase: .preparing)
+        if !engine.microphoneReady && UIApplication.shared.applicationState != .active { return }
+        if sessionStartedAt == nil { sessionStartedAt = Date() }
+        snapshot = KeyboardSessionSnapshot(id: requestID ?? UUID(), phase: .preparing)
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
-        engine.toggle()
+        self.timer = timer
+        RunLoop.main.add(timer, forMode: .common)
+        engine.toggle(keepAudioAlive: true)
     }
 
     func stop() {
         guard engine.state == .listening else { return }
-        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Finish dictation") { [weak self] in
-            Task { @MainActor in
-                guard let self else { return }
-                self.engine.cancel()
-                self.snapshot.phase = .error
-                self.snapshot.text = "iOS przerwał rozpoznawanie. Spróbuj krótszej wypowiedzi."
-                self.publish()
-                self.finishBackgroundTask()
+        if backgroundTask == .invalid {
+            backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Finish dictation") { [weak self] in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.cancel()
+                    self.snapshot.phase = .error
+                    self.snapshot.text = "iOS przerwał rozpoznawanie. Spróbuj krótszej wypowiedzi."
+                    self.publish()
+                }
             }
         }
-        engine.toggle()
+        engine.stop()
+    }
+
+    func endSession() {
+        stop()
+        engine.endKeyboardSession()
+        sessionStartedAt = nil
+        publish()
+        if !engine.isBusy { timer?.invalidate() }
     }
 
     func cancel() {
         engine.cancel()
+        sessionStartedAt = nil
         timer?.invalidate()
         snapshot.phase = .idle
         snapshot.text = ""
+        snapshot.resultAt = nil
         publish()
         finishBackgroundTask()
     }
 
     private func tick() {
+        if let deadline = sessionDeadline, Date() >= deadline { endSession() }
+        if AppGroup.defaults.bool(forKey: KeyboardSessionStore.endKey) {
+            AppGroup.defaults.removeObject(forKey: KeyboardSessionStore.endKey)
+            endSession()
+        }
+        if let data = AppGroup.defaults.data(forKey: KeyboardSessionStore.startKey) {
+            AppGroup.defaults.removeObject(forKey: KeyboardSessionStore.startKey)
+            if let request = try? JSONDecoder().decode(KeyboardSessionRequest.self, from: data),
+               request.isFresh(at: Date()), engine.microphoneReady { start(requestID: request.id) }
+        }
         if AppGroup.defaults.string(forKey: KeyboardSessionStore.stopKey) == snapshot.id.uuidString {
             AppGroup.defaults.removeObject(forKey: KeyboardSessionStore.stopKey)
             stop()
@@ -71,8 +103,9 @@ final class KeyboardDictationSession: ObservableObject {
             if !engine.liveText.isEmpty {
                 snapshot.phase = .result
                 snapshot.text = engine.liveText
+                snapshot.resultAt = Date()
             } else { snapshot.phase = .idle }
-            timer?.invalidate()
+            if !engine.microphoneReady { timer?.invalidate(); sessionStartedAt = nil }
             finishBackgroundTask()
         case .requestingPermission: snapshot.phase = .preparing
         case .listening: snapshot.phase = .recording
@@ -80,7 +113,7 @@ final class KeyboardDictationSession: ObservableObject {
         case .error(let message):
             snapshot.phase = .error
             snapshot.text = message
-            timer?.invalidate()
+            if !engine.microphoneReady { timer?.invalidate(); sessionStartedAt = nil }
             finishBackgroundTask()
         }
         publish()
@@ -89,6 +122,8 @@ final class KeyboardDictationSession: ObservableObject {
     private func publish() {
         snapshot.level = engine.audioLevel
         snapshot.updatedAt = Date()
+        snapshot.microphoneReady = engine.microphoneReady
+        snapshot.expiresAt = sessionDeadline
         KeyboardSessionStore.write(snapshot)
     }
 

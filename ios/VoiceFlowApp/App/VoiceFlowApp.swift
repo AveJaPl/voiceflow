@@ -4,8 +4,14 @@ import SwiftUI
 struct VoiceFlowApp: App {
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .preferredColorScheme(.dark)
+            Group {
+                #if DEBUG
+                if LaunchOverrides.keyboardPreview { KeyboardPreviewView() }
+                else { RootView() }
+                #else
+                RootView()
+                #endif
+            }.preferredColorScheme(.dark)
         }
     }
 }
@@ -52,14 +58,15 @@ struct RootView: View {
             }
         }
         .fullScreenCover(isPresented: $launchedForDictation) {
-            KeyboardHandoffView { launchedForDictation = false }
+            KeyboardHandoffView(requestID: dictationSessionID) { launchedForDictation = false }
                 .id(dictationSessionID)
         }
         .onAppear { if !LaunchOverrides.skipModelPreparation { models.prepare() } }
         .onOpenURL { url in
             guard url.scheme == "voiceflow", url.host == "dictate" else { return }
             onboardingDone = true
-            dictationSessionID = UUID()
+            dictationSessionID = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                .first(where: { $0.name == "session" })?.value.flatMap(UUID.init(uuidString:)) ?? UUID()
             launchedForDictation = true
         }
     }
@@ -71,6 +78,8 @@ struct RootView: View {
 /// nie pilotem. Dyktuje się z klawiatury (patrz `RootView`) albo przyciskiem
 /// „Dyktuj teraz” na pierwszej zakładce.
 struct MainTabView: View {
+    @StateObject private var account = AccountSession.shared
+    @Environment(\.scenePhase) private var scenePhase
     /// Konto trzymane tutaj, a nie per ekran — Historia i Pulpit biorą stąd
     /// poświadczenia do HTTP API.
     @ObservedObject private var models = WhisperModelStore.shared
@@ -80,10 +89,14 @@ struct MainTabView: View {
         TabView {
             NavigationStack { KeyboardTabView(models: models, onDictate: onDictate) }
                 .tabItem { Label("Klawiatura", systemImage: "keyboard") }
-            NavigationStack { HistoryView() }
+            NavigationStack { HistoryView(account: account) }
                 .tabItem { Label("Historia", systemImage: "clock") }
-            NavigationStack { SettingsView(models: models) }
+            NavigationStack { SettingsView(models: models, account: account) }
                 .tabItem { Label("Ustawienia", systemImage: "gearshape") }
+        }
+        .task { await account.refresh() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await account.refresh() } }
         }
         .tint(VFColor.text)
         .onAppear {

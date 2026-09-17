@@ -24,7 +24,7 @@ struct KeyboardTabView: View {
                     } label: {
                         HStack {
                             Image(systemName: "mic.fill")
-                            Text("Dyktuj teraz")
+                            Text("Włącz sesję klawiatury")
                             Spacer()
                             Image(systemName: "arrow.up.forward")
                         }
@@ -92,11 +92,11 @@ struct KeyboardTabView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("JAK TO DZIAŁA").vfEyebrow()
             VStack(alignment: .leading, spacing: 8) {
-                step(1, "Stuknij mikrofon na klawiaturze. Jeśli iOS nie otworzy aplikacji, otwórz VoiceFlow i wybierz „Dyktuj teraz”.")
-                step(2, "Po rozpoczęciu wróć do poprzedniej aplikacji. Mów i wybierz Koniec dyktowania na klawiaturze.")
-                step(3, "Tekst wstawia się automatycznie w polu, z którego zaczynasz, lub przyciskiem Wstaw tekst.")
+                step(1, "Włącz sesję klawiatury w VoiceFlow. Mikrofon działa, gdy korzystasz z klawiatury, i wyłącza się po 30 sekundach bez niej.")
+                step(2, "Wróć do swojej aplikacji. Kolejne nagrania zaczynasz i kończysz na klawiaturze, bez przełączania aplikacji.")
+                step(3, "Wynik zobaczysz na klawiaturze. Wybierz Wklej tekst lub włącz automatyczne wklejanie w Ustawieniach.")
             }
-            Text("Nagranie i historia pozostają na telefonie. Nie potrzebujesz konta.")
+            Text("Audio jest przetwarzane na telefonie. Opcjonalne konto synchronizuje tekst dyktowań i słownik z Makiem.")
                 .font(VFFont.body(12))
                 .foregroundStyle(VFColor.faint)
                 .padding(.top, 4)
@@ -140,6 +140,12 @@ struct ModelStatusView: View {
                 Text("Pobieram \(models.selected.approximateMB) MB — dyktowanie będzie gotowe po pobraniu i załadowaniu modelu.")
                     .font(VFFont.body(12))
                     .foregroundStyle(VFColor.faint)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if case .loading = models.phase {
+                ProgressView().tint(VFColor.text)
+                Text(models.loadingMessage).font(VFFont.body(13))
+                Text("\(models.loadingSeconds) s · Pierwsze przygotowanie może potrwać kilka minut. \(models.supportsBackgroundPreparation ? "Możesz przejść do innej aplikacji; iOS pokazuje postęp w tle." : "Pozostaw VoiceFlow na ekranie; iOS nie przyznał pracy w tle.") Kolejne uruchomienia korzystają z pamięci podręcznej.")
+                    .font(VFFont.body(12)).foregroundStyle(VFColor.faint)
                     .fixedSize(horizontal: false, vertical: true)
             } else if case .failed(let message) = models.phase {
                 Text(message)

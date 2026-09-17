@@ -30,16 +30,26 @@ enum AccountAPI {
     // MARK: - Słownik konta
 
     /// `GET /vocabulary` → słowa własne z konta (ustawiane na Macu). Telefon
-    /// tylko czyta: whisper dostaje je jako prompt (`DictationEngine`).
-    /// Zapis do `UserDefaults` pod TYM SAMYM kluczem co na Macu.
-    static func pullVocabulary(credentials: RemoteCredentials) async {
-        guard let url = try? endpoint(host: credentials.host, path: "/vocabulary") else { return }
-        var request = URLRequest(url: url)
+    /// czyta i zapisuje słownik konta; Whisper dostaje go jako prompt dekodera.
+    static func vocabulary(credentials: RemoteCredentials) async throws -> [String] {
+        var request = URLRequest(url: try endpoint(host: credentials.host, path: "/vocabulary"))
         request.setValue("Bearer \(credentials.token)", forHTTPHeaderField: "Authorization")
-        guard let (data, status) = try? await send(request), status == 200,
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let words = object["vocabulary"] as? [String] else { return }
-        UserDefaults.standard.set(words, forKey: "voiceflow.customVocabulary")
+        let (data, status) = try await send(request)
+        if status == 404 { return [] }
+        guard status == 200 else { throw status == 401 ? Failure.unauthorized : Failure.http(status) }
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let words = object["vocabulary"] as? [String] else { throw Failure.badResponse }
+        return words
+    }
+
+    static func putVocabulary(_ words: [String], credentials: RemoteCredentials) async throws {
+        var request = URLRequest(url: try endpoint(host: credentials.host, path: "/vocabulary"))
+        request.httpMethod = "PUT"
+        request.setValue("Bearer \(credentials.token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["vocabulary": words])
+        let (_, status) = try await send(request)
+        guard status == 200 else { throw status == 401 ? Failure.unauthorized : Failure.http(status) }
     }
 
     // MARK: - Logowanie
@@ -176,22 +186,27 @@ enum AccountAPI {
 
     // MARK: - Wnętrze
 
-    private static func endpoint(host: String, path: String) throws -> URL {
-        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        let base = trimmed.isEmpty ? defaultHost : trimmed
-        let http = base
-            .replacingOccurrences(of: "wss://", with: "https://")
-            .replacingOccurrences(of: "ws://", with: "http://")
-        let withScheme = http.hasPrefix("http") ? http : "https://\(http)"
-        guard let url = URL(string: withScheme + path), url.host?.isEmpty == false else {
-            throw Failure.badResponse
-        }
+    static func endpoint(host: String, path: String) throws -> URL {
+        var base = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        if base.isEmpty { base = defaultHost }
+        if base.hasPrefix("wss://") { base = "https://" + base.dropFirst(6) }
+        if !base.contains("://") { base = "https://" + base }
+        guard var components = URLComponents(string: base), components.scheme == "https",
+              components.host?.isEmpty == false, components.user == nil, components.password == nil,
+              components.query == nil, components.fragment == nil,
+              components.path.isEmpty || components.path == "/" else { throw Failure.badResponse }
+        components.path = path
+        guard let url = components.url else { throw Failure.badResponse }
         return url
     }
 
+    static var session = URLSession.shared
+
     private static func send(_ request: URLRequest) async throws -> (Data, Int) {
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            var request = request
+            request.timeoutInterval = 20
+            let (data, response) = try await session.data(for: request)
             guard let status = (response as? HTTPURLResponse)?.statusCode else {
                 throw Failure.badResponse
             }

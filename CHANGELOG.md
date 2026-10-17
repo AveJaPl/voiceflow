@@ -2,7 +2,7 @@
 
 Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[Web]**
 
-## Unreleased
+## 0.6.3 — 2026-10-17
 
 - **[Windows]** **Ustawienia → Mikrofon** chooses the microphone dictation
   records from: *Domyślny systemowy* or any connected input, by name. A chosen

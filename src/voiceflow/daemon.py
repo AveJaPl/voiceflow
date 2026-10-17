@@ -239,7 +239,12 @@ class VoiceflowDaemon:
         if _WINDOWS and recorder is None:
             from voiceflow.winplat.recorder import WinRecorder
 
-            self.recorder = WinRecorder(config.audio, runtime_dir(), self._max_duration_reached)
+            self.recorder = WinRecorder(
+                config.audio,
+                runtime_dir(),
+                self._max_duration_reached,
+                on_notice=lambda message: self.notifier.send(f"⚠️ {message}"),
+            )
         else:
             self.recorder = recorder or Recorder(
                 config.audio, runtime_dir(), self._max_duration_reached

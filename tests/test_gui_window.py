@@ -47,6 +47,7 @@ def quiet(monkeypatch):
     monkeypatch.setattr(service, "history_records", lambda limit=None: [])
     monkeypatch.setattr(service, "load_raw_config", lambda path=None: {})
     monkeypatch.setattr(service, "discover_audio_applications", list)
+    monkeypatch.setattr(service, "input_devices", service.Microphones)
     monkeypatch.setattr(service, "discord_available", lambda: False)
     monkeypatch.setattr(service, "newer_release", lambda: None)
     monkeypatch.setattr(service, "room_state", lambda: __import__(
@@ -312,6 +313,67 @@ def test_switching_the_ducking_off_disables_every_slider(qt_app, quiet) -> None:
     page._set_duck_controls_enabled()
     assert not page.default_duck_scale.isEnabled()
     assert not page._rule_widgets["Spotify.exe"][0].isEnabled()
+
+
+_MICROPHONES = service.Microphones(
+    ("Mikrofon (NVIDIA Broadcast)", "Zestaw słuchawkowy (WH-CH720N)"),
+    "Mikrofon (NVIDIA Broadcast)",
+)
+
+
+def _combo_texts(combo) -> list[str]:
+    return [combo.itemText(index) for index in range(combo.count())]
+
+
+def test_no_configured_microphone_means_the_windows_default(qt_app, quiet) -> None:
+    page = SettingsPage(lambda: None, lambda _message: None)
+    page.load_config({"audio": {"source": None}})
+    page._finish_microphone_refresh(_MICROPHONES)
+    assert page.microphone_combo.currentIndex() == 0
+    assert "Mikrofon (NVIDIA Broadcast)" in page.microphone_row._subtitle.text()
+    written: dict[str, Any] = {"audio": {"max_seconds": 120}}
+    page.apply_to_config(written)
+    assert written["audio"]["source"] is None
+
+
+def test_choosing_a_microphone_writes_its_name(qt_app, quiet) -> None:
+    dirtied: list[bool] = []
+    page = SettingsPage(lambda: dirtied.append(True), lambda _message: None)
+    page.load_config({})
+    page._finish_microphone_refresh(_MICROPHONES)
+    assert not dirtied, "przyjście listy mikrofonów nie jest zmianą użytkownika"
+    page.microphone_combo.setCurrentIndex(2)
+    assert dirtied
+    written: dict[str, Any] = {}
+    page.apply_to_config(written)
+    assert written["audio"]["source"] == "Zestaw słuchawkowy (WH-CH720N)"
+
+
+def test_a_disconnected_microphone_is_kept_not_forgotten(qt_app, quiet) -> None:
+    page = SettingsPage(lambda: None, lambda _message: None)
+    page.load_config({"audio": {"source": "Rode NT-USB"}})
+    page._finish_microphone_refresh(_MICROPHONES)
+    assert page.microphone_combo.currentText() == "Rode NT-USB — niepodłączony"
+    assert "niepodłączony" in page.microphone_row._subtitle.text().casefold()
+    written: dict[str, Any] = {}
+    page.apply_to_config(written)
+    assert written["audio"]["source"] == "Rode NT-USB"
+
+
+def test_a_name_typed_by_hand_selects_the_microphone_it_finds(qt_app, quiet) -> None:
+    """Zaznaczony jest ten, z którego nagra demon, a wpis zostaje taki, jaki był."""
+    page = SettingsPage(lambda: None, lambda _message: None)
+    page.load_config({"audio": {"source": "WH-CH720N"}})
+    page._finish_microphone_refresh(_MICROPHONES)
+    assert page.microphone_combo.currentText() == "Zestaw słuchawkowy (WH-CH720N)"
+    assert _combo_texts(page.microphone_combo) == [
+        "Domyślny systemowy",
+        "Mikrofon (NVIDIA Broadcast)",
+        "Zestaw słuchawkowy (WH-CH720N)",
+    ]
+    written: dict[str, Any] = {}
+    page.apply_to_config(written)
+    assert written["audio"]["source"] == "WH-CH720N"
 
 
 def test_loading_the_form_does_not_count_as_an_edit(qt_app, quiet) -> None:

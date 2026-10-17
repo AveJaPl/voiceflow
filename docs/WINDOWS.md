@@ -165,6 +165,14 @@ nobody keeps.
 - **The collision-proof option.** `F13`–`F24` exist in Windows but on no
   physical keyboard, so nothing can ever claim them. Remap Caps Lock to F13
   (PowerToys Keyboard Manager) and bind `f13`: one key, one finger, no conflict.
+- **"Nie wykryto mowy" although you spoke.** voiceflow is probably listening to
+  a different microphone than the one you talk into — a virtual one (NVIDIA
+  Broadcast, Voicemod) still bound to your old mic is the usual culprit. Pick
+  the microphone in Ustawienia → Mikrofon; "Domyślny systemowy" follows whatever
+  Windows has as the default input, including changes made while the daemon
+  runs. Every dictation logs which microphone it opened (`mikrofon: …`). By
+  hand, `audio.source` takes the name as the list shows it, or any fragment of
+  it.
 - **Dictation is slow.** Run `voiceflow.exe status`: if it reports `cpu/int8`,
   the GPU was rejected at startup and the reason is in the log.
 

@@ -68,6 +68,7 @@ def test_hotkey_config_custom_binding() -> None:
 
 def test_winplat_modules_import_everywhere() -> None:
     """ctypes.windll must stay lazy so the suite runs on Linux CI."""
+    import voiceflow.winplat.audiodevices
     import voiceflow.winplat.injector
     import voiceflow.winplat.keycapture
     import voiceflow.winplat.micmute

@@ -46,6 +46,7 @@ from voiceflow.gui.widgets import (
     volume_slider,
     volume_text,
 )
+from voiceflow.winplat.audiodevices import match_device
 
 #: Executable names are what Windows knows an application by; these are the few
 #: whose file name is not what a person calls it.
@@ -63,6 +64,8 @@ DISPLAY_NAMES = {
 
 DISCORD_DEVELOPERS_URL = "https://discord.com/developers/applications"
 
+DEFAULT_MICROPHONE = "Domyślny systemowy"
+
 
 class SettingsPage(QWidget):
     """Edit supported daemon settings without discarding unknown YAML keys."""
@@ -79,12 +82,20 @@ class SettingsPage(QWidget):
         self._detected_audio_apps: dict[str, Any] = {}
         self._duck_app_rows: list[QWidget] = []
         self._rule_widgets: dict[str, tuple[QWidget, QWidget]] = {}
+        #: Mikrofon z konfiguracji (None = domyślny Windowsa) i to, co jest
+        #: podłączone. Osobno od pola wyboru, bo lista przychodzi z wątku
+        #: w tle, często już po wczytaniu konfiguracji.
+        self._audio_source: str | None = None
+        self._microphones = service.Microphones()
+        self._microphones_known = False
+        self._microphones_refreshing = False
 
         clamp, self.content = page_body()
         self.content.addWidget(
             page_header("Ustawienia", "Dopasuj model i zachowanie lokalnego dyktowania.")
         )
         self._build_model_group()
+        self._build_microphone_group()
         self._build_voice_chat_group()
         self._build_ducking_group()
         self._build_presence_group()
@@ -154,6 +165,26 @@ class SettingsPage(QWidget):
         self.beam_spin.valueChanged.connect(self._changed)
         beam_row.add_suffix(self.beam_spin)
         rows.append(beam_row)
+
+    def _build_microphone_group(self) -> None:
+        _wrapper, rows = self._group(
+            "Mikrofon",
+            "Z którego mikrofonu nagrywać dyktowanie. Domyślny podąża za "
+            "mikrofonem ustawionym w Windowsie, także po zmianie w trakcie pracy.",
+        )
+        self.microphone_row = SettingsRow("Mikrofon do dyktowania")
+        self.microphone_combo = Combo()
+        self.microphone_combo.setMinimumWidth(280)
+        self.microphone_combo.currentIndexChanged.connect(self._on_microphone_changed)
+        self.microphone_row.add_suffix(self.microphone_combo)
+        self.microphone_refresh_button = QPushButton()
+        self.microphone_refresh_button.setObjectName("icon-button")
+        self.microphone_refresh_button.setIcon(_refresh_icon())
+        self.microphone_refresh_button.setToolTip("Odśwież listę mikrofonów")
+        self.microphone_refresh_button.clicked.connect(self.refresh_microphones)
+        self.microphone_row.add_suffix(self.microphone_refresh_button)
+        rows.append(self.microphone_row)
+        self._render_microphones()
 
     def _build_voice_chat_group(self) -> None:
         wrapper, rows = self._group(
@@ -403,6 +434,11 @@ class SettingsPage(QWidget):
 
             audio = service.section(config, "audio")
             self.max_seconds_spin.setValue(service.int_value(audio, "max_seconds", 300))
+            source = audio.get("source")
+            self._audio_source = (
+                source.strip() if isinstance(source, str) and source.strip() else None
+            )
+            self._render_microphones()
 
             history = service.section(config, "history")
             self.history_row.set_checked(service.bool_value(history, "enabled", True))
@@ -450,7 +486,9 @@ class SettingsPage(QWidget):
         preview["window_seconds"] = round(self.preview_window.value(), 2)
 
         service.mutable_section(config, "overlay")["enabled"] = self.overlay_row.is_checked()
-        service.mutable_section(config, "audio")["max_seconds"] = self.max_seconds_spin.value()
+        audio = service.mutable_section(config, "audio")
+        audio["max_seconds"] = self.max_seconds_spin.value()
+        audio["source"] = self._audio_source
 
         inject = service.mutable_section(config, "inject")
         inject["paste_key"] = self.paste_entry.text().strip() or "ctrl+v"
@@ -473,6 +511,33 @@ class SettingsPage(QWidget):
         """Refresh lightweight diagnostics whenever the settings page is entered."""
         self._refresh_discord_status()
         self.refresh_audio_apps()
+        self.refresh_microphones()
+
+    def refresh_microphones(self) -> None:
+        """Read the connected microphones without blocking the UI thread."""
+        if self._microphones_refreshing:
+            return
+        self._microphones_refreshing = True
+        self.microphone_refresh_button.setEnabled(False)
+        BackgroundCall(
+            service.input_devices,
+            self._finish_microphone_refresh,
+            self._failed_microphone_refresh,
+        )
+
+    def _finish_microphone_refresh(self, microphones: object) -> None:
+        self._microphones_refreshing = False
+        self.microphone_refresh_button.setEnabled(True)
+        if not isinstance(microphones, service.Microphones):
+            return
+        self._microphones = microphones
+        self._microphones_known = True
+        self._render_microphones()
+
+    def _failed_microphone_refresh(self, message: str) -> None:
+        self._microphones_refreshing = False
+        self.microphone_refresh_button.setEnabled(True)
+        self._on_toast(message)
 
     def refresh_audio_apps(self) -> None:
         """Discover audio sessions without blocking the UI thread."""
@@ -521,6 +586,64 @@ class SettingsPage(QWidget):
             self.model_row.set_subtitle(
                 f"Przybliżony rozmiar pobierania: {self._model_options[index][1]}"
             )
+
+    # -- microphone ------------------------------------------------------------
+
+    def _render_microphones(self) -> None:
+        """Odbuduj listę mikrofonów z zaznaczonym tym z konfiguracji.
+
+        Mikrofonu z konfiguracji, którego teraz nie ma, nie wolno po cichu
+        zgubić: zostaje na liście jako niepodłączony, a zapis go nie nadpisze.
+        """
+        was_loading = self._loading
+        self._loading = True
+        try:
+            combo = self.microphone_combo
+            combo.clear()
+            combo.addItem(DEFAULT_MICROPHONE, None)
+            names = list(self._microphones.names)
+            for name in names:
+                combo.addItem(name, name)
+            selected = 0
+            if self._audio_source is not None:
+                # Ta sama reguła co w rejestratorze, więc zaznaczony jest
+                # dokładnie ten mikrofon, z którego demon będzie nagrywał.
+                index = match_device(self._audio_source, enumerate(names))
+                if index is None:
+                    suffix = " — niepodłączony" if self._microphones_known else ""
+                    combo.addItem(f"{self._audio_source}{suffix}", self._audio_source)
+                    selected = combo.count() - 1
+                else:
+                    selected = index + 1
+            combo.setCurrentIndex(selected)
+        finally:
+            self._loading = was_loading
+        self._update_microphone_subtitle()
+
+    def _on_microphone_changed(self, *_args: object) -> None:
+        if self._loading:
+            return
+        chosen = self.microphone_combo.currentData()
+        self._audio_source = chosen if isinstance(chosen, str) and chosen else None
+        self._update_microphone_subtitle()
+        self._changed()
+
+    def _update_microphone_subtitle(self) -> None:
+        if self._audio_source is None:
+            current = self._microphones.default
+            self.microphone_row.set_subtitle(
+                f"Teraz w Windowsie: {current}"
+                if current
+                else "Ten, który jest domyślny w ustawieniach dźwięku Windowsa"
+            )
+        elif not self._microphones_known:
+            self.microphone_row.set_subtitle("")
+        elif match_device(self._audio_source, enumerate(self._microphones.names)) is None:
+            self.microphone_row.set_subtitle(
+                "Niepodłączony — do czasu podłączenia nagrywam z domyślnego"
+            )
+        else:
+            self.microphone_row.set_subtitle("Zawsze ten, niezależnie od domyślnego w Windowsie")
 
     # -- ducking ---------------------------------------------------------------
 

@@ -451,6 +451,27 @@ def discover_audio_applications() -> list[AudioApplication]:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class Microphones:
+    """Mikrofony podłączone teraz i ten, który Windows ma jako domyślny."""
+
+    names: tuple[str, ...] = ()
+    default: str | None = None
+
+
+def input_devices() -> Microphones:
+    """Mikrofony do wyboru w ustawieniach, tak jak je potem znajdzie rejestrator."""
+    if os.name != "nt":
+        return Microphones()
+    from voiceflow.winplat.audiodevices import input_device_names, snapshot
+
+    try:
+        current = snapshot()
+    except OSError as exc:
+        raise RuntimeError(f"Nie można odczytać listy mikrofonów: {exc}") from exc
+    return Microphones(tuple(input_device_names(current)), current.default_name)
+
+
 def discord_available() -> bool:
     """True when Discord's local IPC pipe answers."""
     if os.name != "nt":

@@ -40,7 +40,9 @@ _INJECT_COMMENT = (
 )
 
 _AUDIO_SOURCE_COMMENT = (
-    "null = default input device" if _WINDOWS else "null = default PipeWire device"
+    "null = default input device, or a name from Settings → Mikrofon"
+    if _WINDOWS
+    else "null = default PipeWire device"
 )
 
 _MUTE_APPS_SECTION = (
@@ -254,7 +256,12 @@ class ModelConfig:
 
 @dataclass(frozen=True, slots=True)
 class AudioConfig:
-    """PipeWire recording settings."""
+    """Recording settings.
+
+    ``source`` is a PipeWire node on Linux and a microphone name on Windows
+    (matched against the MME devices, truncated names and fragments included);
+    ``None`` follows the system default.
+    """
 
     source: str | None = None
     max_seconds: int = 300

@@ -2,6 +2,29 @@
 
 Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[Web]**
 
+## Unreleased
+
+- **[Windows]** **Ustawienia → Mikrofon** chooses the microphone dictation
+  records from: *Domyślny systemowy* or any connected input, by name. A chosen
+  microphone that is not connected stays selected and marked as such, and
+  dictation meanwhile records from the default — with one notification per
+  disappearance, so a dead headset does not read as "no speech detected".
+- **[Windows]** The default microphone really follows Windows. PortAudio reads
+  the device list once, when the daemon first records, and kept it for the
+  life of the process: changing the default input, or a headset connecting
+  after startup, never reached a running daemon — and since MME renumbers its
+  devices on every plug and unplug, a stale list could open the wrong one.
+  Before each dictation the recorder now compares a winmm snapshot (no COM,
+  well under a millisecond after the first) with the one PortAudio was
+  initialized against and reinitializes only when they differ, which costs
+  30–50 ms.
+- **[Windows]** `audio.source` works. It used to be handed to sounddevice as a
+  query across every host API, where each microphone appears up to four times,
+  so any real name failed with *Multiple input devices found*. It is now
+  matched against the MME inputs only — the path that resamples any microphone
+  to 16 kHz — exactly, then allowing for MME's 31-character truncation, then as
+  a fragment. Each dictation logs the microphone it opened.
+
 ## 0.6.2 — 2026-09-11
 
 - **[Windows]** The **Aktualizacja** button installs the update instead of

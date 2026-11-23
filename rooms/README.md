@@ -1,44 +1,45 @@
-# voiceflow — pokoje
+# voiceflow: rooms
 
-Usługa wspólnych sesji dyktowania: kto teraz mówi, twarda blokada dla
-pozostałych, ściszanie dźwięku u wszystkich w pokoju i ranking sesji.
-Specyfikacja: `docs/superpowers/specs/2026-08-11-pokoje-i-sesje-design.md`.
+The service behind shared dictation sessions: who is speaking right now, a hard
+talk lock for everyone else, ducking the audio for everyone in the room, and a
+session leaderboard. Design: [docs/design/specs/2026-08-11-pokoje-i-sesje-design.md](../docs/design/specs/2026-08-11-pokoje-i-sesje-design.md)
+(in Polish).
 
-## Co przechodzi przez tę usługę
+## What goes through this service
 
-Zdarzenia obecności („zaczynam mówić", „skończyłem") oraz liczby: słowa i
-sekundy. **Audio i treść dyktowania nigdy.** Tabela `dictations` nie ma kolumny
-na tekst i to jest celowe — dopisanie jej wymaga migracji, którą ktoś musi
-świadomie zatwierdzić.
+Presence events ("I started speaking", "I stopped") and numbers: words and
+seconds. **Never audio, never the dictated text.** The `dictations` table has no
+column for text, on purpose: adding one requires a migration that someone has to
+approve deliberately.
 
-## Uruchomienie lokalne
+## Running locally
 
 ```bash
 npm install
-DATABASE_URL=postgres://voiceflow:haslo@localhost:5432/voiceflow node server.js
+DATABASE_URL=postgres://voiceflow:password@localhost:5432/voiceflow node server.js
 ```
 
-Bez `DATABASE_URL` serwer odmawia startu — celowo, żeby nie dało się wdrożyć
-usługi, która wstaje i dopiero potem okazuje się bezużyteczna.
+Without `DATABASE_URL` the server refuses to start, on purpose, so that nobody can
+deploy a service that comes up and only then turns out to be useless.
 
-## Testy
+## Tests
 
 ```bash
 npm test
 ```
 
-Cała logika pokoju (`src/roomState.js`) to czyste funkcje — testy nie
-potrzebują bazy ani gniazd.
+All room logic (`src/roomState.js`) is pure functions, so the tests need neither
+a database nor sockets.
 
-## Endpointy
+## Endpoints
 
-| metoda | ścieżka | do czego |
+| method | path | purpose |
 |---|---|---|
-| `GET` | `/health` | health-check |
-| `POST` | `/api/devices` | rejestracja urządzenia, zwraca token |
-| `POST` | `/api/rooms` | utworzenie pokoju **i pierwszej sesji** |
-| `POST` | `/api/rooms/:kod/join` | dołączenie urządzenia do pokoju |
-| `POST` | `/api/rooms/:kod/session/end` | zamknięcie sesji i otwarcie następnej |
-| `GET` | `/api/rooms/:kod/ranking` | skład, bieżąca sesja i wynik |
-| `WS` | `/ws?room=KOD&token=…` | obecność na żywo |
-| `GET` | `/room/KOD` | strona rankingu (tablet, telewizor) |
+| `GET` | `/health` | health check |
+| `POST` | `/api/devices` | register a device, returns a token |
+| `POST` | `/api/rooms` | create a room **and its first session** |
+| `POST` | `/api/rooms/:code/join` | join a device to a room |
+| `POST` | `/api/rooms/:code/session/end` | close the session and open the next one |
+| `GET` | `/api/rooms/:code/ranking` | members, current session and scores |
+| `WS` | `/ws?room=CODE&token=…` | live presence |
+| `GET` | `/room/CODE` | leaderboard page (for a tablet or a TV) |

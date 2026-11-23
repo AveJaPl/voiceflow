@@ -23,7 +23,7 @@ implemented on macOS yet.
 | **Audio ducking** | Other applications are turned down while you dictate, restored afterwards. |
 | **Microphone isolation** | Optional: swaps the system default input to a silent device (BlackHole) so a voice chat cannot hear the dictation, and restores it after. Needs BlackHole installed and Discord set to "Default" input. |
 | **Discord Rich Presence** | Optional, shows that you are dictating. Local IPC only. |
-| **Wspólny pokój** | Dołącz kodem w Ustawieniach. Kiedy ktoś inny w pokoju mówi, Twój skrót nie zaczyna nagrywać, a dźwięk na tym Macu ścisza się sam; Twoje dyktowania liczą się do rankingu sesji. Wysyłane są wyłącznie zdarzenia obecności i liczby — nagranie i tekst nigdy. Wyłączone, dopóki nie dołączysz. |
+| **Shared room** | Join with a code in Settings. While someone else in the room is speaking, your shortcut does not start recording and the audio on this Mac is turned down automatically; your dictations count towards the session leaderboard. Only presence events and numbers are sent — never the recording or the text. Off until you join. |
 | **Remote microphone** | Optional: an iPhone can act as a hold-to-talk microphone over a relay. |
 
 Not implemented: per-application volume rules (`duck_rules` on Linux) — macOS
@@ -51,11 +51,18 @@ whisper.cpp core the project already uses elsewhere, wired into a persistent
 streaming session with local-agreement partial-commit logic. English stays on
 Apple's engine (on-device there, no known issues).
 
-## Build
+## Download
 
-There is no installer and no release artifact for macOS. You build it yourself,
-because the app needs a code-signing identity tied to *your* Apple ID — nobody
-can ship you a working binary without one.
+A signed and Apple-notarized build for Apple Silicon is on the releases page:
+[`VoiceFlow-mac.dmg`](https://github.com/AveJaPl/voiceflow/releases/tag/mac-v0.8.0)
+(mac-v0.8.0). Open it and drag VoiceFlow to Applications. The first launch asks
+for Microphone and Accessibility permissions and downloads a model. It requires
+macOS 26 (see below).
+
+## Build from source
+
+Building yourself is for development, or for a newer commit than the latest
+release. A local build needs a code-signing identity tied to *your* Apple ID.
 
 ### 0. Check this before anything else
 

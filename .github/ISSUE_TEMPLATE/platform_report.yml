@@ -1,0 +1,56 @@
+name: Platform report
+description: Tell us whether voiceflow works on your desktop, compositor or GPU (KDE, Hyprland, Sway, X11, other distributions).
+title: "[Platform report] "
+labels: ["platform"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        voiceflow is developed on GNOME on Wayland. Reports from everything else are very valuable,
+        **including "it just works"**.
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options:
+        - Works on my setup
+        - Works partly
+        - Does not work
+    validations:
+      required: true
+  - type: input
+    id: distro
+    attributes:
+      label: Distribution / OS and version
+      placeholder: "Fedora 43"
+    validations:
+      required: true
+  - type: input
+    id: desktop
+    attributes:
+      label: Desktop environment and compositor
+      placeholder: "KDE Plasma 6 on Wayland / Hyprland / Sway / X11"
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and driver
+      placeholder: "NVIDIA RTX 4060, driver 580 / AMD / none"
+  - type: checkboxes
+    id: parts
+    attributes:
+      label: What worked
+      options:
+        - label: Installer finished
+        - label: Hotkey starts and stops recording
+        - label: Live preview overlay shows up and does not steal focus
+        - label: Text is pasted into the focused window
+        - label: Previous clipboard is restored
+        - label: Voice-chat muting / ducking
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes and logs
+      description: What you had to change, what failed, and the output of `voiceflow status`.
+      render: text

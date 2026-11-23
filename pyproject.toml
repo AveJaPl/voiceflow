@@ -46,8 +46,10 @@ dependencies = [
 ]
 
 [project.urls]
+Homepage = "https://voiceflow.pbdevs.com/en/"
 Repository = "https://github.com/AveJaPl/voiceflow"
 Issues = "https://github.com/AveJaPl/voiceflow/issues"
+Changelog = "https://github.com/AveJaPl/voiceflow/blob/main/CHANGELOG.md"
 
 [project.scripts]
 voiceflow = "voiceflow.cli:main"

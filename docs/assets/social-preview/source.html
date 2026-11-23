@@ -1,0 +1,77 @@
+<!doctype html>
+<!--
+  Source of docs/assets/social-preview.png (GitHub social preview, 1280x640).
+  Style follows site/DESIGN.md ("Stoic"). Render from the repo root:
+
+    google-chrome --headless=new --disable-gpu --hide-scrollbars \
+      --user-data-dir="$(mktemp -d)" --window-size=1280,640 \
+      --virtual-time-budget=8000 \
+      --screenshot=docs/assets/social-preview.png \
+      "file://$PWD/docs/assets/social-preview/source.html"
+
+  Upload: repo Settings -> General -> Social preview (manual, no API).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>voiceflow social preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Inter:wght@400;500&display=block" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B0A09; --text:#EDE8DF; --muted:#9C948A; --faint:#5D574E;
+    --border:#272220; --gold:#C9A45C;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:1280px;height:640px;overflow:hidden;background:var(--bg)}
+  body{position:relative;color:var(--text);font-family:"Inter",sans-serif;-webkit-font-smoothing:antialiased}
+
+  /* texture: relief, very dim */
+  .relief{position:absolute;inset:0;background:url(../../../site/assets/bg-relief.webp) center/cover no-repeat;
+    opacity:.16;filter:grayscale(1)}
+  /* statue, mirrored so it faces the text, cropped to the bust */
+  .statue{position:absolute;right:-10px;top:0;width:620px;height:640px;overflow:hidden}
+  .statue img{position:absolute;width:1040px;height:auto;right:-20px;top:-40px;transform:scaleX(-1);
+    filter:grayscale(1) brightness(.8) contrast(1.05);opacity:.85}
+  /* blend the statue into the background on the left and bottom edges */
+  .statue::after{content:"";position:absolute;inset:0;
+    background:
+      linear-gradient(90deg,var(--bg) 0%,rgba(11,10,9,.85) 14%,rgba(11,10,9,0) 42%),
+      linear-gradient(0deg,var(--bg) 0%,rgba(11,10,9,0) 30%),
+      linear-gradient(180deg,rgba(11,10,9,.6) 0%,rgba(11,10,9,0) 18%)}
+
+  .content{position:absolute;left:80px;top:88px;width:720px}
+  .icon{width:64px;height:64px;color:var(--gold);display:block;margin-left:-8px}
+  h1{font-family:"Cormorant Garamond",serif;font-weight:600;font-size:124px;line-height:.9;
+    letter-spacing:-.015em;margin-top:6px}
+  .rule{width:120px;height:2px;background:var(--gold);margin:28px 0 26px}
+  .tagline{font-family:"Cormorant Garamond",serif;font-weight:500;font-size:48px;line-height:1.08}
+  .facts{margin-top:30px;font-size:24px;color:var(--muted);letter-spacing:.005em}
+  .platforms{margin-top:12px;font-size:22px;font-weight:500;color:var(--gold);letter-spacing:.01em}
+  .dot{padding:0 .35em;opacity:.8}
+  .url{position:absolute;right:56px;bottom:40px;font-size:18px;color:var(--faint);letter-spacing:.02em}
+</style>
+</head>
+<body>
+  <div class="relief"></div>
+  <div class="statue"><img src="../../../site/assets/hero-statue-4.webp" alt=""></div>
+
+  <div class="content">
+    <svg class="icon" viewBox="24 24 80 80" aria-hidden="true" fill="currentColor">
+      <rect x="32" y="52" width="8" height="24" rx="4"/>
+      <rect x="46" y="42" width="8" height="44" rx="4"/>
+      <rect x="60" y="32" width="8" height="64" rx="4"/>
+      <rect x="74" y="42" width="8" height="44" rx="4"/>
+      <rect x="88" y="52" width="8" height="24" rx="4"/>
+    </svg>
+    <h1>voiceflow</h1>
+    <div class="rule"></div>
+    <p class="tagline">Press a hotkey. Speak.<br>Text appears in any window.</p>
+    <p class="facts">Local Whisper on your GPU<span class="dot">·</span>No cloud<span class="dot">·</span>MIT</p>
+    <p class="platforms">Linux (Wayland)<span class="dot">·</span>Windows<span class="dot">·</span>macOS</p>
+  </div>
+
+  <div class="url">github.com/AveJaPl/voiceflow</div>
+</body>
+</html>

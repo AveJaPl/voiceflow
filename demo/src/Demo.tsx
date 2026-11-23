@@ -49,7 +49,7 @@ export const DURATION = END_CARD + 66;
 const UI = '"Ubuntu Sans", "Ubuntu", sans-serif';
 const CARD_FONT = '"Inter", "Ubuntu", sans-serif';
 const TERM = '"FiraCode Nerd Font Mono", "Fira Code", "Ubuntu Sans Mono", monospace';
-const GOLD = "#C9A45C";
+const ACCENT_TEXT = "#ffffff"; // monochrome, like the overlay and the app icon
 const CLAUDE = "#D97757";
 const ACCENT = "#3584e4"; // GNOME "blue" accent
 
@@ -90,7 +90,6 @@ const SHOTS: [number, number, number, number][] = [
   // onto the prompt and the card below it; the paste lands in the same shot
   [REC + 14, 1.6, 960, 760],
   [ENTER, 1.6, 960, 760],
-  [REPLY + 30, 1.35, 960, 640], // back a little for the reply
 ];
 
 function camera(frame: number) {
@@ -340,7 +339,7 @@ const Terminal = ({ frame }: { frame: number }) => {
                 border: "1px solid rgba(255,255,255,0.25)",
                 borderRadius: 6,
                 padding: "6px 10px",
-                background: `rgba(201,164,92,${0.18 * pasteFlash})`,
+                background: `rgba(255,255,255,${0.12 * pasteFlash})`,
               }}
             >
               <span style={{ color: P.dim }}>&gt; </span>
@@ -428,12 +427,12 @@ const Key = ({ children }: { children: ReactNode }) => (
       minWidth: 40,
       padding: "6px 14px",
       borderRadius: 9,
-      background: "#f4f1ea",
+      background: "#f5f5f7",
       color: "#151515",
       fontFamily: UI,
       fontWeight: 700,
       fontSize: 24,
-      boxShadow: "0 4px 0 #a9a39a",
+      boxShadow: "0 4px 0 #9a9aa0",
       textAlign: "center",
     }}
   >
@@ -460,7 +459,7 @@ const KeyHint = ({ frame, at, keys, label }: { frame: number; at: number; keys: 
         padding: "14px 20px",
         borderRadius: 16,
         background: "rgba(10,10,12,0.82)",
-        border: `1px solid ${GOLD}66`,
+        border: "1px solid rgba(255,255,255,0.18)",
         fontFamily: UI,
         color: "#eee",
         fontSize: 22,
@@ -472,7 +471,7 @@ const KeyHint = ({ frame, at, keys, label }: { frame: number; at: number; keys: 
           <Key>{k}</Key>
         </span>
       ))}
-      <span style={{ marginLeft: 8, color: GOLD, fontWeight: 700 }}>{label}</span>
+      <span style={{ marginLeft: 8, color: ACCENT_TEXT, fontWeight: 700 }}>{label}</span>
     </div>
   );
 };
@@ -490,7 +489,7 @@ const EndCard = ({ frame }: { frame: number }) => {
     <AbsoluteFill
       style={{
         opacity: fade(frame, END_CARD, 14),
-        background: "radial-gradient(1300px 750px at 50% 40%, #1c1813 0%, #0b0a09 70%)",
+        background: "radial-gradient(1300px 750px at 50% 40%, #1c1c20 0%, #0a0a0b 70%)",
         alignItems: "center",
         justifyContent: "center",
         flexDirection: "column",
@@ -499,19 +498,19 @@ const EndCard = ({ frame }: { frame: number }) => {
     >
       <div style={{ display: "flex", gap: 11, alignItems: "center", height: 104, ...rise(0) }}>
         {bars.map((h, i) => (
-          <div key={i} style={{ width: 13, height: h, borderRadius: 7, background: GOLD }} />
+          <div key={i} style={{ width: 13, height: h, borderRadius: 7, background: "#f5f5f7" }} />
         ))}
       </div>
-      <div style={{ fontSize: 114, fontWeight: 700, color: "#f4f1ea", letterSpacing: "-0.03em", marginTop: 14, ...rise(1) }}>
+      <div style={{ fontSize: 114, fontWeight: 700, color: "#f5f5f7", letterSpacing: "-0.03em", marginTop: 14, ...rise(1) }}>
         voiceflow
       </div>
-      <div style={{ fontSize: 42, color: "#e8e2d6", marginTop: 8, ...rise(2) }}>
+      <div style={{ fontSize: 42, color: "#e4e4e8", marginTop: 8, ...rise(2) }}>
         Press a hotkey. Speak. Text appears in any window.
       </div>
-      <div style={{ fontSize: 28, color: GOLD, marginTop: 32, fontWeight: 700, ...rise(3) }}>
+      <div style={{ fontSize: 28, color: "#c9c9cf", marginTop: 32, fontWeight: 700, ...rise(3) }}>
         Local Whisper on your GPU · No cloud · Free & open source
       </div>
-      <div style={{ fontSize: 25, color: "#8d877d", marginTop: 14, ...rise(4) }}>github.com/AveJaPl/voiceflow</div>
+      <div style={{ fontSize: 25, color: "#8a8a90", marginTop: 14, ...rise(4) }}>github.com/AveJaPl/voiceflow</div>
     </AbsoluteFill>
   );
 };

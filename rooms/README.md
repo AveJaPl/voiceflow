@@ -2,7 +2,7 @@
 
 The service behind shared dictation sessions: who is speaking right now, a hard
 talk lock for everyone else, ducking the audio for everyone in the room, and a
-session leaderboard. Design: [docs/design/specs/2026-08-11-pokoje-i-sesje-design.md](../docs/design/specs/2026-08-11-pokoje-i-sesje-design.md)
+session leaderboard. Design: [docs/superpowers/specs/2026-08-11-pokoje-i-sesje-design.md](../docs/superpowers/specs/2026-08-11-pokoje-i-sesje-design.md)
 (in Polish).
 
 ## What goes through this service

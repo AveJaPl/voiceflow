@@ -39,7 +39,7 @@ The macOS and mobile ports have their own toolchains; see
 | `windows/` | Windows installers |
 | `scripts/`, `systemd/`, `install.sh` | Linux install and helper scripts |
 | `tests/` | the Python test suite |
-| `docs/` | user docs and [internal design notes](docs/design/README.md) |
+| `docs/` | user docs and [internal design notes](docs/superpowers/README.md) |
 
 Module boundaries are load-bearing: `recorder`, `transcriber`, `injector`, `overlay`
 and `micmute` must not import each other; the daemon is the only composer. Keep one

@@ -2,6 +2,12 @@
 
 Platform tags: **[All]** · **[Linux]** · **[Windows]** · **[Android]** · **[Web]**
 
+## Unreleased
+
+- **[Linux]** **[Windows]** The default transcription language is now **English** (`model.language: en`,
+  server `VOICEFLOW_LANGUAGE=en`) instead of Polish. Existing config files keep
+  whatever they say; change it in Settings or set `null` for automatic detection.
+
 ## 0.6.3 — 2026-10-17
 
 - **[Windows]** **Ustawienia → Mikrofon** chooses the microphone dictation

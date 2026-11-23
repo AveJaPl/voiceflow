@@ -390,7 +390,7 @@ class SettingsPage(QWidget):
             self.compute_combo.setCurrentIndex(
                 service.COMPUTE_TYPES.index(compute) if compute in service.COMPUTE_TYPES else 0
             )
-            language = model.get("language", "pl")
+            language = model.get("language", "en")
             self.language_entry.setText(language if isinstance(language, str) else "")
             self.beam_spin.setValue(service.int_value(model, "beam_size", 5))
 

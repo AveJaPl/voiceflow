@@ -160,7 +160,7 @@ model:
   name: large-v3-turbo
   device: cuda            # cuda | cpu | auto
   compute_type: float16
-  language: pl            # ISO 639-1 code; null = automatic detection
+  language: en            # ISO 639-1 code; null = automatic detection
   beam_size: 5
   # Threads used when transcribing on the CPU. 0 = one per physical core, which
   # on a laptop is worth roughly a fifth of the waiting time over the four
@@ -242,7 +242,7 @@ class ModelConfig:
     name: str = "large-v3-turbo"
     device: str = "cuda"
     compute_type: str = "float16"
-    language: str | None = "pl"
+    language: str | None = "en"
     beam_size: int = 5
     #: Computation threads when transcribing on the CPU. Zero means "decide from
     #: the machine": CTranslate2 defaults to four regardless of what is there,
@@ -695,10 +695,10 @@ def parse_config(data: Mapping[str, Any] | None) -> Config:
     notifications = _section(root, "notifications")
     room = _section(root, "room")
 
-    language = model.get("language", "pl")
+    language = model.get("language", "en")
     if language is not None and not isinstance(language, str):
-        LOGGER.warning("Nieprawidłowa wartość model.language=%r; używam pl", language)
-        language = "pl"
+        LOGGER.warning("Nieprawidłowa wartość model.language=%r; używam en", language)
+        language = "en"
 
     source = audio.get("source")
     if source is not None and not isinstance(source, str):

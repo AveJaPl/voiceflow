@@ -403,7 +403,7 @@ class SettingsPage(Gtk.ScrolledWindow):
 
         device = string_value(model, "device", "cuda")
         self.device_row.set_selected(DEVICES.index(device) if device in DEVICES else 0)
-        language = model.get("language", "pl")
+        language = model.get("language", "en")
         self.language_entry.set_text(language if isinstance(language, str) else "")
 
         mute_apps = section(config, "mute_apps")

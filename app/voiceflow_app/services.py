@@ -44,7 +44,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "name": "large-v3-turbo",
         "device": "cuda",
         "compute_type": "float16",
-        "language": "pl",
+        "language": "en",
         "beam_size": 5,
         "vocabulary": [],
     },

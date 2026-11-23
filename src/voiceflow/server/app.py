@@ -55,7 +55,7 @@ class ServerConfig:
         vocabulary = tuple(
             word.strip() for word in env.get("VOICEFLOW_VOCABULARY", "").split(",") if word.strip()
         )
-        language = env.get("VOICEFLOW_LANGUAGE", "pl").strip() or None
+        language = env.get("VOICEFLOW_LANGUAGE", "en").strip() or None
         model = ModelConfig(
             name=env.get("VOICEFLOW_MODEL", "large-v3-turbo").strip() or "large-v3-turbo",
             device=env.get("VOICEFLOW_DEVICE", "cpu").strip() or "cpu",

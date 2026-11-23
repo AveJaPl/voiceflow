@@ -64,7 +64,7 @@ def test_transcribe_zwraca_tekst_i_metryki(client: tuple[TestClient, _FakeTransc
     body = response.json()
     assert body["text"] == "dzień dobry"
     assert body["audio_seconds"] == 3.0
-    assert body["language"] == "pl"
+    assert body["language"] == "en"
     assert "transcription_seconds" in body
     assert len(transcriber.calls) == 1
 
@@ -123,3 +123,4 @@ def test_konfiguracja_ze_srodowiska() -> None:
     assert config.model.vocabulary == ("Coolify", "WooCommerce")
     assert config.root_path == "/api"
     assert server.ServerConfig.from_env({"VOICEFLOW_API_TOKEN": "x", "VOICEFLOW_ROOT_PATH": "/"}).root_path == ""
+    assert server.ServerConfig.from_env({"VOICEFLOW_API_TOKEN": "x"}).model.language == "en"

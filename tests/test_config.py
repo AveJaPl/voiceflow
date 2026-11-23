@@ -132,7 +132,7 @@ def test_first_load_creates_commented_file(tmp_path: Path) -> None:
 
     config = load_config(path)
 
-    assert config.model.language == "pl"
+    assert config.model.language == "en"
     content = path.read_text(encoding="utf-8")
     assert "# voiceflow configuration" in content
     assert "large-v3-turbo" in content

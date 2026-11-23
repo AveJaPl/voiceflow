@@ -233,7 +233,7 @@ restart the daemon after editing.
 model:
   name: large-v3-turbo    # any faster-whisper model
   device: cuda            # cuda | cpu | auto
-  language: pl            # ISO 639-1; null = auto-detect
+  language: en            # ISO 639-1; null = auto-detect
   vocabulary: []          # names the decoder should lean towards
 inject:
   method: clipboard       # clipboard | ydotool | auto
@@ -251,7 +251,7 @@ mute_apps:
 | `model.name` | `large-v3-turbo` | any faster-whisper model id |
 | `model.device` | `cuda` | `cuda` / `cpu` / `auto`; CUDA failure falls back to CPU |
 | `model.compute_type` | `float16` | precision on GPU; CPU uses `int8` |
-| `model.language` | `pl` | ISO 639-1 code or `null` for auto-detect |
+| `model.language` | `en` | ISO 639-1 code or `null` for auto-detect |
 | `model.beam_size` | `5` | decoder beam width |
 | `model.vocabulary` | `[]` | terms biased into decoding |
 | `audio.source` | `null` | PipeWire source; `null` = default mic |
@@ -292,7 +292,7 @@ VOICEFLOW_API_TOKEN=$(openssl rand -hex 32) voiceflow serve --port 8000
 - `GET /api/health`: liveness only. `GET /api/v1/model`: model details (token).
 - Configured entirely through environment variables: `VOICEFLOW_MODEL`
   (default `large-v3-turbo`), `VOICEFLOW_DEVICE` (`cpu`), `VOICEFLOW_COMPUTE_TYPE`
-  (`int8`), `VOICEFLOW_LANGUAGE` (`pl`), `VOICEFLOW_CPU_THREADS`,
+  (`int8`), `VOICEFLOW_LANGUAGE` (`en`), `VOICEFLOW_CPU_THREADS`,
   `VOICEFLOW_VOCABULARY` (comma-separated), `VOICEFLOW_ROOT_PATH` (`/api`).
 - The token is mandatory: the server refuses to start without one, and requests
   without it are rejected before the body is read. Put the model cache on a
@@ -361,7 +361,6 @@ Not yet, see [Known limitations](#known-limitations).
 
 - **The UI is currently in Polish** (the author dictates in Polish). Translating it is
   [#5](https://github.com/AveJaPl/voiceflow/issues/5), and help is welcome.
-- **The default `model.language` is `pl`.** Set it to your language, or to `null` for automatic detection.
 - **Windows:** the `.bat` installer is unsigned, so SmartScreen shows a warning.
 - **macOS** is an alpha; **Android and iOS** are build-from-source only.
 - **Linux:** no `.deb`, AUR or Flatpak package yet ([#4](https://github.com/AveJaPl/voiceflow/issues/4)).

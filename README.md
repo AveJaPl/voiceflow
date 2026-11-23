@@ -28,7 +28,7 @@
 <p align="center">
   <a href="#download--install">Download</a> ·
   <a href="https://voiceflow.pbdevs.com/en/">Website</a> ·
-  <a href="docs/WINDOWS.md">Docs</a> ·
+  <a href="#faq">FAQ</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
   <a href="https://voiceflow.pbdevs.com/pl/">Polski</a>
 </p>

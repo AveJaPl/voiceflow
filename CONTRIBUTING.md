@@ -62,16 +62,13 @@ on Windows).
 - For UI changes, attach a screenshot.
 - User-visible changes get a line in [CHANGELOG.md](CHANGELOG.md).
 
-## Recording the README demo
+## The README demo
 
-The README shows a still image until a demo recording exists. To replace it:
-
-1. Record 10 to 15 seconds: press the hotkey, speak, show the live preview overlay,
-   release, and show the text pasted into a window. Keep it under 10 MB.
-2. Either save it as `docs/assets/demo.gif`, or drag an MP4 into a GitHub issue or
-   pull request editor to get a `user-attachments` link.
-3. In `README.md`, change the `src` of the image under the `DEMO` comment to that file
-   or link. That is the only line that needs to change.
+`docs/assets/demo.gif` (silent) and `docs/assets/demo.mp4` (with voice) are generated,
+not screen-recorded: a [Remotion](https://www.remotion.dev) composition in
+[`demo/`](demo/README.md) redraws the overlay from `scripts/voiceflow-overlay.py`
+and drives its live preview from real faster-whisper word timings. If the overlay
+or the flow changes, update `demo/src/Demo.tsx` and re-render as described there.
 
 ## Code of conduct and security
 

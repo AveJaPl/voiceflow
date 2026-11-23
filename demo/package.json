@@ -1,0 +1,21 @@
+{
+  "name": "voiceflow-demo",
+  "private": true,
+  "description": "Generated README/landing demo of voiceflow (Remotion). See demo/README.md.",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts Demo out/demo.mp4",
+    "gif": "bash make-gif.sh"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.520",
+    "lucide-react": "^1.39.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "remotion": "^4.0.520"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "typescript": "^5.9.0"
+  }
+}

@@ -1,0 +1,97 @@
+[
+ {
+  "w": " Add",
+  "start": 0.0,
+  "end": 0.18
+ },
+ {
+  "w": " a",
+  "start": 0.18,
+  "end": 0.3
+ },
+ {
+  "w": " language",
+  "start": 0.3,
+  "end": 0.62
+ },
+ {
+  "w": " drop",
+  "start": 0.62,
+  "end": 0.94
+ },
+ {
+  "w": "-down",
+  "start": 0.94,
+  "end": 1.2
+ },
+ {
+  "w": " to",
+  "start": 1.2,
+  "end": 1.34
+ },
+ {
+  "w": " the",
+  "start": 1.34,
+  "end": 1.44
+ },
+ {
+  "w": " Settings",
+  "start": 1.44,
+  "end": 1.72
+ },
+ {
+  "w": " page,",
+  "start": 1.72,
+  "end": 2.22
+ },
+ {
+  "w": " default",
+  "start": 2.38,
+  "end": 2.78
+ },
+ {
+  "w": " it",
+  "start": 2.78,
+  "end": 2.96
+ },
+ {
+  "w": " to",
+  "start": 2.96,
+  "end": 3.08
+ },
+ {
+  "w": " English,",
+  "start": 3.08,
+  "end": 3.4
+ },
+ {
+  "w": " and",
+  "start": 3.68,
+  "end": 3.94
+ },
+ {
+  "w": " write",
+  "start": 3.94,
+  "end": 4.18
+ },
+ {
+  "w": " a",
+  "start": 4.18,
+  "end": 4.32
+ },
+ {
+  "w": " test",
+  "start": 4.32,
+  "end": 4.62
+ },
+ {
+  "w": " for",
+  "start": 4.62,
+  "end": 4.88
+ },
+ {
+  "w": " it.",
+  "start": 4.88,
+  "end": 5.06
+ }
+]

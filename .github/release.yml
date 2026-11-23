@@ -1,0 +1,14 @@
+changelog:
+  categories:
+    - title: Features
+      labels: ["enhancement"]
+    - title: Fixes
+      labels: ["bug"]
+    - title: "Platform: Windows"
+      labels: ["windows"]
+    - title: "Platform: macOS"
+      labels: ["macos"]
+    - title: Docs
+      labels: ["documentation"]
+    - title: Other
+      labels: ["*"]
